@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ app_title }} — {{ player_name }}</title>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<style>
+:root {
+  --bg: #0f1118; --panel: #171a24; --panel-2: #1e2230; --border: #2a2f40;
+  --text: #e8eaf2; --muted: #9aa0b5; --accent: #7c6cf0; --win: #3fb68b; --loss: #e05563;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font: 15px/1.55 -apple-system, "Segoe UI", Roboto, sans-serif; }
+a { color: var(--accent); text-decoration: none; }
+.layout { display: flex; min-height: 100vh; }
+nav {
+  width: 220px; background: var(--panel); border-right: 1px solid var(--border);
+  padding: 24px 0; position: sticky; top: 0; height: 100vh; overflow-y: auto; flex-shrink: 0;
+}
+nav h1 { font-size: 18px; padding: 0 20px 16px; color: var(--accent); }
+nav a { display: block; padding: 9px 20px; color: var(--muted); border-left: 3px solid transparent; }
+nav a:hover { color: var(--text); background: var(--panel-2); border-left-color: var(--accent); }
+main { flex: 1; padding: 32px clamp(16px, 4vw, 48px); max-width: 1280px; }
+section { margin-bottom: 56px; scroll-margin-top: 16px; }
+h2 { font-size: 24px; margin-bottom: 6px; }
+h3 { font-size: 17px; margin: 24px 0 12px; color: var(--muted); }
+.sub { color: var(--muted); margin-bottom: 20px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 14px; margin: 18px 0; }
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+.card .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.card .value { font-size: 24px; font-weight: 600; margin-top: 4px; }
+.card .value.win { color: var(--win); } .card .value.loss { color: var(--loss); }
+.figure { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 8px; margin: 16px 0; }
+.score-ring { display: flex; align-items: center; gap: 28px; flex-wrap: wrap; margin: 18px 0; }
+.score-big { font-size: 64px; font-weight: 700; color: var(--accent); }
+.score-comps { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; flex: 1; min-width: 280px; }
+.comp { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.comp .bar { height: 6px; background: var(--panel-2); border-radius: 3px; margin-top: 8px; overflow: hidden; }
+.comp .bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--loss), #e0b155 50%, var(--win)); }
+table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; font-size: 14px; margin: 14px 0; }
+th, td { padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+th { background: var(--panel-2); color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+tr:last-child td { border-bottom: none; }
+.rec { background: var(--panel); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 10px; padding: 16px 18px; margin: 12px 0; }
+.rec.high { border-left-color: var(--loss); } .rec.medium { border-left-color: #e0b155; } .rec.low { border-left-color: var(--win); }
+.rec .meta { color: var(--muted); font-size: 13px; margin-top: 8px; }
+.badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 10px; background: var(--panel-2); color: var(--muted); margin-right: 8px; text-transform: uppercase; letter-spacing: .05em; }
+.delta-above { color: var(--win); } .delta-below { color: var(--loss); } .delta-inline { color: var(--muted); }
+footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px solid var(--border); }
+@media (max-width: 860px) { .layout { flex-direction: column; } nav { width: 100%; height: auto; position: static; display: flex; flex-wrap: wrap; } nav h1 { width: 100%; } nav a { border-left: none; } }
+</style>
+</head>
+<body>
+<div class="layout">
+<nav>
+  <h1>{{ app_title }}</h1>
+  <a href="#overview">Overview</a>
+  <a href="#score">Improvement score</a>
+  <a href="#rank-peers">Rank peers</a>
+  <a href="#lane">Lane</a>
+  <a href="#economy">Economy</a>
+  <a href="#vision">Vision</a>
+  <a href="#deaths">Deaths</a>
+  <a href="#teamfights">Teamfights</a>
+  <a href="#objectives">Objectives</a>
+  <a href="#items">Items</a>
+  <a href="#runes">Runes</a>
+  <a href="#matchups">Matchups</a>
+  <a href="#graphs">Graphs</a>
+  <a href="#recommendations">Recommendations</a>
+</nav>
+<main>
+
+<section id="overview">
+  <h2>Overview — {{ player_name }}</h2>
+  <p class="sub">{{ total_games }} ranked solo queue {{ build_label }} games analysed · patches {{ patch_range }}</p>
+  <div class="cards">
+    <div class="card"><div class="label">Win rate</div><div class="value {{ 'win' if overview.winrate >= 0.5 else 'loss' }}">{{ '%.0f' % (overview.winrate * 100) }}%</div></div>
+    <div class="card"><div class="label">KDA</div><div class="value">{{ overview.avg_kda }}</div></div>
+    <div class="card"><div class="label">DPM</div><div class="value">{{ overview.avg_dpm }}</div></div>
+    <div class="card"><div class="label">CS/min</div><div class="value">{{ overview.avg_cspm }}</div></div>
+    <div class="card"><div class="label">Damage share</div><div class="value">{{ '%.0f' % (overview.avg_damage_share * 100) }}%</div></div>
+    <div class="card"><div class="label">Deaths/game</div><div class="value">{{ overview.avg_deaths }}</div></div>
+    <div class="card"><div class="label">Vision/min</div><div class="value">{{ overview.avg_vspm }}</div></div>
+    <div class="card"><div class="label">Avg game</div><div class="value">{{ overview.avg_duration }} min</div></div>
+  </div>
+  <div class="figure">{{ figures.winrate_trend | safe }}</div>
+</section>
+
+<section id="score">
+  <h2>Improvement score</h2>
+  <p class="sub">Composite of laning, farming, survival, damage, vision, objectives and reset quality against fixed benchmarks.</p>
+  <div class="score-ring">
+    <div class="score-big">{{ score }}<span style="font-size:24px;color:var(--muted)">/100</span></div>
+    <div class="score-comps">
+      {% for comp in score_components %}
+      <div class="comp">
+        <strong>{{ comp.name }}</strong> — {{ comp.value }}
+        <div class="bar"><i style="width: {{ comp.score }}%"></i></div>
+        <small style="color:var(--muted)">{{ comp.hint }}</small>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+{% if peer_comparison %}
+<section id="rank-peers">
+  <h2>Rank peer comparison</h2>
+  <p class="sub">Your averages vs {{ build_label }} at <strong>{{ peer_comparison.rank_label }}</strong> · {{ peer_comparison.source }} · {{ peer_comparison.peer_games }} peer games ({{ peer_comparison.peer_players }} players)</p>
+  <div class="cards">
+    {% for label, items in [('Strengths', peer_comparison.strengths), ('Weaknesses', peer_comparison.weaknesses)] %}
+    <div class="card" style="grid-column: span 2;">
+      <div class="label">{{ label }}</div>
+      {% if items %}
+      <ul style="margin-top:8px;padding-left:18px;color:var(--muted);">
+        {% for item in items %}<li>{{ item }}</li>{% endfor %}
+      </ul>
+      {% else %}<p class="sub" style="margin:8px 0 0">—</p>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  <div class="figure">{{ figures.peer_comparison | safe }}</div>
+  <table>
+    <tr><th>Metric</th><th>You</th><th>{{ peer_comparison.tier|title }} {{ build_label }} avg</th><th>Gap</th><th>Verdict</th></tr>
+    {% for row in peer_rows %}
+    <tr>
+      <td>{{ row.label }}</td>
+      <td>{% if row.metric == 'win' %}{{ '%.0f' % (row.yours * 100) }}%{% elif row.metric == 'kill_participation' or row.metric == 'damage_share' %}{{ '%.0f' % (row.yours * 100) }}%{% else %}{{ row.yours }}{% endif %}</td>
+      <td>{% if row.metric == 'win' %}{{ '%.0f' % (row.peer_avg * 100) }}%{% elif row.metric == 'kill_participation' or row.metric == 'damage_share' %}{{ '%.0f' % (row.peer_avg * 100) }}%{% else %}{{ row.peer_avg }}{% endif %}</td>
+      <td class="delta-{{ row.verdict }}">{% if row.delta_pct is not none %}{{ '%+.0f' % row.delta_pct }}%{% else %}{{ '%+.1f' % row.delta }}{% endif %}</td>
+      <td class="delta-{{ row.verdict }}">{{ row.verdict }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</section>
+{% endif %}
+
+<section id="lane">
+  <h2>Lane</h2>
+  <div class="cards">
+    {% for label, value in lane_cards %}
+    <div class="card"><div class="label">{{ label }}</div><div class="value">{{ value }}</div></div>
+    {% endfor %}
+  </div>
+  <div class="figure">{{ figures.gd10_histogram | safe }}</div>
+  <div class="figure">{{ figures.gold_diff_timeline | safe }}</div>
+  <div class="figure">{{ figures.cs10_violin | safe }}</div>
+</section>
+
+<section id="economy">
+  <h2>Economy</h2>
+  <div class="cards">
+    {% for label, value in economy_cards %}
+    <div class="card"><div class="label">{{ label }}</div><div class="value">{{ value }}</div></div>
+    {% endfor %}
+  </div>
+  <div class="figure">{{ figures.dpm_scatter | safe }}</div>
+</section>
+
+<section id="vision">
+  <h2>Vision</h2>
+  <div class="cards">
+    {% for label, value in vision_cards %}
+    <div class="card"><div class="label">{{ label }}</div><div class="value">{{ value }}</div></div>
+    {% endfor %}
+  </div>
+  <div class="figure">{{ figures.vision_trend | safe }}</div>
+</section>
+
+<section id="deaths">
+  <h2>Deaths</h2>
+  <div class="cards">
+    {% for label, value in death_cards %}
+    <div class="card"><div class="label">{{ label }}</div><div class="value">{{ value }}</div></div>
+    {% endfor %}
+  </div>
+  <div class="figure">{{ figures.death_heatmap | safe }}</div>
+  <div class="figure">{{ figures.deaths_box | safe }}</div>
+  {% if blind_spots %}
+  <h3>Most dangerous zones (solo deaths without recent team vision)</h3>
+  <table><tr><th>Zone</th><th>Deaths</th></tr>
+  {% for spot in blind_spots %}<tr><td>{{ spot.zone }}</td><td>{{ spot.deaths }}</td></tr>{% endfor %}
+  </table>
+  {% endif %}
+</section>
+
+<section id="teamfights">
+  <h2>Teamfights</h2>
+  <div class="cards">
+    {% for label, value in teamfight_cards %}
+    <div class="card"><div class="label">{{ label }}</div><div class="value">{{ value }}</div></div>
+    {% endfor %}
+  </div>
+</section>
+
+<section id="objectives">
+  <h2>Objectives</h2>
+  <table>
+    <tr><th>Objective</th><th>Count</th><th>Taken</th><th>Present</th><th>Arrived early</th><th>Dead before</th><th>Wards before</th></tr>
+    {% for kind, row in objective_rows %}
+    <tr><td>{{ kind }}</td><td>{{ row.count }}</td><td>{{ '%.0f' % (row.taken_rate * 100) }}%</td><td>{{ '%.0f' % (row.presence_rate * 100) }}%</td><td>{{ '%.0f' % (row.early_rate * 100) }}%</td><td>{{ '%.0f' % (row.dead_before_rate * 100) }}%</td><td>{{ row.avg_wards_before }}</td></tr>
+    {% endfor %}
+  </table>
+  <div class="figure">{{ figures.objective_timing | safe }}</div>
+</section>
+
+<section id="items">
+  <h2>Items</h2>
+  <div class="figure">{{ figures.item_winrate_bar | safe }}</div>
+  <h3>Two-item cores</h3>
+  <table>
+    <tr><th>Core</th><th>Games</th><th>Win rate</th><th>Avg DPM</th><th>Avg deaths</th></tr>
+    {% for row in build_paths %}
+    <tr><td>{{ row.core }}</td><td>{{ row.games }}</td><td>{{ '%.0f' % (row.winrate * 100) }}%</td><td>{{ row.avg_dpm }}</td><td>{{ row.avg_deaths }}</td></tr>
+    {% endfor %}
+  </table>
+</section>
+
+<section id="runes">
+  <h2>Runes</h2>
+  <div class="figure">{{ figures.rune_winrate_bar | safe }}</div>
+  <table>
+    <tr><th>Keystone</th><th>Games</th><th>Win rate</th><th>Avg DPM</th><th>Avg deaths</th></tr>
+    {% for row in rune_rows %}
+    <tr><td>{{ row.keystone }}</td><td>{{ row.games }}</td><td>{{ '%.0f' % (row.winrate * 100) }}%</td><td>{{ row.avg_dpm }}</td><td>{{ row.avg_deaths }}</td></tr>
+    {% endfor %}
+  </table>
+</section>
+
+<section id="matchups">
+  <h2>Matchups</h2>
+  <div class="figure">{{ figures.matchup_bar | safe }}</div>
+  <table>
+    <tr><th>Opponent</th><th>Games</th><th>Win rate</th><th>GD@10</th><th>CSD@10</th><th>Deaths pre-14</th><th>Recommendation</th></tr>
+    {% for row in matchup_rows %}
+    <tr><td>{{ row.opponent }}</td><td>{{ row.games }}</td><td>{{ '%.0f' % (row.winrate * 100) }}%</td><td>{{ row.avg_gd10 }}</td><td>{{ row.avg_csd10 }}</td><td>{{ row.avg_deaths_pre14 }}</td><td>{{ row.recommendation }}</td></tr>
+    {% endfor %}
+  </table>
+</section>
+
+<section id="graphs">
+  <h2>Graphs</h2>
+  <div class="figure">{{ figures.correlation_heatmap | safe }}</div>
+  <div class="figure">{{ figures.win_correlation_bar | safe }}</div>
+  <div class="figure">{{ figures.feature_importance | safe }}</div>
+  <div class="figure">{{ figures.cluster_scatter | safe }}</div>
+</section>
+
+<section id="recommendations">
+  <h2>Recommendations</h2>
+  <p class="sub">Ranked by effect size, statistical significance and sample size.</p>
+  {% for rec in recommendations %}
+  <div class="rec {{ rec.badge }}">
+    <span class="badge">{{ rec.category }}</span><strong>{{ rec.title }}</strong>
+    <p>{{ rec.detail }}</p>
+    <p class="meta">Evidence: {{ rec.evidence }}{% if rec.p_value is not none %} · p = {{ '%.4f' % rec.p_value }}{% endif %} · priority {{ '%.2f' % rec.priority }}</p>
+  </div>
+  {% else %}
+  <p class="sub">Not enough data to generate recommendations.</p>
+  {% endfor %}
+</section>
+
+<footer>Generated {{ generated_at }} by {{ app_title }}. Data from the Riot Games API. Not endorsed by Riot Games.</footer>
+</main>
+</div>
+</body>
+</html>

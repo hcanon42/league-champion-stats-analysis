@@ -1,0 +1,476 @@
+"""Typed domain models for Viktor Analyzer.
+
+Every entity extracted from the Riot Match-V5 API is normalised into one of
+the Pydantic models below. ``MatchRecord`` is the aggregate root: one fully
+parsed, analysis-ready ranked Viktor game.
+
+Fields that cannot be derived from the public API (e.g. summoner-spell
+cooldowns) are typed ``Optional`` and documented as heuristics or unknowns.
+"""
+
+from __future__ import annotations
+
+from enum import StrEnum
+from typing import Any
+
+from pydantic import BaseModel, Field
+
+
+class Side(StrEnum):
+    """Map side the player spawned on."""
+
+    BLUE = "blue"
+    RED = "red"
+
+
+class Zone(StrEnum):
+    """Coarse Summoner's Rift zone classification."""
+
+    BASE = "base"
+    RIVER = "river"
+    MID_LANE = "mid"
+    TOP_LANE = "top"
+    BOT_LANE = "bot"
+    JUNGLE = "jungle"
+
+
+class ObjectiveKind(StrEnum):
+    """Epic monster objective types tracked by the analyzer."""
+
+    DRAGON = "dragon"
+    ELDER = "elder"
+    BARON = "baron"
+    HERALD = "herald"
+    GRUBS = "grubs"
+
+
+class Position(BaseModel):
+    """A point on the Summoner's Rift map in Riot map units."""
+
+    x: float
+    y: float
+
+
+class RuneSetup(BaseModel):
+    """Full rune page used in a game."""
+
+    keystone: str
+    primary_tree: str
+    secondary_tree: str
+    primary_runes: list[str] = Field(default_factory=list)
+    secondary_runes: list[str] = Field(default_factory=list)
+    shards: list[str] = Field(default_factory=list)
+
+
+class ItemPurchase(BaseModel):
+    """A single item purchase from the match timeline."""
+
+    minute: float
+    item_id: int
+    item_name: str
+    is_completed: bool = False
+    is_boots: bool = False
+    is_elixir: bool = False
+    is_trinket: bool = False
+
+
+class BuildTimings(BaseModel):
+    """Key power-spike timings inferred from the purchase timeline."""
+
+    boots_min: float | None = None
+    first_item_min: float | None = None
+    second_item_min: float | None = None
+    third_item_min: float | None = None
+    first_item: str | None = None
+    second_item: str | None = None
+    third_item: str | None = None
+    boots: str | None = None
+    elixirs_bought: int = 0
+    trinket_swaps: int = 0
+
+
+class RecallEvent(BaseModel):
+    """An inferred recall (shopping trip), derived from purchase clusters.
+
+    ``unspent_gold`` is the player's banked gold on the last timeline frame
+    before the shopping trip started.
+    """
+
+    minute: float
+    unspent_gold: int
+
+
+class RoamEvent(BaseModel):
+    """An inferred early-game roam away from mid lane."""
+
+    start_minute: float
+    end_minute: float
+    zone: Zone
+
+
+class SnapshotSet(BaseModel):
+    """Per-minute checkpoint metrics and lane differentials.
+
+    Keys are minute marks (5/10/15/20). Diff values are ``None`` when no lane
+    opponent could be identified.
+    """
+
+    gold: dict[int, int] = Field(default_factory=dict)
+    xp: dict[int, int] = Field(default_factory=dict)
+    cs: dict[int, int] = Field(default_factory=dict)
+    gold_diff: dict[int, int | None] = Field(default_factory=dict)
+    xp_diff: dict[int, int | None] = Field(default_factory=dict)
+    cs_diff: dict[int, int | None] = Field(default_factory=dict)
+
+
+class TimelineStats(BaseModel):
+    """All metrics derived from the Match-V5 timeline for the player."""
+
+    snapshots: SnapshotSet = Field(default_factory=SnapshotSet)
+    recalls: list[RecallEvent] = Field(default_factory=list)
+    roams: list[RoamEvent] = Field(default_factory=list)
+    avg_unspent_gold_before_recall: float | None = None
+    time_dead_s: int = 0
+    lane_priority: float | None = None
+    wave_push_ratio: float | None = None
+    gold_series: list[int] = Field(default_factory=list)
+    xp_series: list[int] = Field(default_factory=list)
+    cs_series: list[int] = Field(default_factory=list)
+    opp_gold_series: list[int] = Field(default_factory=list)
+    grouped_share: float | None = None
+    solo_share: float | None = None
+    side_lane_share: float | None = None
+    avg_allies_nearby: float | None = None
+
+
+class DeathEvent(BaseModel):
+    """One death, fully contextualised.
+
+    ``flash_available`` and ``enemy_seen`` cannot be derived from the public
+    API and stay ``None``; ``ult_available`` means "R learned by then" and
+    ``zhonya_available`` means "Zhonya's/Stopwatch in inventory" (cooldowns
+    are not exposed).
+    """
+
+    minute: float
+    position: Position
+    zone: Zone
+    near_objective: bool = False
+    shutdown_given: int = 0
+    bounty_held: bool = False
+    flash_available: bool | None = None
+    ult_available: bool | None = None
+    zhonya_available: bool = False
+    alone: bool = False
+    outnumbered: bool = False
+    team_wards_recent: int = 0
+    enemy_seen: bool | None = None
+    after_greed: bool = False
+    after_tower: bool = False
+    after_objective: bool = False
+    side_lane_push: bool = False
+    before_dragon: bool = False
+    before_baron: bool = False
+    after_recall: bool = False
+    killer_champion: str | None = None
+
+
+class TeamfightRecord(BaseModel):
+    """A detected teamfight and the player's involvement in it.
+
+    ``damage_taken`` is only known when the player died in the fight (the
+    timeline exposes damage received solely on kill events). ``enemies_hit_by_ult``
+    is not derivable from the public API and stays ``None``.
+    """
+
+    start_minute: float
+    end_minute: float
+    participated: bool
+    kills: int = 0
+    assists: int = 0
+    died: bool = False
+    damage_dealt: int = 0
+    damage_taken: int | None = None
+    time_alive_s: float = 0.0
+    centroid: Position | None = None
+    front_to_back: float | None = None
+    enemies_hit_by_ult: int | None = None
+    ally_kills: int = 0
+    enemy_kills: int = 0
+    won: bool | None = None
+
+
+class ObjectiveRecord(BaseModel):
+    """A dragon/baron/herald/grubs/elder take and the player's context."""
+
+    minute: float
+    kind: ObjectiveKind
+    taken_by_team: bool
+    present: bool = False
+    arrived_early: bool = False
+    arrived_late: bool = False
+    dead_before: bool = False
+    team_wards_before: int = 0
+    control_wards_before: int = 0
+
+
+class CombatStats(BaseModel):
+    """Combat output for the game."""
+
+    kills: int
+    deaths: int
+    assists: int
+    kda: float
+    damage_to_champions: int
+    dpm: float
+    damage_share: float
+    true_damage: int
+    physical_damage: int
+    magic_damage: int
+    healing: int
+    shielding: int
+    cc_score: int
+    largest_killing_spree: int
+    double_kills: int
+    triple_kills: int
+    quadra_kills: int
+    penta_kills: int
+    kill_participation: float
+
+
+class EconomyStats(BaseModel):
+    """Income and farming for the game."""
+
+    gold: int
+    gpm: float
+    gold_share: float
+    cs: int
+    cspm: float
+    xp: int
+
+
+class VisionStats(BaseModel):
+    """Vision metrics for the game."""
+
+    vision_score: int
+    vision_score_per_min: float
+    wards_placed: int
+    wards_killed: int
+    control_wards_bought: int
+    avg_control_ward_lifetime_s: float | None = None
+
+
+class MatchRecord(BaseModel):
+    """A fully parsed, analysis-ready ranked solo queue Viktor game."""
+
+    match_id: str
+    patch: str
+    game_version: str
+    game_creation_ms: int
+    duration_s: int
+    win: bool
+    side: Side
+    lane_opponent: str | None = None
+    ally_comp: list[str] = Field(default_factory=list)
+    enemy_comp: list[str] = Field(default_factory=list)
+    avg_rank: str | None = None
+
+    combat: CombatStats
+    economy: EconomyStats
+    vision: VisionStats
+    runes: RuneSetup
+    summoners: list[str] = Field(default_factory=list)
+    skill_order: str = ""
+    skill_sequence: list[str] = Field(default_factory=list)
+
+    final_items: list[str] = Field(default_factory=list)
+    purchases: list[ItemPurchase] = Field(default_factory=list)
+    timings: BuildTimings = Field(default_factory=BuildTimings)
+    shutdown_gold_collected: int = 0
+    shutdown_gold_given: int = 0
+
+    timeline: TimelineStats = Field(default_factory=TimelineStats)
+    deaths: list[DeathEvent] = Field(default_factory=list)
+    teamfights: list[TeamfightRecord] = Field(default_factory=list)
+    objectives: list[ObjectiveRecord] = Field(default_factory=list)
+
+    @property
+    def duration_min(self) -> float:
+        """Game duration in fractional minutes."""
+        return self.duration_s / 60.0
+
+    def deaths_before(self, minute: float) -> int:
+        """Count deaths that happened before ``minute``.
+
+        Args:
+            minute: Cut-off minute mark.
+
+        Returns:
+            Number of deaths strictly before the cut-off.
+        """
+        return sum(1 for d in self.deaths if d.minute < minute)
+
+    def to_row(self) -> dict[str, Any]:
+        """Flatten the record into a single row for tabular analysis.
+
+        Returns:
+            A dict of scalar features keyed by column name, suitable for
+            building the master :class:`pandas.DataFrame`.
+        """
+        snap = self.timeline.snapshots
+        fights = [f for f in self.teamfights if f.participated]
+        row: dict[str, Any] = {
+            "match_id": self.match_id,
+            "patch": self.patch,
+            "game_creation_ms": self.game_creation_ms,
+            "duration_min": round(self.duration_min, 2),
+            "win": int(self.win),
+            "side": self.side.value,
+            "opponent": self.lane_opponent or "Unknown",
+            "kills": self.combat.kills,
+            "deaths": self.combat.deaths,
+            "assists": self.combat.assists,
+            "kda": round(self.combat.kda, 2),
+            "dpm": round(self.combat.dpm, 1),
+            "damage": self.combat.damage_to_champions,
+            "damage_share": round(self.combat.damage_share, 4),
+            "kill_participation": round(self.combat.kill_participation, 4),
+            "cc_score": self.combat.cc_score,
+            "healing": self.combat.healing,
+            "shielding": self.combat.shielding,
+            "true_damage": self.combat.true_damage,
+            "physical_damage": self.combat.physical_damage,
+            "magic_damage": self.combat.magic_damage,
+            "largest_spree": self.combat.largest_killing_spree,
+            "multikills": (
+                self.combat.double_kills
+                + self.combat.triple_kills
+                + self.combat.quadra_kills
+                + self.combat.penta_kills
+            ),
+            "gold": self.economy.gold,
+            "gpm": round(self.economy.gpm, 1),
+            "gold_share": round(self.economy.gold_share, 4),
+            "cs": self.economy.cs,
+            "cspm": round(self.economy.cspm, 2),
+            "xp": self.economy.xp,
+            "vision_score": self.vision.vision_score,
+            "vspm": round(self.vision.vision_score_per_min, 2),
+            "wards_placed": self.vision.wards_placed,
+            "wards_killed": self.vision.wards_killed,
+            "control_wards": self.vision.control_wards_bought,
+            "keystone": self.runes.keystone,
+            "secondary_tree": self.runes.secondary_tree,
+            "skill_order": self.skill_order,
+            "summoners": "+".join(self.summoners),
+            "first_item": self.timings.first_item,
+            "second_item": self.timings.second_item,
+            "third_item": self.timings.third_item,
+            "boots": self.timings.boots,
+            "first_item_min": self.timings.first_item_min,
+            "second_item_min": self.timings.second_item_min,
+            "third_item_min": self.timings.third_item_min,
+            "boots_min": self.timings.boots_min,
+            "elixirs": self.timings.elixirs_bought,
+            "trinket_swaps": self.timings.trinket_swaps,
+            "shutdown_collected": self.shutdown_gold_collected,
+            "shutdown_given": self.shutdown_gold_given,
+            "recalls": len(self.timeline.recalls),
+            "avg_unspent_gold": self.timeline.avg_unspent_gold_before_recall,
+            "roams_pre15": len(self.timeline.roams),
+            "time_dead_s": self.timeline.time_dead_s,
+            "lane_priority": self.timeline.lane_priority,
+            "wave_push_ratio": self.timeline.wave_push_ratio,
+            "grouped_share": self.timeline.grouped_share,
+            "solo_share": self.timeline.solo_share,
+            "side_lane_share": self.timeline.side_lane_share,
+            "deaths_pre14": self.deaths_before(14),
+            "deaths_pre20": self.deaths_before(20),
+            "solo_deaths": sum(1 for d in self.deaths if d.alone),
+            "greed_deaths": sum(1 for d in self.deaths if d.after_greed),
+            "side_lane_deaths": sum(1 for d in self.deaths if d.side_lane_push),
+            "deaths_before_dragon": sum(1 for d in self.deaths if d.before_dragon),
+            "deaths_before_baron": sum(1 for d in self.deaths if d.before_baron),
+            "teamfights": len(self.teamfights),
+            "tf_participation": (
+                round(len(fights) / len(self.teamfights), 3) if self.teamfights else None
+            ),
+            "tf_won_share": (
+                round(sum(1 for f in fights if f.won) / len(fights), 3) if fights else None
+            ),
+            "objectives_present_rate": (
+                round(
+                    sum(1 for o in self.objectives if o.present) / len(self.objectives), 3
+                )
+                if self.objectives
+                else None
+            ),
+        }
+        for minute in (5, 10, 15, 20):
+            row[f"gold{minute}"] = snap.gold.get(minute)
+            row[f"gd{minute}"] = snap.gold_diff.get(minute)
+        for minute in (5, 10, 15):
+            row[f"xp{minute}"] = snap.xp.get(minute)
+            row[f"xpd{minute}"] = snap.xp_diff.get(minute)
+            row[f"cs{minute}"] = snap.cs.get(minute)
+            row[f"csd{minute}"] = snap.cs_diff.get(minute)
+        return row
+
+
+class Recommendation(BaseModel):
+    """A single coaching recommendation ranked by statistical evidence."""
+
+    category: str
+    title: str
+    detail: str
+    evidence: str
+    p_value: float | None = None
+    effect_size: float | None = None
+    priority: float = 0.0
+    sample_size: int = 0
+
+
+class RankedEntry(BaseModel):
+    """Ranked solo queue standing from league-v4."""
+
+    tier: str
+    rank: str
+    league_points: int
+    wins: int
+    losses: int
+
+    @property
+    def label(self) -> str:
+        """Human-readable rank label (e.g. ``Gold II``)."""
+        if self.tier in ("MASTER", "GRANDMASTER", "CHALLENGER"):
+            return f"{self.tier.title()} {self.league_points} LP"
+        return f"{self.tier.title()} {self.rank}"
+
+
+class MetricComparison(BaseModel):
+    """One metric compared between the player and rank peers."""
+
+    metric: str
+    label: str
+    yours: float
+    peer_avg: float
+    delta: float
+    delta_pct: float | None
+    direction: str  # "higher" or "lower" (whether bigger is better)
+    verdict: str  # "above", "below", "inline"
+
+
+class PeerComparisonResult(BaseModel):
+    """Full rank-peer comparison for the report and exports."""
+
+    rank_label: str
+    tier: str
+    champion: str = "Viktor"
+    role: str = "MIDDLE"
+    build_label: str = "Viktor mid"
+    source: str
+    peer_games: int
+    peer_players: int
+    comparisons: list[MetricComparison] = Field(default_factory=list)
+    strengths: list[str] = Field(default_factory=list)
+    weaknesses: list[str] = Field(default_factory=list)
