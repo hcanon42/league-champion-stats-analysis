@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -10,6 +11,7 @@ from typing import Any
 import pandas as pd
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
+from champions import build_label, champion_slug, role_display
 from models import Recommendation
 from utils import get_logger
 
@@ -130,6 +132,162 @@ class ReportBuilder:
         output_path.write_text(template.render(**context), encoding="utf-8")
         self._log.info("Report written to %s", output_path)
         return output_path
+
+    def render_index(self, output_dir: Path, reports: list[dict[str, Any]]) -> Path:
+        """Render the report switcher index page.
+
+        Args:
+            output_dir: Root output directory (``index.html`` is written here).
+            reports: Metadata dicts for each saved report (newest first).
+
+        Returns:
+            Path of ``index.html``.
+        """
+        template = self._env.get_template("index.html")
+        output_path = output_dir / "index.html"
+        context = {
+            "app_title": "Champion Stats Analyzer",
+            "reports": reports,
+            "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+        }
+        output_path.write_text(template.render(**context), encoding="utf-8")
+        self._log.info("Report index written to %s (%d reports)", output_path, len(reports))
+        return output_path
+
+    def render_player_hub(self, player_dir: Path, manifest: dict[str, Any]) -> Path:
+        """Render the per-player champion switcher landing page.
+
+        Args:
+            player_dir: ``output/reports/{player}/`` directory.
+            manifest: Player manifest with ``builds`` and ``default_href``.
+
+        Returns:
+            Path of ``index.html`` inside ``player_dir``.
+        """
+        template = self._env.get_template("player_hub.html")
+        output_path = player_dir / "index.html"
+        context = {
+            "app_title": "Champion Stats Analyzer",
+            "player": manifest.get("player", ""),
+            "builds": manifest.get("builds", []),
+            "default_href": manifest.get("default_href", ""),
+            "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+        }
+        output_path.write_text(template.render(**context), encoding="utf-8")
+        self._log.info("Player hub written to %s", output_path)
+        return output_path
+
+
+def build_player_builds_nav(
+    builds: list[dict[str, Any]],
+    *,
+    current_champion: str,
+    current_role: str,
+) -> list[dict[str, Any]]:
+    """Build sidebar dropdown entries relative to the current report directory."""
+    current_slug = champion_slug(current_champion, current_role)
+    nav: list[dict[str, Any]] = []
+    for build in builds:
+        slug = champion_slug(str(build["champion"]), str(build["role"]))
+        winrate = float(build.get("winrate", 0.0))
+        nav.append(
+            {
+                "label": (
+                    f'{build["build_label"]} · {build["games"]}g · '
+                    f"{winrate * 100:.0f}% WR"
+                ),
+                "href": f"../{slug}/report.html",
+                "selected": slug == current_slug,
+            }
+        )
+    return nav
+
+
+def write_player_manifest(player_dir: Path, manifest: dict[str, Any]) -> Path:
+    """Persist the player-level build manifest."""
+    player_dir.mkdir(parents=True, exist_ok=True)
+    path = player_dir / "manifest.json"
+    path.write_text(json.dumps(manifest, indent=2, default=str), encoding="utf-8")
+    return path
+
+
+def build_manifest_entry(
+    *,
+    champion: str,
+    role: str,
+    games: int,
+    winrate: float,
+) -> dict[str, Any]:
+    """Create one manifest build entry with a report-relative href."""
+    slug = champion_slug(champion, role)
+    return {
+        "champion": champion,
+        "role": role,
+        "role_display": role_display(role),
+        "build_label": build_label(champion, role),
+        "games": games,
+        "winrate": round(winrate, 3),
+        "href": f"{slug}/report.html",
+    }
+
+
+def write_report_meta(report_dir: Path, meta: dict[str, Any]) -> Path:
+    """Persist report metadata beside ``report.html``.
+
+    Args:
+        report_dir: Directory for this player/champion/lane run.
+        meta: Serializable metadata (player, champion, lane, stats...).
+
+    Returns:
+        Path of ``meta.json``.
+    """
+    path = report_dir / "meta.json"
+    path.write_text(json.dumps(meta, indent=2, default=str), encoding="utf-8")
+    return path
+
+
+def discover_reports(output_dir: Path) -> list[dict[str, Any]]:
+    """Scan ``output/reports/`` for saved report metadata.
+
+    Args:
+        output_dir: Root output directory.
+
+    Returns:
+        Report metadata dicts sorted by ``generated_at`` (newest first).
+        Each entry includes an ``href`` relative to ``output_dir``.
+    """
+    reports_root = output_dir / "reports"
+    if not reports_root.is_dir():
+        return []
+
+    entries: list[dict[str, Any]] = []
+    for meta_path in reports_root.glob("*/*/meta.json"):
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        report_html = meta_path.parent / "report.html"
+        if not report_html.is_file():
+            continue
+        meta["href"] = report_html.relative_to(output_dir).as_posix()
+        entries.append(meta)
+
+    entries.sort(key=lambda entry: entry.get("generated_at", ""), reverse=True)
+    return entries
+
+
+def refresh_report_index(output_dir: Path, template_dir: Path) -> Path:
+    """Rebuild ``output/index.html`` from on-disk report metadata.
+
+    Args:
+        output_dir: Root output directory.
+        template_dir: Directory containing ``index.html``.
+
+    Returns:
+        Path of the rendered index page.
+    """
+    builder = ReportBuilder(template_dir)
+    return builder.render_index(output_dir, discover_reports(output_dir))
 
 
 def score_badge(recommendation: Recommendation) -> str:

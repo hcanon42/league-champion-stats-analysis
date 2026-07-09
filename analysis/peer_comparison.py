@@ -4,9 +4,9 @@ The comparison baseline is built in two layers:
 
 1. **Live peers** — other players on the configured champion + lane in your
    downloaded match history whose solo queue tier matches yours.
-2. **Tier benchmarks** — curated per-tier averages from
-   ``data/benchmarks/{champion}_{role}.json`` (with role-level fallback),
-   used as the primary baseline because in-match peers are mostly opponents.
+2. **Tier benchmarks** — averages from other players at your solo queue rank
+   playing the same champion + lane, sampled via league-v4 and match-v5 when
+   you run the analyzer (cached under ``data/benchmarks/`` for seven days).
 
 Gap-based recommendations highlight the largest weaknesses relative to peers.
 """
@@ -17,12 +17,12 @@ from typing import Any, Final, Literal
 
 import pandas as pd
 
-from analysis.benchmarks import tier_benchmark
+from analysis.benchmark_fetcher import ensure_tier_benchmark
 from cache import MatchStore
 from champions import build_label
 from config import REMAKE_MAX_DURATION_S, RANKED_SOLO_QUEUE_ID
 from models import MatchRecord, MetricComparison, PeerComparisonResult, RankedEntry, Recommendation
-from riot_api import RiotApiClient
+from riot_api import RiotApiClient, RiotApiError
 from utils import get_logger, safe_div
 
 MIN_PEER_GAMES: Final[int] = 12
@@ -435,26 +435,44 @@ def build_peer_comparison(
         return None
 
     try:
-        benchmark = tier_benchmark(ranked.tier, champion, role)
-    except FileNotFoundError as exc:
-        log.warning("Skipping peer comparison: %s", exc)
+        snapshot = ensure_tier_benchmark(
+            client,
+            ranked,
+            champion,
+            role,
+            exclude_puuid=user_puuid,
+        )
+    except RiotApiError as exc:
+        log.warning("Skipping peer comparison: Riot API error while sampling peers: %s", exc)
         return None
+
+    if snapshot is None:
+        log.warning(
+            "Skipping peer comparison: could not sample enough %s %s games at %s",
+            champion,
+            role,
+            ranked.label,
+        )
+        return None
+
+    benchmark = snapshot.metrics
+    if "win" not in benchmark and "winrate" in benchmark:
+        benchmark = {**benchmark, "win": float(benchmark["winrate"])}
 
     peer_df = collect_peer_games(store, user_puuid, champion, role)
     peer_games = len(peer_df)
     peer_players = int(peer_df["puuid"].nunique()) if peer_games else 0
 
-    # Tier benchmarks are the peer baseline. Same-champion players in *your* games
-    # are mostly lane opponents: their win rate ≈ your loss rate (selection bias).
     final_peer: dict[str, float] = {
-        key: float(benchmark.get(key, 0.0)) for key, _, _ in COMPARE_METRICS
+        key: float(benchmark[key])
+        for key, _, _ in COMPARE_METRICS
+        if key in benchmark and benchmark[key] is not None
     }
-    for key in ("cs10", "gd10", "deaths_pre14"):
-        final_peer[key] = float(benchmark.get(key, 0.0))
 
+    cache_note = "cached " if snapshot.from_cache else "fresh "
     source = (
-        f"Curated tier averages for {ranked.tier.title()} {label} (ranked solo). "
-        "Population win rate is 50% by definition."
+        f"{cache_note}Riot API sample: {snapshot.games_sampled} ranked solo games "
+        f"from {snapshot.players_sampled} {ranked.label} players on {label}."
     )
     if peer_games:
         source += (

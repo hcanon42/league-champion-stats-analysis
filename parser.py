@@ -1,13 +1,16 @@
 """Match parsing: filtering, name resolution and MatchRecord assembly.
 
-``MatchFilter`` decides which raw matches qualify (ranked solo queue,
-configured champion + lane, no remakes). ``MatchParser`` turns a qualifying match + timeline
-pair into a fully populated :class:`~models.MatchRecord`, delegating
-timeline-level extraction to the ``analysis`` package.
+``BaseMatchFilter`` accepts ranked solo queue games for the tracked player.
+``BuildMatchFilter`` further restricts to a configured champion + lane.
+``MatchParser`` turns a qualifying match + timeline pair into a fully
+populated :class:`~models.MatchRecord`, delegating timeline-level extraction
+to the ``analysis`` package.
 """
 
 from __future__ import annotations
 
+from collections import Counter
+from dataclasses import dataclass
 from typing import Any, Final
 
 from analysis.deaths import extract_deaths
@@ -16,6 +19,8 @@ from analysis.positioning import extract_positioning
 from analysis.teamfights import detect_teamfights
 from analysis.timeline import TimelineContext, build_context, extract_timeline_stats
 from analysis.vision import extract_control_ward_lifetime
+from cache import MatchStore
+from champions import VALID_ROLES, build_label, role_display
 from config import AppConfig, REMAKE_MAX_DURATION_S
 from models import (
     BuildTimings,
@@ -141,14 +146,33 @@ class ItemCatalog:
         return not data.get("into") and gold_total >= COMPLETED_GOLD_THRESHOLD and not self.is_boots(item_id)
 
 
-class MatchFilter:
-    """Filters raw matches down to ranked solo queue games on the configured champion + lane."""
+@dataclass(frozen=True)
+class BuildPool:
+    """A champion + lane combination with enough games to analyse."""
+
+    champion: str
+    role: str
+    games: int
+
+    @property
+    def build_label(self) -> str:
+        """Human-readable champion + lane label."""
+        return build_label(self.champion, self.role)
+
+    @property
+    def role_display(self) -> str:
+        """Short lane label for UI."""
+        return role_display(self.role)
+
+
+class BaseMatchFilter:
+    """Filters raw matches down to ranked solo queue games for the tracked player."""
 
     def __init__(self, config: AppConfig) -> None:
         """Create the filter.
 
         Args:
-            config: Application configuration (champion, role, queue).
+            config: Application configuration (queue id).
         """
         self._config = config
         self._log = get_logger("filter")
@@ -168,17 +192,17 @@ class MatchFilter:
         )
 
     def accept(self, match: dict[str, Any], puuid: str) -> bool:
-        """Whether a match qualifies for analysis.
+        """Whether a match qualifies for parsing.
 
-        Requirements: ranked solo queue, the tracked player on the configured
-        champion in the configured role, not a remake, no early surrender.
+        Requirements: ranked solo queue, the tracked player participated,
+        not a remake, no early surrender.
 
         Args:
             match: Raw match document.
             puuid: The player's PUUID.
 
         Returns:
-            ``True`` when the match should be analysed.
+            ``True`` when the match should be parsed.
         """
         info = match.get("info", {})
         if int(info.get("queueId", 0)) != self._config.queue_id:
@@ -193,10 +217,66 @@ class MatchFilter:
             return False
         if me.get("gameEndedInEarlySurrender"):
             return False
+        return True
+
+
+class BuildMatchFilter(BaseMatchFilter):
+    """Further restricts matches to a configured champion + lane."""
+
+    def accept(self, match: dict[str, Any], puuid: str) -> bool:
+        """Whether a match qualifies for a specific build analysis."""
+        if not super().accept(match, puuid):
+            return False
+        me = self.find_participant(match, puuid)
+        assert me is not None
         return (
             str(me.get("championName", "")) == self._config.champion
             and str(me.get("teamPosition", "")) == self._config.role
         )
+
+
+MatchFilter = BuildMatchFilter
+
+
+def discover_build_pools(
+    store: MatchStore,
+    puuid: str,
+    config: AppConfig,
+    *,
+    min_games: int = 20,
+) -> list[BuildPool]:
+    """Scan stored matches and return champion+lane pools with enough games.
+
+    Args:
+        store: SQLite match store.
+        puuid: The tracked player's PUUID.
+        config: Application configuration (queue filter).
+        min_games: Minimum solo/duo games required to include a build.
+
+    Returns:
+        Build pools sorted by game count (most played first).
+    """
+    match_filter = BaseMatchFilter(config)
+    counts: Counter[tuple[str, str]] = Counter()
+    for match_id in store.iter_match_ids(puuid):
+        match = store.load_match(match_id)
+        if not match or not match_filter.accept(match, puuid):
+            continue
+        me = match_filter.find_participant(match, puuid)
+        assert me is not None
+        champion = str(me.get("championName", ""))
+        role = str(me.get("teamPosition", ""))
+        if not champion or role not in VALID_ROLES:
+            continue
+        counts[(champion, role)] += 1
+
+    pools = [
+        BuildPool(champion=champion, role=role, games=games)
+        for (champion, role), games in counts.items()
+        if games >= min_games
+    ]
+    pools.sort(key=lambda pool: pool.games, reverse=True)
+    return pools
 
 
 class MatchParser:
@@ -258,6 +338,8 @@ class MatchParser:
             game_version=version,
             game_creation_ms=int(info.get("gameCreation", 0)),
             duration_s=ctx.duration_s,
+            champion=str(me.get("championName", "")),
+            role=str(me.get("teamPosition", "")),
             win=bool(me["win"]),
             side=Side.BLUE if me["teamId"] == 100 else Side.RED,
             lane_opponent=opponent,

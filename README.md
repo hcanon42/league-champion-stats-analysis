@@ -1,7 +1,8 @@
 # Champion Stats Analyzer
 
-A production-quality coaching analyzer for **any champion + lane** in ranked
-solo queue, built on the Riot **Match-V5** API. Defaults to **Viktor mid**.
+A production-quality coaching analyzer for ranked solo queue, built on the Riot
+**Match-V5** API. One run analyses **every champion + lane** you have played
+enough (default: 20+ solo/duo games).
 
 This is not an OP.GG clone. It doesn't just describe *what* happened — it digs
 into **why you win and why you lose**: death context, objective setups, reset
@@ -10,11 +11,14 @@ recommendations.
 
 ## Features
 
-- Downloads up to 500 ranked solo queue matches (paged, cached, rate-limited,
+- Downloads up to 500 ranked solo queue matches once (paged, cached, rate-limited,
   auto-retrying, with progress bars). A match is **never downloaded twice**
   (permanent SQLite store).
-- Filters to **ranked solo queue · your champion · your lane · no remakes**
-  (configure with `--champion` and `--lane`).
+- Discovers every **champion + lane** pair with enough solo/duo games (default
+  20+) and pre-generates a full report for each — Akali mid and Akali top are
+  separate builds.
+- Switch between builds instantly via a **dropdown** in each report (no runtime
+  recompute).
 - Full timeline analysis: gold/XP/CS checkpoints and lane differentials,
   inferred recalls (with unspent gold), roams, lane priority, wave-state proxy.
 - Death forensics: zone, solo/outnumbered, greed, post-tower/objective,
@@ -30,8 +34,9 @@ recommendations.
   archetype labels (throws, comebacks, stomps...).
 - **AI coach**: recommendations ranked by effect size × statistical
   significance × sample size.
-- **Rank peer comparison**: your stats vs curated tier averages for the same
-  champion + lane (`data/benchmarks/{champion}_{role}.json`, with role fallback).
+- **Rank peer comparison**: your stats vs same-rank players on the same
+  champion + lane, sampled live from league-v4 + match-v5 (cached for 7 days
+  under `data/benchmarks/`).
 - A dark, responsive, interactive **HTML dashboard** plus CSV/JSON/Markdown
   exports.
 
@@ -63,16 +68,15 @@ uv sync
 ### 3. Run
 
 ```bash
-# Default: Viktor mid
+# Download + analyse every eligible champion/lane build
 uv run python main.py analyze --riot-id "YourName" --tagline "EUW" --region europe
 
-# Another champion + lane
-uv run python main.py analyze --riot-id "YourName" --tagline "EUW" --champion Ahri --lane mid
-uv run python main.py report --riot-id "YourName" --tagline "EUW" --champion LeeSin --lane jungle
-```
+# Re-analyse from cached matches (no download)
+uv run python main.py report --riot-id "YourName" --tagline "EUW"
 
-`--lane` accepts aliases: `mid`, `top`, `jungle`/`jg`, `bot`/`adc`, `support`.
-`--champion` accepts Riot ids (`Ahri`, `LeeSin`, `MissFortune`) or display names.
+# Require at least 30 games per build
+uv run python main.py analyze --riot-id "YourName" --tagline "EUW" --min-games 30
+```
 
 `--region` accepts regional routing values (`europe`, `americas`, `asia`, `sea`)
 or platform codes (`euw1`, `na1`, `kr`, ...).
@@ -86,6 +90,7 @@ Other commands:
 ```bash
 uv run python main.py fetch --riot-id "YourName" --tagline "EUW"   # download only
 uv run python main.py report --riot-id "YourName" --tagline "EUW"  # re-analyse cached data
+uv run python main.py reports                                      # rebuild report index
 uv run python main.py clear-cache                                  # wipe the HTTP cache
 ```
 
@@ -100,14 +105,23 @@ match_count = 500
 
 ### Outputs
 
+Each eligible build saves to **`output/reports/{player}/{champion_lane}/`**. Re-running
+for the same summoner refreshes every eligible build.
+
+Open **`output/reports/{player}/index.html`** to pick a champion/lane, or use the
+**dropdown inside any report** to switch builds instantly.
+
 | File | Content |
 | --- | --- |
-| `output/report.html` | Interactive dark dashboard (open in any browser) |
-| `output/summary.json` | Every aggregate in machine-readable form |
-| `output/recommendations.md` | Ranked coaching recommendations |
-| `output/matches.csv`, `deaths.csv`, `timeline.csv`, `matchups.csv`, `vision.csv`, `items.csv`, `runes.csv`, `objectives.csv`, `teamfights.csv`, `correlations.csv`, `rank_comparison.csv` | Flat tables for your own analysis |
-| `output/win_predictor.joblib` | Trained RandomForest model |
-| `graphs/death_heatmap.png` | Static per-phase death heatmaps |
+| `output/index.html` | Global index — all players |
+| `output/reports/{player}/index.html` | Player hub — champion/lane dropdown |
+| `output/reports/{player}/manifest.json` | Build list metadata for the UI |
+| `output/reports/.../report.html` | Interactive dark dashboard for one build |
+| `output/reports/.../summary.json` | Every aggregate in machine-readable form |
+| `output/reports/.../recommendations.md` | Ranked coaching recommendations |
+| `output/reports/.../{matches,deaths,...}.csv` | Flat tables for your own analysis |
+| `output/reports/.../win_predictor.joblib` | Trained RandomForest model |
+| `output/reports/.../graphs/death_heatmap.png` | Static per-phase death heatmaps |
 
 ## Architecture
 
@@ -117,7 +131,7 @@ graph TD
     CLI --> API[riot_api.py<br/>RateLimiter + retry + progress]
     API --> CACHE[cache.py<br/>diskcache HTTP cache + SQLite MatchStore]
     API --> DD[Data Dragon item catalogue]
-    CLI --> PARSE[parser.py<br/>MatchFilter + MatchParser]
+    CLI --> PARSE[parser.py<br/>BaseMatchFilter + MatchParser]
     PARSE --> MODELS[models.py - Pydantic domain models]
     PARSE --> EXTRACT[analysis/ extractors<br/>timeline, deaths, teamfights,<br/>objectives, vision, positioning]
     EXTRACT --> AGG[analysis/ aggregators<br/>laning, economy, items, runes, matchups]
@@ -158,7 +172,7 @@ Where data is missing, the analyzer uses documented proxies or reports `None`:
 | Ward positions (blind spots, vision at death) | Not exposed — counts of recent team ward events are used |
 | Wave states | Proxy from the player's own position (minions aren't in the API) |
 | Participant ranks | Not in Match-V5 — rank comes from league-v4 at analysis time |
-| Rank-peer averages | Per-tier curated benchmarks in `data/benchmarks/` (50% win rate by definition). Same-champion players in your games are counted but not averaged — they are mostly your opponents, which would skew win rate to ~your loss rate. |
+| Rank-peer averages | Sampled from other players in your solo queue league playing the same champion + lane (league-v4 + match-v5). Cached for 7 days. Early-game metrics (CS/gold @10, deaths pre-14) are omitted from the peer baseline because they require timelines. Same-champion players in your games are counted but not averaged — they are mostly your opponents. |
 | Damage per teamfight | From kill events' `victimDamageReceived` (kills only) |
 
 ## Development

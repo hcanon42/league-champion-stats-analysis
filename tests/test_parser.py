@@ -6,7 +6,7 @@ import pytest
 
 from config import AppConfig
 from models import MatchRecord
-from parser import ItemCatalog, MatchFilter, MatchParser
+from parser import BaseMatchFilter, BuildMatchFilter, ItemCatalog, MatchParser
 from tests.fixtures import FAKE_ITEMS, MY_PUUID, make_match, make_timeline
 
 
@@ -24,25 +24,34 @@ def record() -> MatchRecord:
 
 
 def test_filter_accepts_viktor_mid(config: AppConfig) -> None:
-    """The synthetic game qualifies."""
-    assert MatchFilter(config).accept(make_match(), MY_PUUID)
+    """The synthetic game qualifies for the configured build."""
+    assert BuildMatchFilter(config).accept(make_match(), MY_PUUID)
+
+
+def test_base_filter_accepts_any_champion(config: AppConfig) -> None:
+    """Base filter accepts solo queue games regardless of champion/lane."""
+    match = make_match()
+    match["info"]["participants"][0]["championName"] = "Orianna"
+    match["info"]["participants"][0]["teamPosition"] = "TOP"
+    assert BaseMatchFilter(config).accept(match, MY_PUUID)
+    assert not BuildMatchFilter(config).accept(match, MY_PUUID)
 
 
 def test_filter_rejects_wrong_queue(config: AppConfig) -> None:
     """Normal draft games are rejected."""
-    assert not MatchFilter(config).accept(make_match(queue_id=400), MY_PUUID)
+    assert not BaseMatchFilter(config).accept(make_match(queue_id=400), MY_PUUID)
 
 
 def test_filter_rejects_remake(config: AppConfig) -> None:
     """Games at or under five minutes are remakes."""
-    assert not MatchFilter(config).accept(make_match(duration_s=240), MY_PUUID)
+    assert not BaseMatchFilter(config).accept(make_match(duration_s=240), MY_PUUID)
 
 
 def test_filter_rejects_wrong_lane(config: AppConfig) -> None:
-    """Games on the champion in another lane are rejected."""
+    """Build filter rejects games on the champion in another lane."""
     match = make_match()
     match["info"]["participants"][0]["teamPosition"] = "TOP"
-    assert not MatchFilter(config).accept(match, MY_PUUID)
+    assert not BuildMatchFilter(config).accept(match, MY_PUUID)
 
 
 def test_config_normalizes_lane_alias() -> None:
@@ -53,16 +62,18 @@ def test_config_normalizes_lane_alias() -> None:
 
 
 def test_filter_rejects_other_champion(config: AppConfig) -> None:
-    """Games on another champion are rejected."""
+    """Build filter rejects games on another champion."""
     match = make_match()
     match["info"]["participants"][0]["championName"] = "Orianna"
-    assert not MatchFilter(config).accept(match, MY_PUUID)
+    assert not BuildMatchFilter(config).accept(match, MY_PUUID)
 
 
 def test_parse_core_fields(record: MatchRecord) -> None:
     """Identity, result and opponent are read correctly."""
     assert record.match_id == "EUW1_9999"
     assert record.patch == "14.23"
+    assert record.champion == "Viktor"
+    assert record.role == "MIDDLE"
     assert record.win is True
     assert record.side.value == "blue"
     assert record.lane_opponent == "Syndra"

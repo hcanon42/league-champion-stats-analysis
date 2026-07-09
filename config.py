@@ -15,7 +15,7 @@ import tomllib
 from pathlib import Path
 from typing import Any, Final
 
-from champions import build_label, normalize_role, role_display
+from champions import build_label, champion_slug, normalize_role, player_slug, role_display
 from pydantic import BaseModel, Field, field_validator
 
 # Platform routing values -> regional routing hosts used by account-v1/match-v5.
@@ -60,6 +60,7 @@ class AppConfig(BaseModel):
     platform: str | None = None
     api_key: str
     match_count: int = Field(default=500, ge=1, le=2000)
+    min_games: int = Field(default=20, ge=1)
     champion: str = "Viktor"
     role: str = "MIDDLE"
     queue_id: int = RANKED_SOLO_QUEUE_ID
@@ -88,6 +89,26 @@ class AppConfig(BaseModel):
     def build_label(self) -> str:
         """Champion + lane label (e.g. ``Viktor mid``)."""
         return build_label(self.champion, self.role)
+
+    @property
+    def player_reports_dir(self) -> Path:
+        """Directory holding every build report for this player."""
+        return self.output_dir / "reports" / player_slug(self.riot_id, self.tagline)
+
+    @property
+    def report_dir(self) -> Path:
+        """Per-player/champion/lane output directory (overwritten on re-run)."""
+        return (
+            self.output_dir
+            / "reports"
+            / player_slug(self.riot_id, self.tagline)
+            / champion_slug(self.champion, self.role)
+        )
+
+    @property
+    def run_graphs_dir(self) -> Path:
+        """Graph assets for the current report run."""
+        return self.report_dir / "graphs"
 
     @field_validator("region", mode="before")
     @classmethod
@@ -150,8 +171,8 @@ class AppConfig(BaseModel):
         return self.cache_dir / "http"
 
     def ensure_directories(self) -> None:
-        """Create output, graphs and cache directories if missing."""
-        for path in (self.output_dir, self.graphs_dir, self.cache_dir):
+        """Create output, player report and cache directories if missing."""
+        for path in (self.output_dir, self.player_reports_dir, self.cache_dir):
             path.mkdir(parents=True, exist_ok=True)
 
 
@@ -191,12 +212,6 @@ def load_config(config_file: Path | None = None, **overrides: Any) -> AppConfig:
         "tagline": os.environ.get("ANALYZER_TAGLINE") or os.environ.get("VIKTOR_TAGLINE"),
         "region": os.environ.get("ANALYZER_REGION") or os.environ.get("VIKTOR_REGION"),
         "platform": os.environ.get("ANALYZER_PLATFORM") or os.environ.get("VIKTOR_PLATFORM"),
-        "champion": os.environ.get("ANALYZER_CHAMPION") or os.environ.get("VIKTOR_CHAMPION"),
-        "role": (
-            os.environ.get("ANALYZER_LANE")
-            or os.environ.get("ANALYZER_ROLE")
-            or os.environ.get("VIKTOR_ROLE")
-        ),
     }
     data.update({k: v for k, v in env_map.items() if v})
     region_override = overrides.get("region")

@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ app_title }} — Reports</title>
+<style>
+:root {
+  --bg: #0f1118; --panel: #171a24; --panel-2: #1e2230; --border: #2a2f40;
+  --text: #e8eaf2; --muted: #9aa0b5; --accent: #7c6cf0; --win: #3fb68b; --loss: #e05563;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font: 15px/1.55 -apple-system, "Segoe UI", Roboto, sans-serif; max-width: 960px; margin: 0 auto; padding: 48px 24px; }
+h1 { font-size: 28px; color: var(--accent); margin-bottom: 8px; }
+.sub { color: var(--muted); margin-bottom: 32px; }
+table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; font-size: 14px; }
+th, td { padding: 12px 16px; text-align: left; border-bottom: 1px solid var(--border); }
+th { background: var(--panel-2); color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: var(--panel-2); }
+a { color: var(--accent); text-decoration: none; font-weight: 600; }
+a:hover { text-decoration: underline; }
+.win { color: var(--win); } .loss { color: var(--loss); }
+.empty { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 32px; color: var(--muted); text-align: center; }
+footer { color: var(--muted); font-size: 13px; margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border); }
+</style>
+</head>
+<body>
+<h1>{{ app_title }}</h1>
+<p class="sub">Saved coaching reports — one per player. Open a player hub to switch between champion/lane builds.</p>
+
+{% if reports %}
+<table>
+  <thead>
+    <tr>
+      <th>Player</th>
+      <th>Champion</th>
+      <th>Lane</th>
+      <th>Games</th>
+      <th>Win rate</th>
+      <th>Updated</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for report in reports %}
+    <tr>
+      <td>{{ report.player }}</td>
+      <td>{{ report.champion }}</td>
+      <td>{{ report.role_display }}</td>
+      <td>{{ report.games }}</td>
+      <td class="{{ 'win' if report.winrate >= 0.5 else 'loss' }}">{{ '%.0f' % (report.winrate * 100) }}%</td>
+      <td>{{ report.generated_at }}</td>
+      <td><a href="{{ report.href }}">Open</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="empty">
+  No reports yet. Run <code>python main.py analyze</code> or <code>python main.py report</code> to generate one.
+</div>
+{% endif %}
+
+<footer>Index refreshed {{ generated_at }}</footer>
+</body>
+</html>

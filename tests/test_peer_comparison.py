@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pandas as pd
 import pytest
 
@@ -15,14 +18,50 @@ from models import RankedEntry
 from tests.fixtures import MY_PUUID, make_match
 
 
-def test_tier_benchmark_maps_winrate() -> None:
+@pytest.fixture
+def benchmark_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Provide a temporary Viktor mid benchmark file for static loader tests."""
+    import analysis.benchmarks as benchmarks
+
+    directory = tmp_path / "benchmarks"
+    directory.mkdir()
+    payload = {
+        "GOLD": {
+            "winrate": 0.5,
+            "kda": 2.5,
+            "dpm": 650.0,
+            "cspm": 7.2,
+            "deaths": 5.0,
+            "vspm": 1.0,
+            "control_wards": 2.0,
+            "kill_participation": 0.55,
+            "damage_share": 0.24,
+        },
+        "EMERALD": {
+            "winrate": 0.5,
+            "kda": 2.7,
+            "dpm": 680.0,
+            "cspm": 7.4,
+            "deaths": 4.8,
+            "vspm": 1.1,
+            "control_wards": 2.2,
+            "kill_participation": 0.57,
+            "damage_share": 0.25,
+        },
+    }
+    (directory / "viktor_middle.json").write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setattr(benchmarks, "BENCHMARKS_DIR", directory)
+    return directory
+
+
+def test_tier_benchmark_maps_winrate(benchmark_dir: Path) -> None:
     """JSON ``winrate`` is exposed as ``win`` for comparisons."""
     emerald = tier_benchmark("EMERALD", "Viktor", "MIDDLE")
     assert emerald["win"] == 0.5
     assert emerald["winrate"] == 0.5
 
 
-def test_tier_benchmark_returns_gold_defaults() -> None:
+def test_tier_benchmark_returns_gold_defaults(benchmark_dir: Path) -> None:
     """Unknown tiers fall back to GOLD benchmarks."""
     gold = tier_benchmark("GOLD", "Viktor", "MIDDLE")
     unknown = tier_benchmark("NOT_A_TIER", "Viktor", "MIDDLE")
@@ -30,7 +69,7 @@ def test_tier_benchmark_returns_gold_defaults() -> None:
     assert gold["cspm"] > 6.0
 
 
-def test_benchmark_path_prefers_champion_specific() -> None:
+def test_benchmark_path_prefers_champion_specific(benchmark_dir: Path) -> None:
     """Champion-specific benchmarks are preferred over role fallback."""
     path = resolve_benchmark_path("Viktor", "MIDDLE")
     assert path.name == "viktor_middle.json"

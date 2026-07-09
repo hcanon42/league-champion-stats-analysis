@@ -32,6 +32,26 @@ h3 { font-size: 17px; margin: 24px 0 12px; color: var(--muted); }
 .card .value { font-size: 24px; font-weight: 600; margin-top: 4px; }
 .card .value.win { color: var(--win); } .card .value.loss { color: var(--loss); }
 .figure { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 8px; margin: 16px 0; }
+.figure--with-help { position: relative; }
+.figure-info-btn {
+  position: absolute; top: 12px; right: 12px; z-index: 2;
+  width: 24px; height: 24px; border-radius: 50%;
+  border: 1px solid var(--border); background: var(--panel-2); color: var(--muted);
+  font: inherit; font-size: 13px; font-weight: 600; line-height: 1; cursor: pointer;
+}
+.figure-info-btn:hover, .figure-info-btn[aria-expanded="true"] { border-color: var(--accent); color: var(--accent); }
+.figure-info-panel {
+  display: none; position: absolute; top: 44px; right: 12px; z-index: 3;
+  max-width: min(360px, calc(100% - 24px)); background: var(--panel-2);
+  border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px;
+  font-size: 13px; line-height: 1.5; color: var(--muted);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
+}
+.figure-info-panel.is-open { display: block; }
+.figure-info-panel strong { color: var(--text); font-weight: 600; }
+.figure-info-panel ul { margin: 8px 0 0; padding-left: 18px; }
+.figure-info-panel li { margin: 4px 0; }
+.figure-info-panel li em { color: var(--text); font-style: normal; }
 .score-ring { display: flex; align-items: center; gap: 28px; flex-wrap: wrap; margin: 18px 0; }
 .score-big { font-size: 64px; font-weight: 700; color: var(--accent); }
 .score-comps { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; flex: 1; min-width: 280px; }
@@ -43,18 +63,53 @@ th, td { padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--bor
 th { background: var(--panel-2); color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
 tr:last-child td { border-bottom: none; }
 .rec { background: var(--panel); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 10px; padding: 16px 18px; margin: 12px 0; }
-.rec.high { border-left-color: var(--loss); } .rec.medium { border-left-color: #e0b155; } .rec.low { border-left-color: var(--win); }
+.rec.high { border-left-color: inherit; } .rec.medium { border-left-color: inherit; } .rec.low { border-left-color: inherit; }
+.rec-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start; }
+.rec-column h3 { font-size: 15px; margin: 0 0 12px; text-transform: uppercase; letter-spacing: .06em; }
+.rec-column-positive h3 { color: var(--win); }
+.rec-column-negative h3 { color: var(--loss); }
+.rec-column-positive .rec { border-left-color: var(--win); background: linear-gradient(90deg, rgba(63, 182, 139, 0.08), var(--panel) 28%); }
+.rec-column-negative .rec { border-left-color: var(--loss); background: linear-gradient(90deg, rgba(224, 85, 99, 0.08), var(--panel) 28%); }
+.rec-column-positive .badge { color: var(--win); }
+.rec-column-negative .badge { color: var(--loss); }
+.rec-empty { color: var(--muted); font-size: 14px; margin: 8px 0 0; }
 .rec .meta { color: var(--muted); font-size: 13px; margin-top: 8px; }
+.rec-more { display: none; }
+.rec-more.is-open { display: block; }
+.rec-extend {
+  display: block; margin: 16px auto 0; padding: 10px 20px; border: 1px solid var(--border);
+  border-radius: 8px; background: var(--panel-2); color: var(--text); font: inherit;
+  cursor: pointer;
+}
+.rec-extend:hover { border-color: var(--accent); color: var(--accent); }
 .badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 10px; background: var(--panel-2); color: var(--muted); margin-right: 8px; text-transform: uppercase; letter-spacing: .05em; }
 .delta-above { color: var(--win); } .delta-below { color: var(--loss); } .delta-inline { color: var(--muted); }
 footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px solid var(--border); }
-@media (max-width: 860px) { .layout { flex-direction: column; } nav { width: 100%; height: auto; position: static; display: flex; flex-wrap: wrap; } nav h1 { width: 100%; } nav a { border-left: none; } }
+@media (max-width: 860px) {
+  .layout { flex-direction: column; }
+  nav { width: 100%; height: auto; position: static; display: flex; flex-wrap: wrap; }
+  nav h1 { width: 100%; }
+  nav a { border-left: none; }
+  .rec-columns { grid-template-columns: 1fr; }
+}
 </style>
 </head>
 <body>
 <div class="layout">
 <nav>
   <h1>{{ app_title }}</h1>
+  <a href="../index.html" style="display:block;padding:0 20px 8px;color:var(--muted);font-size:13px;">← Your champions</a>
+  <a href="../../index.html" style="display:block;padding:0 20px 12px;color:var(--muted);font-size:13px;">← All players</a>
+  {% if player_builds %}
+  <div style="padding:0 16px 16px;">
+    <label for="build-switcher" style="display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">Switch build</label>
+    <select id="build-switcher" onchange="window.location=this.value" style="width:100%;font:inherit;font-size:13px;background:var(--panel-2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:8px;">
+      {% for build in player_builds %}
+      <option value="{{ build.href }}"{% if build.selected %} selected{% endif %}>{{ build.label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  {% endif %}
   <a href="#overview">Overview</a>
   <a href="#score">Improvement score</a>
   <a href="#rank-peers">Rank peers</a>
@@ -245,22 +300,137 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
   <div class="figure">{{ figures.correlation_heatmap | safe }}</div>
   <div class="figure">{{ figures.win_correlation_bar | safe }}</div>
   <div class="figure">{{ figures.feature_importance | safe }}</div>
-  <div class="figure">{{ figures.cluster_scatter | safe }}</div>
+  <div class="figure figure--with-help">
+    <button type="button" class="figure-info-btn" aria-expanded="false" aria-controls="archetype-help" title="How to read this chart">?</button>
+    <div class="figure-info-panel" id="archetype-help" role="region" aria-label="Game archetypes guide">
+      <strong>How to read this chart</strong>
+      <ul>
+        <li>Each dot is one game. <em>Color</em> = archetype. <em>Shape</em> = win or loss.</li>
+        <li>Games with similar stats (gold @10/@15, deaths, damage, vision, length) sit near each other.</li>
+        <li>The axes are a compressed view — they don't map to a single stat. Focus on color, shape, and clusters.</li>
+      </ul>
+      <strong style="display:block;margin-top:10px;">Archetype labels</strong>
+      <ul>
+        <li><em>Lane stomp win</em> — ahead ≥1k gold @15</li>
+        <li><em>Comeback win</em> — behind ≥750 @15, still won</li>
+        <li><em>Scaling win</em> — 32+ minutes</li>
+        <li><em>Clean win</em> — other wins</li>
+        <li><em>Throw</em> — ahead ≥750 @15, lost</li>
+        <li><em>One-sided loss</em> — behind ≥1k @15</li>
+        <li><em>Close loss</em> — other losses</li>
+      </ul>
+    </div>
+    {{ figures.cluster_scatter | safe }}
+  </div>
 </section>
 
 <section id="recommendations">
   <h2>Recommendations</h2>
-  <p class="sub">Ranked by effect size, statistical significance and sample size.</p>
-  {% for rec in recommendations %}
-  <div class="rec {{ rec.badge }}">
-    <span class="badge">{{ rec.category }}</span><strong>{{ rec.title }}</strong>
-    <p>{{ rec.detail }}</p>
-    <p class="meta">Evidence: {{ rec.evidence }}{% if rec.p_value is not none %} · p = {{ '%.4f' % rec.p_value }}{% endif %} · priority {{ '%.2f' % rec.priority }}</p>
+  <p class="sub">Strengths on the left, areas to improve on the right — top {{ recommendation_visible_count }} per side, ranked by priority.</p>
+  {% if positive_recommendations or negative_recommendations %}
+  <div class="rec-columns">
+    <div class="rec-column rec-column-positive">
+      <h3>Keep doing</h3>
+      {% if positive_recommendations %}
+      {% for rec in positive_recommendations[:recommendation_visible_count] %}
+      <div class="rec {{ rec.badge }}">
+        <span class="badge">{{ rec.category }}</span><strong>{{ rec.title }}</strong>
+        <p>{{ rec.detail }}</p>
+        <p class="meta">Evidence: {{ rec.evidence }}{% if rec.p_value is not none %} · p = {{ '%.4f' % rec.p_value }}{% endif %} · priority {{ '%.2f' % rec.priority }}</p>
+      </div>
+      {% endfor %}
+      {% if positive_recommendations|length > recommendation_visible_count %}
+      <div class="rec-more" id="rec-more-positive">
+        {% for rec in positive_recommendations[recommendation_visible_count:] %}
+        <div class="rec {{ rec.badge }}">
+          <span class="badge">{{ rec.category }}</span><strong>{{ rec.title }}</strong>
+          <p>{{ rec.detail }}</p>
+          <p class="meta">Evidence: {{ rec.evidence }}{% if rec.p_value is not none %} · p = {{ '%.4f' % rec.p_value }}{% endif %} · priority {{ '%.2f' % rec.priority }}</p>
+        </div>
+        {% endfor %}
+      </div>
+      <button type="button" class="rec-extend" data-target="rec-more-positive" aria-expanded="false" aria-controls="rec-more-positive">
+        Show {{ positive_recommendations|length - recommendation_visible_count }} more strength{{ 's' if positive_recommendations|length - recommendation_visible_count != 1 else '' }}
+      </button>
+      {% endif %}
+      {% else %}
+      <p class="rec-empty">No clear strengths surfaced yet — keep playing more games.</p>
+      {% endif %}
+    </div>
+    <div class="rec-column rec-column-negative">
+      <h3>Work on</h3>
+      {% if negative_recommendations %}
+      {% for rec in negative_recommendations[:recommendation_visible_count] %}
+      <div class="rec {{ rec.badge }}">
+        <span class="badge">{{ rec.category }}</span><strong>{{ rec.title }}</strong>
+        <p>{{ rec.detail }}</p>
+        <p class="meta">Evidence: {{ rec.evidence }}{% if rec.p_value is not none %} · p = {{ '%.4f' % rec.p_value }}{% endif %} · priority {{ '%.2f' % rec.priority }}</p>
+      </div>
+      {% endfor %}
+      {% if negative_recommendations|length > recommendation_visible_count %}
+      <div class="rec-more" id="rec-more-negative">
+        {% for rec in negative_recommendations[recommendation_visible_count:] %}
+        <div class="rec {{ rec.badge }}">
+          <span class="badge">{{ rec.category }}</span><strong>{{ rec.title }}</strong>
+          <p>{{ rec.detail }}</p>
+          <p class="meta">Evidence: {{ rec.evidence }}{% if rec.p_value is not none %} · p = {{ '%.4f' % rec.p_value }}{% endif %} · priority {{ '%.2f' % rec.priority }}</p>
+        </div>
+        {% endfor %}
+      </div>
+      <button type="button" class="rec-extend" data-target="rec-more-negative" aria-expanded="false" aria-controls="rec-more-negative">
+        Show {{ negative_recommendations|length - recommendation_visible_count }} more area{{ 's' if negative_recommendations|length - recommendation_visible_count != 1 else '' }} to improve
+      </button>
+      {% endif %}
+      {% else %}
+      <p class="rec-empty">Nothing critical flagged — solid performance overall.</p>
+      {% endif %}
+    </div>
   </div>
   {% else %}
   <p class="sub">Not enough data to generate recommendations.</p>
-  {% endfor %}
+  {% endif %}
 </section>
+<script>
+(function () {
+  document.querySelectorAll('.rec-extend').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var panel = document.getElementById(btn.getAttribute('data-target'));
+      if (!panel) return;
+      panel.classList.add('is-open');
+      btn.setAttribute('aria-expanded', 'true');
+      btn.remove();
+    });
+  });
+
+  document.querySelectorAll('.figure-info-btn').forEach(function (btn) {
+    btn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var panel = document.getElementById(btn.getAttribute('aria-controls'));
+      if (!panel) return;
+      var open = !panel.classList.contains('is-open');
+      document.querySelectorAll('.figure-info-panel.is-open').forEach(function (p) {
+        p.classList.remove('is-open');
+        var other = document.querySelector('[aria-controls="' + p.id + '"]');
+        if (other) other.setAttribute('aria-expanded', 'false');
+      });
+      if (open) {
+        panel.classList.add('is-open');
+        btn.setAttribute('aria-expanded', 'true');
+      }
+    });
+  });
+  document.querySelectorAll('.figure-info-panel').forEach(function (panel) {
+    panel.addEventListener('click', function (e) { e.stopPropagation(); });
+  });
+  document.addEventListener('click', function () {
+    document.querySelectorAll('.figure-info-panel.is-open').forEach(function (p) {
+      p.classList.remove('is-open');
+      var btn = document.querySelector('[aria-controls="' + p.id + '"]');
+      if (btn) btn.setAttribute('aria-expanded', 'false');
+    });
+  });
+})();
+</script>
 
 <footer>Generated {{ generated_at }} by {{ app_title }}. Data from the Riot Games API. Not endorsed by Riot Games.</footer>
 </main>

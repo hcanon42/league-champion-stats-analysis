@@ -119,6 +119,11 @@ class RiotApiClient:
         self._log.info("Using platform routing host: %s", key)
 
     @property
+    def platform(self) -> str:
+        """Platform routing host (e.g. ``euw1``)."""
+        return self._platform
+
+    @property
     def platform_base(self) -> str:
         """Base URL for platform-routed endpoints (league-v4)."""
         return f"https://{self._platform}.api.riotgames.com"
@@ -266,6 +271,52 @@ class RiotApiClient:
             if ranked is not None:
                 tiers[puuid] = ranked.tier
         return tiers
+
+    def fetch_league_entries(self, tier: str, rank: str = "") -> list[dict[str, Any]]:
+        """Fetch solo queue league entries for a tier (and division when applicable).
+
+        For ``MASTER``, ``GRANDMASTER`` and ``CHALLENGER`` the corresponding
+        league list endpoint is used. Lower tiers use the paginated entries
+        endpoint for the given division (``I``–``IV``).
+
+        Args:
+            tier: Riot tier string (e.g. ``"PLATINUM"``).
+            rank: Division within the tier (``"I"``–``"IV"``); ignored for Master+.
+
+        Returns:
+            Raw league entry dicts, each including a ``puuid`` when available.
+        """
+        tier_key = tier.upper()
+        queue = "RANKED_SOLO_5x5"
+        if tier_key == "CHALLENGER":
+            url = f"{self.platform_base}/lol/league/v4/challengerleagues/by-queue/{queue}"
+            payload = self._get(url, ttl_s=15 * 60)
+            return list(payload.get("entries", []))
+        if tier_key == "GRANDMASTER":
+            url = f"{self.platform_base}/lol/league/v4/grandmasterleagues/by-queue/{queue}"
+            payload = self._get(url, ttl_s=15 * 60)
+            return list(payload.get("entries", []))
+        if tier_key == "MASTER":
+            url = f"{self.platform_base}/lol/league/v4/masterleagues/by-queue/{queue}"
+            payload = self._get(url, ttl_s=15 * 60)
+            return list(payload.get("entries", []))
+
+        division = (rank or "I").upper()
+        url = f"{self.platform_base}/lol/league/v4/entries/{queue}/{tier_key}/{division}"
+        payload = self._get(url, params={"page": 1}, ttl_s=15 * 60)
+        return list(payload)
+
+    def fetch_match(self, match_id: str) -> dict[str, Any]:
+        """Fetch a single match-v5 document (cached permanently).
+
+        Args:
+            match_id: Riot match id.
+
+        Returns:
+            Raw match JSON.
+        """
+        url = f"{self._base}/lol/match/v5/matches/{match_id}"
+        return self._get(url, ttl_s=None, use_cache=True)
 
     # --------------------------------------------------------------- Matches
 

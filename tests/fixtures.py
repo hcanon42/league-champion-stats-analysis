@@ -120,6 +120,22 @@ def make_match(duration_s: int = 1200, queue_id: int = 420) -> dict[str, Any]:
     }
 
 
+def make_player_match(
+    match_id: str,
+    *,
+    champion: str = "Viktor",
+    position: str = "MIDDLE",
+    duration_s: int = 1200,
+    queue_id: int = 420,
+) -> dict[str, Any]:
+    """Build a synthetic match with the tracked player on a specific build."""
+    match = make_match(duration_s=duration_s, queue_id=queue_id)
+    match["metadata"]["matchId"] = match_id
+    match["info"]["participants"][0]["championName"] = champion
+    match["info"]["participants"][0]["teamPosition"] = position
+    return match
+
+
 def _participant_frame(pid: int, minute: int) -> dict[str, Any]:
     """Build a participant frame for a given minute.
 

@@ -9,6 +9,7 @@ from champions import (
     build_label,
     champion_slug,
     normalize_role,
+    player_slug,
     resolve_champion_name,
 )
 
@@ -36,6 +37,11 @@ def test_build_label() -> None:
 def test_champion_slug() -> None:
     """Benchmark slugs are lowercase champion_role."""
     assert champion_slug("Ahri", "MIDDLE") == "ahri_middle"
+
+
+def test_player_slug() -> None:
+    """Player slugs combine riot id and tagline."""
+    assert player_slug("Faker", "KR1") == "faker_kr1"
 
 
 def test_resolve_champion_name_from_catalog() -> None:

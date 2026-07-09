@@ -261,13 +261,15 @@ class VisionStats(BaseModel):
 
 
 class MatchRecord(BaseModel):
-    """A fully parsed, analysis-ready ranked solo queue Viktor game."""
+    """A fully parsed, analysis-ready ranked solo queue game."""
 
     match_id: str
     patch: str
     game_version: str
     game_creation_ms: int
     duration_s: int
+    champion: str
+    role: str
     win: bool
     side: Side
     lane_opponent: str | None = None
@@ -417,6 +419,13 @@ class MatchRecord(BaseModel):
         return row
 
 
+class RecommendationTone(StrEnum):
+    """Whether a coaching tip highlights a strength or a weakness."""
+
+    POSITIVE = "positive"
+    NEGATIVE = "negative"
+
+
 class Recommendation(BaseModel):
     """A single coaching recommendation ranked by statistical evidence."""
 
@@ -424,6 +433,7 @@ class Recommendation(BaseModel):
     title: str
     detail: str
     evidence: str
+    tone: RecommendationTone = RecommendationTone.NEGATIVE
     p_value: float | None = None
     effect_size: float | None = None
     priority: float = 0.0

@@ -8,36 +8,129 @@ a combination of effect size and significance.
 
 from __future__ import annotations
 
-from typing import Callable
+from typing import Any, Callable
 
 import pandas as pd
 from scipy import stats as scipy_stats
 
 from analysis.statistics import StatisticsEngine
-from models import Recommendation
+from models import Recommendation, RecommendationTone
 from utils import get_logger
 
 MIN_GAMES: int = 10
 SIGNIFICANT_P: float = 0.05
 SUGGESTIVE_P: float = 0.15
+VISIBLE_RECOMMENDATIONS: int = 5
+
+# Human labels and coaching tips for the personal win-condition rule.
+WIN_FEATURE_HINTS: dict[str, tuple[str, str]] = {
+    "gd10": (
+        "a gold lead at 10 minutes",
+        "Trade with cooldown and minion cover, secure cannon waves, and avoid donating XP.",
+    ),
+    "gd15": (
+        "a gold lead at 15 minutes",
+        "Convert lane leads into plates, roams, or objective setup before the lead fades.",
+    ),
+    "xpd10": (
+        "an XP lead at 10 minutes",
+        "Respect level spikes and press your level advantage with short trades.",
+    ),
+    "cs10": (
+        "strong CS at 10 minutes",
+        "Secure cannon minions and don't miss farm under tower.",
+    ),
+    "csd10": (
+        "a CS lead at 10 minutes",
+        "Freeze or slow-push when ahead to deny farm and invite jungle pressure.",
+    ),
+    "kill_participation": (
+        "high kill participation",
+        "Arrive before objectives with your team and look for plays when your wave is pushed.",
+    ),
+    "damage_share": (
+        "a high damage share",
+        "Stay active in skirmishes and teamfights instead of passing on winnable fights.",
+    ),
+    "dpm": (
+        "high damage per minute",
+        "Look for poke before fights and maximise your combos when cooldowns are available.",
+    ),
+    "vspm": (
+        "strong vision score",
+        "Buy a control ward every recall after 14 minutes and sweep before objectives.",
+    ),
+    "control_wards": (
+        "more control wards",
+        "Make control wards part of every recall once laning ends.",
+    ),
+    "lane_priority": (
+        "wave priority in lane",
+        "Keep the wave pushed before rotating and roam off the shove.",
+    ),
+    "roams_pre15": (
+        "productive early roams",
+        "Roam on cannon waves when you have push and a clear target.",
+    ),
+    "first_item_min": (
+        "fast first-item timing",
+        "Tighten your early resets so your first completed item lands sooner.",
+    ),
+}
 
 
 def _priority(effect: float, p_value: float | None, sample: int) -> float:
-    """Score a recommendation for ranking.
-
-    Larger effects, smaller p-values and bigger samples rank higher.
-
-    Args:
-        effect: Effect size on a roughly [0, 1] scale (e.g. win-rate delta).
-        p_value: Significance when testable, else ``None``.
-        sample: Number of games/events backing the insight.
-
-    Returns:
-        A priority score (higher = more important).
-    """
+    """Score a recommendation for ranking."""
     significance = 1.0 if p_value is None else max(0.0, 1.0 - min(1.0, p_value / SUGGESTIVE_P))
     volume = min(1.0, sample / 40.0)
     return round(abs(effect) * 2.0 + significance + volume, 3)
+
+
+def _split_threshold(matches: pd.DataFrame, column: str) -> float:
+    """Pick a meaningful high/low split for a win-correlation feature."""
+    defaults: dict[str, float] = {
+        "gd10": 0.0,
+        "gd15": 0.0,
+        "xpd10": 0.0,
+        "csd10": 0.0,
+        "kill_participation": 0.55,
+        "damage_share": 0.22,
+        "lane_priority": 0.5,
+        "first_item_min": 11.0,
+    }
+    if column in defaults:
+        return defaults[column]
+    series = pd.to_numeric(matches.get(column), errors="coerce").dropna()
+    if series.empty:
+        return 0.0
+    return float(series.median())
+
+
+def _winrate_split_on_series(
+    matches: pd.DataFrame, values: pd.Series, threshold: float
+) -> dict[str, Any] | None:
+    """Fisher exact test of win rates above/below a threshold series."""
+    wins = pd.to_numeric(matches["win"], errors="coerce")
+    values = pd.to_numeric(values, errors="coerce")
+    mask = values.notna() & wins.notna()
+    high = wins[mask & (values >= threshold)]
+    low = wins[mask & (values < threshold)]
+    if high.empty or low.empty:
+        return None
+    table = [
+        [int(high.sum()), int(len(high) - high.sum())],
+        [int(low.sum()), int(len(low) - low.sum())],
+    ]
+    odds_ratio, p_value = scipy_stats.fisher_exact(table)
+    return {
+        "threshold": threshold,
+        "winrate_high": round(float(high.mean()), 3),
+        "winrate_low": round(float(low.mean()), 3),
+        "n_high": int(len(high)),
+        "n_low": int(len(low)),
+        "odds_ratio": round(float(odds_ratio), 3),
+        "p_value": round(float(p_value), 5),
+    }
 
 
 class CoachEngine:
@@ -53,16 +146,6 @@ class CoachEngine:
         *,
         build_label: str = "Viktor mid",
     ) -> None:
-        """Wire the coach with the aggregated views (dependency injection).
-
-        Args:
-            matches_df: Master per-game table.
-            deaths_df: Per-death table.
-            matchups_df: Per-opponent table.
-            objectives_df: Per-objective table.
-            stats_engine: Shared statistics engine.
-            build_label: Champion + lane label for personalised messaging.
-        """
         self._matches = matches_df
         self._deaths = deaths_df
         self._matchups = matchups_df
@@ -73,14 +156,11 @@ class CoachEngine:
         self._log = get_logger("coach")
 
     def generate(self) -> list[Recommendation]:
-        """Run every rule and return recommendations sorted by priority.
-
-        Returns:
-            Ranked recommendations (best first).
-        """
+        """Run every rule and return recommendations sorted by priority."""
         if len(self._matches) < 2:
             return []
         rules: list[Callable[[], Recommendation | None]] = [
+            self._rule_personal_win_condition,
             self._rule_early_deaths,
             self._rule_unspent_gold,
             self._rule_first_item_timing,
@@ -88,9 +168,14 @@ class CoachEngine:
             self._rule_side_lane_deaths,
             self._rule_best_matchup,
             self._rule_worst_matchup,
-            self._rule_deaths_before_dragon,
+            self._rule_deaths_before_objectives,
             self._rule_objective_presence,
             self._rule_solo_deaths,
+            self._rule_greed_deaths,
+            self._rule_shutdown_bounties,
+            self._rule_throw_leads,
+            self._rule_teamfight_participation,
+            self._rule_dead_before_objectives,
             self._rule_cs10,
             self._rule_lane_priority,
         ]
@@ -98,17 +183,65 @@ class CoachEngine:
         for rule in rules:
             try:
                 result = rule()
-            except Exception as exc:  # a single broken rule must not kill the report
+            except Exception as exc:
                 self._log.warning("Coach rule %s failed: %s", rule.__name__, exc)
                 continue
             if result is not None:
                 recommendations.append(result)
         return sorted(recommendations, key=lambda r: r.priority, reverse=True)
 
-    # ----------------------------------------------------------------- Rules
+    def _rule_personal_win_condition(self) -> Recommendation | None:
+        """Surface the top positive win correlates for this player."""
+        corrs = self._stats.win_correlations()
+        positive = [c for c in corrs if c.correlation >= 0.18 and c.p_value <= SUGGESTIVE_P]
+        if not positive:
+            return None
+
+        segments: list[str] = []
+        evidence_parts: list[str] = []
+        best_delta = 0.0
+        best_p: float | None = None
+        sample = 0
+
+        for pick in positive[:2]:
+            if pick.feature not in WIN_FEATURE_HINTS:
+                continue
+            threshold = _split_threshold(self._matches, pick.feature)
+            split = self._stats.winrate_split_test(pick.feature, threshold)
+            if split is None or split["n_high"] < 3 or split["n_low"] < 3:
+                continue
+            delta = split["winrate_high"] - split["winrate_low"]
+            if delta < 0.08:
+                continue
+            label, tip = WIN_FEATURE_HINTS[pick.feature]
+            segments.append(
+                f"When you have {label}, you win {split['winrate_high']:.0%} of games "
+                f"versus {split['winrate_low']:.0%} otherwise. {tip}"
+            )
+            evidence_parts.append(
+                f"{pick.feature}: r={pick.correlation:.2f}, WR {split['winrate_high']:.0%} "
+                f"({split['n_high']}g) vs {split['winrate_low']:.0%} ({split['n_low']}g)"
+            )
+            best_delta = max(best_delta, delta)
+            best_p = pick.p_value if best_p is None else min(best_p, pick.p_value)
+            sample += split["n_high"] + split["n_low"]
+
+        if not segments:
+            return None
+
+        return Recommendation(
+            category="Win condition",
+            title="Your personal win conditions",
+            detail=" ".join(segments),
+            evidence="; ".join(evidence_parts),
+            tone=RecommendationTone.POSITIVE,
+            p_value=best_p,
+            effect_size=round(best_delta, 3),
+            priority=_priority(best_delta, best_p, sample),
+            sample_size=sample,
+        )
 
     def _rule_early_deaths(self) -> Recommendation | None:
-        """Win rate impact of dying before 20 minutes."""
         split = self._stats.winrate_split_test("deaths_pre20", 2)
         if split is None or split["n_high"] < 3:
             return None
@@ -135,7 +268,6 @@ class CoachEngine:
         )
 
     def _rule_unspent_gold(self) -> Recommendation | None:
-        """Flag consistently large gold reserves before recalls."""
         series = pd.to_numeric(self._matches.get("avg_unspent_gold"), errors="coerce").dropna()
         if len(series) < 5:
             return None
@@ -147,8 +279,8 @@ class CoachEngine:
             title="Too much gold sitting unspent",
             detail=(
                 f"You average {avg:.0f} unspent gold when you recall. That's a permanent item "
-                "deficit versus your opponent - plan resets around component breakpoints "
-                "(1100 for Lost Chapter, 900 for Blasting Wand)."
+                "deficit versus your opponent — plan resets around your next item component "
+                "instead of sitting on gold."
             ),
             evidence=f"Mean banked gold before recall: {avg:.0f}g over {len(series)} games",
             p_value=None,
@@ -158,7 +290,6 @@ class CoachEngine:
         )
 
     def _rule_first_item_timing(self) -> Recommendation | None:
-        """Test whether slow first items correlate with losing."""
         frame = self._matches[["first_item_min", "win"]].apply(pd.to_numeric, errors="coerce")
         frame = frame.dropna()
         if len(frame) < MIN_GAMES:
@@ -190,7 +321,6 @@ class CoachEngine:
         )
 
     def _rule_control_wards(self) -> Recommendation | None:
-        """Correlate control ward purchases with winning."""
         frame = self._matches[["control_wards", "win"]].apply(pd.to_numeric, errors="coerce")
         frame = frame.dropna()
         if len(frame) < MIN_GAMES or frame["control_wards"].nunique() < 2:
@@ -209,6 +339,7 @@ class CoachEngine:
                 "part of every recall after the laning phase."
             ),
             evidence=f"Point-biserial r={corr:.2f}, p={p_value:.3f}, n={len(frame)}",
+            tone=RecommendationTone.POSITIVE,
             p_value=round(float(p_value), 5),
             effect_size=round(float(corr), 3),
             priority=_priority(float(corr), float(p_value), len(frame)),
@@ -216,7 +347,6 @@ class CoachEngine:
         )
 
     def _rule_side_lane_deaths(self) -> Recommendation | None:
-        """Flag frequent deep side-lane deaths in the mid/late game."""
         if self._deaths.empty:
             return None
         side = self._deaths[self._deaths["side_lane_push"]]
@@ -231,8 +361,8 @@ class CoachEngine:
             detail=(
                 f"{len(side)} deaths came from side-lane pushes ({len(late)} after 22 min), and "
                 f"{loss_share:.0%} of them happened in games you lost. After 22 minutes, only "
-                "take a side wave with vision, tempo and Teleport/ult advantage - otherwise "
-                f"group as {self._champion}'s teamfight strength is your win condition."
+                "take a side wave with vision, tempo and Teleport/ult advantage — otherwise "
+                "group and play around your team's win condition."
             ),
             evidence=f"{len(side)} side-lane deaths across {games} games",
             p_value=None,
@@ -242,7 +372,6 @@ class CoachEngine:
         )
 
     def _rule_best_matchup(self) -> Recommendation | None:
-        """Report the statistically strongest matchup."""
         from analysis.matchups import matchup_summary
 
         summary = matchup_summary(self._matchups)
@@ -260,6 +389,7 @@ class CoachEngine:
                 f"{summary['best_matchup_winrate']:.0%} WR over "
                 f"{summary['best_matchup_games']} games"
             ),
+            tone=RecommendationTone.POSITIVE,
             p_value=None,
             effect_size=round(summary["best_matchup_winrate"] - 0.5, 3),
             priority=_priority(
@@ -269,7 +399,6 @@ class CoachEngine:
         )
 
     def _rule_worst_matchup(self) -> Recommendation | None:
-        """Report the worst matchup with a cause when detectable."""
         from analysis.matchups import matchup_summary
 
         summary = matchup_summary(self._matchups)
@@ -279,7 +408,7 @@ class CoachEngine:
         deaths_pre14 = summary.get("worst_matchup_deaths_pre14")
         if deaths_pre14 is not None and deaths_pre14 >= 1.5:
             cause = (
-                f" You average {deaths_pre14:.1f} deaths before 14 minutes in this lane - the "
+                f" You average {deaths_pre14:.1f} deaths before 14 minutes in this lane — the "
                 "games are lost in the laning phase, not later."
             )
         return Recommendation(
@@ -302,25 +431,30 @@ class CoachEngine:
             sample_size=summary["worst_matchup_games"],
         )
 
-    def _rule_deaths_before_dragon(self) -> Recommendation | None:
-        """Impact of dying in the minute before a dragon spawn fight."""
-        split = self._stats.winrate_split_test("deaths_before_dragon", 1)
-        if split is None or split["n_high"] < 4:
+    def _rule_deaths_before_objectives(self) -> Recommendation | None:
+        dragon = pd.to_numeric(self._matches.get("deaths_before_dragon"), errors="coerce").fillna(0)
+        baron = pd.to_numeric(self._matches.get("deaths_before_baron"), errors="coerce").fillna(0)
+        combined = dragon + baron
+        split = _winrate_split_on_series(self._matches, combined, 1)
+        if split is None or split["n_high"] < 3:
             return None
         delta = split["winrate_low"] - split["winrate_high"]
-        if delta < 0.12:
+        if delta < 0.10:
             return None
+        pre_dragon = int((dragon >= 1).sum())
+        pre_baron = int((baron >= 1).sum())
         return Recommendation(
             category="Objectives",
-            title="Deaths right before dragons are throwing objectives",
+            title="Deaths right before epic monsters are throwing objectives",
             detail=(
                 f"You win only {split['winrate_high']:.0%} of games where you die within 60 "
-                f"seconds before a dragon is taken, versus {split['winrate_low']:.0%} otherwise. "
-                "Reset 90 seconds before spawns, then move with your team."
+                f"seconds before a dragon or baron is taken, versus {split['winrate_low']:.0%} "
+                "otherwise. Reset 90 seconds before spawns, then move with your team."
             ),
             evidence=(
                 f"WR {split['winrate_high']:.0%} ({split['n_high']} games) vs "
-                f"{split['winrate_low']:.0%} ({split['n_low']} games), p={split['p_value']:.3f}"
+                f"{split['winrate_low']:.0%} ({split['n_low']} games), "
+                f"{pre_dragon} pre-dragon / {pre_baron} pre-baron games, p={split['p_value']:.3f}"
             ),
             p_value=split["p_value"],
             effect_size=round(delta, 3),
@@ -329,7 +463,6 @@ class CoachEngine:
         )
 
     def _rule_objective_presence(self) -> Recommendation | None:
-        """Flag low presence at epic monster takes."""
         if self._objectives.empty:
             return None
         presence = float(self._objectives["present"].mean())
@@ -340,8 +473,8 @@ class CoachEngine:
             title="You miss too many objective fights",
             detail=(
                 f"You were near the pit for only {presence:.0%} of epic monster takes. "
-                f"{self._champion}'s zone control is a huge objective-fight advantage - shove "
-                "mid before spawns and rotate first, not last."
+                "Being present for objectives matters more than your average game shows — push "
+                "your assigned lane before rotating to the pit, and arrive first, not last."
             ),
             evidence=f"Present at {presence:.0%} of {len(self._objectives)} objective takes",
             p_value=None,
@@ -351,7 +484,6 @@ class CoachEngine:
         )
 
     def _rule_solo_deaths(self) -> Recommendation | None:
-        """Win-rate impact of solo (unassisted-by-team) deaths."""
         split = self._stats.winrate_split_test("solo_deaths", 2)
         if split is None or split["n_high"] < 3:
             return None
@@ -363,7 +495,7 @@ class CoachEngine:
             title="Solo deaths are your biggest leak",
             detail=(
                 f"With 2+ solo deaths your win rate drops to {split['winrate_high']:.0%} "
-                f"(vs {split['winrate_low']:.0%}). Most were with little recent team vision - "
+                f"(vs {split['winrate_low']:.0%}). Most were with little recent team vision — "
                 "don't cross the river without a ward and a reason."
             ),
             evidence=(
@@ -376,8 +508,159 @@ class CoachEngine:
             sample_size=split["n_high"] + split["n_low"],
         )
 
+    def _rule_greed_deaths(self) -> Recommendation | None:
+        if "greed_deaths" not in self._matches.columns:
+            return None
+        split = self._stats.winrate_split_test("greed_deaths", 2)
+        if split is None or split["n_high"] < 3:
+            return None
+        delta = split["winrate_low"] - split["winrate_high"]
+        if delta < 0.10:
+            return None
+        return Recommendation(
+            category="Deaths",
+            title="Greed deaths are a recurring pattern",
+            detail=(
+                f"Games with 2+ greed deaths win only {split['winrate_high']:.0%} "
+                f"(vs {split['winrate_low']:.0%}). These are deaths after overextending "
+                "without a clear payoff — back off when vision is thin or numbers are even."
+            ),
+            evidence=(
+                f"WR {split['winrate_high']:.0%} ({split['n_high']} games) vs "
+                f"{split['winrate_low']:.0%} ({split['n_low']} games), p={split['p_value']:.3f}"
+            ),
+            p_value=split["p_value"],
+            effect_size=round(delta, 3),
+            priority=_priority(delta, split["p_value"], split["n_high"] + split["n_low"]),
+            sample_size=split["n_high"] + split["n_low"],
+        )
+
+    def _rule_shutdown_bounties(self) -> Recommendation | None:
+        if "shutdown_given" not in self._matches.columns:
+            return None
+        split = self._stats.winrate_split_test("shutdown_given", 200)
+        if split is None or split["n_high"] < 3:
+            return None
+        delta = split["winrate_low"] - split["winrate_high"]
+        if delta < 0.08:
+            return None
+        series = pd.to_numeric(self._matches["shutdown_given"], errors="coerce").dropna()
+        avg = float(series.mean())
+        bounty_deaths = 0
+        if not self._deaths.empty and "shutdown_given" in self._deaths.columns:
+            bounty_deaths = int(
+                (pd.to_numeric(self._deaths["shutdown_given"], errors="coerce") > 0).sum()
+            )
+        return Recommendation(
+            category="Deaths",
+            title="You give away too many shutdown bounties",
+            detail=(
+                f"Games where you give 200+ shutdown gold win only {split['winrate_high']:.0%} "
+                f"(vs {split['winrate_low']:.0%}). You average {avg:.0f} shutdown gold given per "
+                "game. When ahead, play for safe positioning in fights instead of chasing "
+                "low-value kills."
+            ),
+            evidence=(
+                f"WR {split['winrate_high']:.0%} ({split['n_high']} high-bounty games) vs "
+                f"{split['winrate_low']:.0%} ({split['n_low']} games)"
+                + (f"; {bounty_deaths} bounty deaths logged" if bounty_deaths else "")
+            ),
+            p_value=split["p_value"],
+            effect_size=round(delta, 3),
+            priority=_priority(delta, split["p_value"], split["n_high"] + split["n_low"]),
+            sample_size=split["n_high"] + split["n_low"],
+        )
+
+    def _rule_throw_leads(self) -> Recommendation | None:
+        if "gd15" not in self._matches.columns:
+            return None
+        frame = self._matches[["gd15", "win"]].apply(pd.to_numeric, errors="coerce").dropna()
+        if len(frame) < MIN_GAMES:
+            return None
+        ahead = frame[frame["gd15"] >= 750]
+        if len(ahead) < 5:
+            return None
+        ahead_wr = float(ahead["win"].mean())
+        if ahead_wr >= 0.62:
+            return None
+        throws = ahead[ahead["win"] == 0]
+        throw_rate = len(throws) / len(frame)
+        return Recommendation(
+            category="Macro",
+            title="You throw leads you build in lane",
+            detail=(
+                f"You win only {ahead_wr:.0%} of games where you're 750+ gold ahead at 15 "
+                f"minutes ({len(throws)} throws in {len(ahead)} ahead games). Convert leads "
+                "with objective setup, vision, and grouped fights — don't bleed gold on "
+                "greedy side waves or bad skirmishes."
+            ),
+            evidence=(
+                f"{ahead_wr:.0%} WR when ahead at 15 ({len(ahead)} games); "
+                f"{throw_rate:.0%} of all games are thrown leads"
+            ),
+            p_value=None,
+            effect_size=round(0.62 - ahead_wr, 3),
+            priority=_priority(0.62 - ahead_wr, None, len(ahead)),
+            sample_size=len(ahead),
+        )
+
+    def _rule_teamfight_participation(self) -> Recommendation | None:
+        if "tf_participation" not in self._matches.columns:
+            return None
+        frame = self._matches[["tf_participation", "win"]].apply(pd.to_numeric, errors="coerce")
+        frame = frame.dropna()
+        if len(frame) < MIN_GAMES or frame["tf_participation"].nunique() < 2:
+            return None
+        split = self._stats.winrate_split_test("tf_participation", 0.65)
+        if split is None or split["n_low"] < 3:
+            return None
+        delta = split["winrate_high"] - split["winrate_low"]
+        if delta < 0.10:
+            return None
+        low_avg = float(frame[frame["tf_participation"] < 0.65]["tf_participation"].mean())
+        return Recommendation(
+            category="Teamfights",
+            title="Low teamfight participation is limiting your impact",
+            detail=(
+                f"When you show up to fewer than 65% of detected teamfights your win rate is "
+                f"{split['winrate_low']:.0%} versus {split['winrate_high']:.0%} otherwise "
+                f"(you average {low_avg:.0%} participation in those games). Group before "
+                "objectives and track fight timers on the map."
+            ),
+            evidence=(
+                f"WR {split['winrate_low']:.0%} ({split['n_low']} low-participation games) vs "
+                f"{split['winrate_high']:.0%} ({split['n_high']} games), p={split['p_value']:.3f}"
+            ),
+            p_value=split["p_value"],
+            effect_size=round(delta, 3),
+            priority=_priority(delta, split["p_value"], split["n_high"] + split["n_low"]),
+            sample_size=split["n_high"] + split["n_low"],
+        )
+
+    def _rule_dead_before_objectives(self) -> Recommendation | None:
+        if self._objectives.empty or "dead_before" not in self._objectives.columns:
+            return None
+        dead_rate = float(self._objectives["dead_before"].mean())
+        if dead_rate < 0.18 or len(self._objectives) < 12:
+            return None
+        by_kind = self._objectives.groupby("kind")["dead_before"].mean().sort_values(ascending=False)
+        worst_kind = str(by_kind.index[0]) if not by_kind.empty else "objective"
+        return Recommendation(
+            category="Objectives",
+            title="You're dead too often right before objectives",
+            detail=(
+                f"You were on death timer for {dead_rate:.0%} of epic monster takes "
+                f"({worst_kind} is the worst). Start your reset earlier and path toward "
+                "the pit 60–90 seconds before spawn so you're alive and in position."
+            ),
+            evidence=f"Dead before {dead_rate:.0%} of {len(self._objectives)} objective takes",
+            p_value=None,
+            effect_size=round(dead_rate, 3),
+            priority=_priority(dead_rate, None, len(self._objectives)),
+            sample_size=len(self._objectives),
+        )
+
     def _rule_cs10(self) -> Recommendation | None:
-        """Compare CS at 10 in wins vs losses."""
         frame = self._matches[["cs10", "win"]].apply(pd.to_numeric, errors="coerce").dropna()
         if len(frame) < MIN_GAMES:
             return None
@@ -388,9 +671,9 @@ class CoachEngine:
             category="Laning",
             title="Your CS at 10 minutes has room to grow",
             detail=(
-                f"You average {avg:.0f} CS at 10. {self._champion}'s power spikes are gold-bound: pushing this "
+                f"You average {avg:.0f} CS at 10. Your power spikes are gold-bound: pushing this "
                 "to 75+ is roughly a free half-item by mid game. Prioritise catching every "
-                "cannon and using Q resets on low minions."
+                "cannon and securing ranged minions under tower."
             ),
             evidence=f"Mean CS@10 = {avg:.1f} over {len(frame)} games",
             p_value=None,
@@ -400,7 +683,6 @@ class CoachEngine:
         )
 
     def _rule_lane_priority(self) -> Recommendation | None:
-        """Correlate lane priority with winning."""
         frame = self._matches[["lane_priority", "win"]].apply(pd.to_numeric, errors="coerce")
         frame = frame.dropna()
         if len(frame) < MIN_GAMES or frame["lane_priority"].nunique() < 2:
@@ -412,11 +694,12 @@ class CoachEngine:
             category="Laning",
             title="Lane priority translates directly into wins for you",
             detail=(
-                "Games where you hold mid priority (position past the halfway line) are "
-                "significantly more likely to be wins. Keep the wave crashing before every "
-                "objective spawn and roam off the shove."
+                "Games where you hold wave priority in lane are significantly more likely to "
+                "be wins. Keep the wave pushed before every objective spawn and roam off the "
+                "shove."
             ),
             evidence=f"Point-biserial r={corr:.2f}, p={p_value:.3f}, n={len(frame)}",
+            tone=RecommendationTone.POSITIVE,
             p_value=round(float(p_value), 5),
             effect_size=round(float(corr), 3),
             priority=_priority(float(corr), float(p_value), len(frame)),
@@ -427,15 +710,7 @@ class CoachEngine:
 def recommendations_markdown(
     recommendations: list[Recommendation], *, build_label: str = "Viktor mid"
 ) -> str:
-    """Render recommendations as a Markdown document.
-
-    Args:
-        recommendations: Ranked recommendations.
-        build_label: Champion + lane label for the document title.
-
-    Returns:
-        Markdown text for ``recommendations.md``.
-    """
+    """Render recommendations as a Markdown document."""
     lines = [f"# {build_label.title()} Coaching Recommendations", ""]
     if not recommendations:
         lines.append("_Not enough data to generate recommendations yet._")

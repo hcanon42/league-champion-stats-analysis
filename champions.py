@@ -83,6 +83,27 @@ def build_label(champion: str, role: str) -> str:
     return f"{champion} {role_display(role)}"
 
 
+def player_slug(riot_id: str, tagline: str) -> str:
+    """Filesystem slug for a Riot ID (``hugros_euw``).
+
+    Args:
+        riot_id: Game name portion of the Riot ID.
+        tagline: Tagline without ``#``.
+
+    Returns:
+        Lowercase ``{riot_id}_{tagline}`` with unsafe characters replaced.
+    """
+
+    def _part(value: str) -> str:
+        cleaned = "".join(
+            char if char.isalnum() or char in "-_" else "_"
+            for char in str(value).strip().lower()
+        )
+        return cleaned.strip("_") or "player"
+
+    return f"{_part(riot_id)}_{_part(tagline)}"
+
+
 def champion_slug(champion: str, role: str) -> str:
     """Filesystem slug for benchmark lookup (``ahri_middle``).
 
