@@ -172,6 +172,8 @@ class DeathEvent(BaseModel):
     before_dragon: bool = False
     before_baron: bool = False
     after_recall: bool = False
+    to_gank: bool = False  # laning-phase lane death with a roaming enemy involved
+    under_tower_laning: bool = False
     killer_champion: str | None = None
 
 
@@ -390,6 +392,8 @@ class MatchRecord(BaseModel):
             "deaths_pre20": self.deaths_before(20),
             "solo_deaths": sum(1 for d in self.deaths if d.alone),
             "greed_deaths": sum(1 for d in self.deaths if d.after_greed),
+            "gank_deaths_laning": sum(1 for d in self.deaths if d.to_gank),
+            "under_tower_laning_deaths": sum(1 for d in self.deaths if d.under_tower_laning),
             "side_lane_deaths": sum(1 for d in self.deaths if d.side_lane_push),
             "deaths_before_dragon": sum(1 for d in self.deaths if d.before_dragon),
             "deaths_before_baron": sum(1 for d in self.deaths if d.before_baron),

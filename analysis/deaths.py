@@ -11,8 +11,17 @@ from typing import Any
 import pandas as pd
 
 from analysis.timeline import TimelineContext
-from models import DeathEvent, ItemPurchase, MatchRecord, Position, RecallEvent, Zone
-from utils import classify_zone, distance, is_side_lane, ms_to_min, near_major_objective, push_progress
+from models import DeathEvent, MatchRecord, Position, RecallEvent, Zone
+from utils import (
+    LANING_PHASE_END_MIN,
+    classify_zone,
+    distance,
+    is_side_lane,
+    ms_to_min,
+    near_lane_tower,
+    near_major_objective,
+    push_progress,
+)
 
 NEARBY_RADIUS: float = 2_200.0
 GREED_PUSH_THRESHOLD: float = 2_600.0
@@ -24,7 +33,62 @@ BEFORE_OBJECTIVE_WINDOW_MS: int = 60_000
 AFTER_RECALL_WINDOW_MS: int = 45_000
 DEAD_BEFORE_WINDOW_MS: int = 45_000
 SIDE_LANE_MIN: float = 14.0
+LANE_GANK_ZONES: frozenset[Zone] = frozenset({Zone.TOP_LANE, Zone.MID_LANE, Zone.BOT_LANE})
 ZHONYA_ITEM_IDS: frozenset[int] = frozenset({3157, 2420})
+
+
+def _zhonya_in_inventory_at(ctx: TimelineContext, timestamp_ms: int) -> bool:
+    """Return whether Zhonya's or Stopwatch is in inventory at a timestamp.
+
+    Walks purchase, destroy, sell and undo events. Stopwatch consumption
+    emits ``ITEM_DESTROYED``; Zhonya's active does not remove the item.
+    """
+    owned = 0
+    for event in ctx.events:
+        if int(event.get("participantId", 0)) != ctx.participant_id:
+            continue
+        if int(event["timestamp"]) > timestamp_ms:
+            break
+        event_type = event.get("type")
+        if event_type == "ITEM_PURCHASED":
+            item_id = int(event.get("itemId", 0))
+            if item_id in ZHONYA_ITEM_IDS:
+                owned += 1
+        elif event_type in {"ITEM_DESTROYED", "ITEM_SOLD"}:
+            item_id = int(event.get("itemId", 0))
+            if item_id in ZHONYA_ITEM_IDS:
+                owned = max(0, owned - 1)
+        elif event_type == "ITEM_UNDO":
+            undone = int(event.get("beforeId", 0))
+            if undone in ZHONYA_ITEM_IDS:
+                owned = max(0, owned - 1)
+    return owned > 0
+
+
+def _is_gank_death(
+    event: dict[str, Any],
+    ctx: TimelineContext,
+    *,
+    minute: float,
+    zone: Zone,
+) -> bool:
+    """Whether a laning-phase lane death involved an extra enemy roaming in.
+
+    Counts only deaths before :data:`~utils.LANING_PHASE_END_MIN` in a lane
+    zone where the killer or an assist is not the lane opponent (e.g. enemy
+    jungler or roamer joined the fight).
+    """
+    if minute >= LANING_PHASE_END_MIN or zone not in LANE_GANK_ZONES:
+        return False
+    killer_id = int(event.get("killerId", 0))
+    assists = {int(a) for a in (event.get("assistingParticipantIds") or [])}
+    enemy_champs = {killer_id, *assists}
+    enemy_champs = {pid for pid in enemy_champs if pid in ctx.enemy_ids}
+    if not enemy_champs:
+        return False
+    if ctx.opponent_id is None:
+        return len(enemy_champs) >= 2
+    return any(pid != ctx.opponent_id for pid in enemy_champs)
 
 
 def _headcount_near(ctx: TimelineContext, pos: Position, timestamp_ms: int) -> tuple[int, int]:
@@ -58,7 +122,6 @@ def _headcount_near(ctx: TimelineContext, pos: Position, timestamp_ms: int) -> t
 
 def extract_deaths(
     ctx: TimelineContext,
-    purchases: list[ItemPurchase],
     recalls: list[RecallEvent],
     ult_learned_min: float | None,
 ) -> list[DeathEvent]:
@@ -66,7 +129,6 @@ def extract_deaths(
 
     Args:
         ctx: Timeline context.
-        purchases: The player's item purchase timeline (for Zhonya checks).
         recalls: Inferred recalls (for death-after-recall detection).
         ult_learned_min: Minute R was first skilled, or ``None``.
 
@@ -99,9 +161,7 @@ def extract_deaths(
         zone = classify_zone(pos)
         allies, enemies = _headcount_near(ctx, pos, ts)
         alone = allies == 0
-        zhonya = any(
-            p.item_id in ZHONYA_ITEM_IDS and p.minute <= minute for p in purchases
-        )
+        zhonya = _zhonya_in_inventory_at(ctx, ts)
         wards_recent = sum(
             1
             for w in ward_events
@@ -134,6 +194,8 @@ def extract_deaths(
                 after_recall=any(
                     0 <= ts - int(r.minute * 60_000) <= AFTER_RECALL_WINDOW_MS for r in recalls
                 ),
+                to_gank=_is_gank_death(event, ctx, minute=minute, zone=zone),
+                under_tower_laning=minute < LANING_PHASE_END_MIN and near_lane_tower(pos),
                 killer_champion=ctx.id_to_champion.get(int(event.get("killerId", 0))),
             )
         )
@@ -177,6 +239,8 @@ def deaths_dataframe(records: list[MatchRecord]) -> pd.DataFrame:
                     "before_dragon": death.before_dragon,
                     "before_baron": death.before_baron,
                     "after_recall": death.after_recall,
+                    "to_gank": death.to_gank,
+                    "under_tower_laning": death.under_tower_laning,
                     "killer": death.killer_champion or "Unknown",
                 }
             )
@@ -199,6 +263,10 @@ def death_summary(deaths_df: pd.DataFrame) -> dict[str, Any]:
         "total_deaths": total,
         "solo_death_rate": round(float(deaths_df["alone"].mean()), 3),
         "greed_death_rate": round(float(deaths_df["after_greed"].mean()), 3),
+        "gank_death_rate": round(float(deaths_df["to_gank"].mean()), 3),
+        "under_tower_laning_death_rate": round(
+            float(deaths_df["under_tower_laning"].mean()), 3
+        ),
         "side_lane_death_rate": round(float(deaths_df["side_lane_push"].mean()), 3),
         "death_before_dragon_rate": round(float(deaths_df["before_dragon"].mean()), 3),
         "death_before_baron_rate": round(float(deaths_df["before_baron"].mean()), 3),

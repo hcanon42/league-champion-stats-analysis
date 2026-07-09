@@ -83,6 +83,27 @@ def build_label(champion: str, role: str) -> str:
     return f"{champion} {role_display(role)}"
 
 
+def parse_riot_id(value: str) -> tuple[str, str]:
+    """Parse a Riot ID in ``Name#Tag`` form.
+
+    Args:
+        value: Combined Riot ID (e.g. ``Faker#KR1``).
+
+    Returns:
+        ``(game_name, tagline)`` without the ``#`` separator.
+
+    Raises:
+        ValueError: When the value is not a valid ``Name#Tag`` string.
+    """
+    if "#" not in value:
+        raise ValueError(f"Expected Riot ID as 'Name#Tag', got {value!r}")
+    name, tag = value.rsplit("#", 1)
+    name, tag = name.strip(), tag.strip()
+    if not name or not tag:
+        raise ValueError(f"Expected Riot ID as 'Name#Tag', got {value!r}")
+    return name, tag
+
+
 def player_slug(riot_id: str, tagline: str) -> str:
     """Filesystem slug for a Riot ID (``hugros_euw``).
 
@@ -102,6 +123,23 @@ def player_slug(riot_id: str, tagline: str) -> str:
         return cleaned.strip("_") or "player"
 
     return f"{_part(riot_id)}_{_part(tagline)}"
+
+
+def players_group_slug(players: list[tuple[str, str]]) -> str:
+    """Filesystem slug for one or more tracked players.
+
+    Args:
+        players: ``(riot_id, tagline)`` pairs.
+
+    Returns:
+        A single-player slug, or sorted multi-player slugs joined with ``__``.
+    """
+    if not players:
+        return "player"
+    if len(players) == 1:
+        riot_id, tagline = players[0]
+        return player_slug(riot_id, tagline)
+    return "__".join(sorted(player_slug(riot_id, tagline) for riot_id, tagline in players))
 
 
 def champion_slug(champion: str, role: str) -> str:

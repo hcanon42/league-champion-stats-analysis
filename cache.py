@@ -6,7 +6,8 @@ Two complementary stores are used:
   responses (account lookups, match-id pages, static data) with TTLs.
 * :class:`MatchStore` — a :mod:`sqlite3` database holding raw match and
   timeline JSON documents forever, guaranteeing a match is never downloaded
-  twice.
+  twice. Player ownership is tracked in a separate ``match_players`` join
+  table so duo-queue games are indexed for every tracked player.
 """
 
 from __future__ import annotations
@@ -24,14 +25,18 @@ from utils import get_logger
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS matches (
     match_id TEXT PRIMARY KEY,
-    puuid    TEXT NOT NULL,
     payload  TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS timelines (
     match_id TEXT PRIMARY KEY,
     payload  TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_matches_puuid ON matches (puuid);
+CREATE TABLE IF NOT EXISTS match_players (
+    match_id TEXT NOT NULL,
+    puuid    TEXT NOT NULL,
+    PRIMARY KEY (match_id, puuid)
+);
+CREATE INDEX IF NOT EXISTS idx_match_players_puuid ON match_players (puuid);
 """
 
 
@@ -90,6 +95,7 @@ class MatchStore:
         self._conn = sqlite3.connect(str(db_path))
         self._conn.executescript(_SCHEMA)
         self._log = get_logger("cache")
+        self._migrate_legacy_schema()
 
     def __enter__(self) -> "MatchStore":
         """Enter a context manager scope."""
@@ -103,6 +109,30 @@ class MatchStore:
     ) -> None:
         """Close the store on context exit."""
         self.close()
+
+    def _migrate_legacy_schema(self) -> None:
+        """Move ownership from ``matches.puuid`` into ``match_players``."""
+        cols = {row[1] for row in self._conn.execute("PRAGMA table_info(matches)")}
+        if "puuid" not in cols:
+            return
+        self._log.info("Migrating match ownership to match_players table")
+        self._conn.execute(
+            "INSERT OR IGNORE INTO match_players (match_id, puuid) "
+            "SELECT match_id, puuid FROM matches"
+        )
+        self._conn.executescript(
+            """
+            CREATE TABLE matches_new (
+                match_id TEXT PRIMARY KEY,
+                payload  TEXT NOT NULL
+            );
+            INSERT INTO matches_new (match_id, payload)
+            SELECT match_id, payload FROM matches;
+            DROP TABLE matches;
+            ALTER TABLE matches_new RENAME TO matches;
+            """
+        )
+        self._conn.commit()
 
     def has_match(self, match_id: str) -> bool:
         """Whether both match and timeline documents are stored.
@@ -120,16 +150,29 @@ class MatchStore:
         return row is not None
 
     def save_match(self, match_id: str, puuid: str, match: dict[str, Any]) -> None:
-        """Persist a raw match document.
+        """Persist a raw match document and record player ownership.
 
         Args:
             match_id: Riot match id.
-            puuid: PUUID of the tracked player (for indexing).
+            puuid: PUUID of the tracked player (indexed via ``match_players``).
             match: Raw match-v5 JSON document.
         """
+        payload = json.dumps(match)
+        if self._conn.execute(
+            "SELECT 1 FROM matches WHERE match_id = ?", (match_id,)
+        ).fetchone():
+            self._conn.execute(
+                "UPDATE matches SET payload = ? WHERE match_id = ?",
+                (payload, match_id),
+            )
+        else:
+            self._conn.execute(
+                "INSERT INTO matches (match_id, payload) VALUES (?, ?)",
+                (match_id, payload),
+            )
         self._conn.execute(
-            "INSERT OR REPLACE INTO matches (match_id, puuid, payload) VALUES (?, ?, ?)",
-            (match_id, puuid, json.dumps(match)),
+            "INSERT OR IGNORE INTO match_players (match_id, puuid) VALUES (?, ?)",
+            (match_id, puuid),
         )
         self._conn.commit()
 
@@ -175,15 +218,17 @@ class MatchStore:
         return json.loads(row[0]) if row else None
 
     def iter_match_ids(self, puuid: str) -> Iterator[str]:
-        """Iterate over every stored match id for a player.
+        """Iterate over every stored match id owned by a player.
 
         Args:
             puuid: The player's PUUID.
 
         Yields:
-            Match ids, most recent insertion order not guaranteed.
+            Match ids for that player.
         """
-        cursor = self._conn.execute("SELECT match_id FROM matches WHERE puuid = ?", (puuid,))
+        cursor = self._conn.execute(
+            "SELECT match_id FROM match_players WHERE puuid = ?", (puuid,)
+        )
         for (match_id,) in cursor:
             yield match_id
 

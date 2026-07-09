@@ -172,6 +172,8 @@ class CoachEngine:
             self._rule_objective_presence,
             self._rule_solo_deaths,
             self._rule_greed_deaths,
+            self._rule_gank_deaths_laning,
+            self._rule_under_tower_laning_deaths,
             self._rule_shutdown_bounties,
             self._rule_throw_leads,
             self._rule_teamfight_participation,
@@ -524,6 +526,61 @@ class CoachEngine:
                 f"Games with 2+ greed deaths win only {split['winrate_high']:.0%} "
                 f"(vs {split['winrate_low']:.0%}). These are deaths after overextending "
                 "without a clear payoff — back off when vision is thin or numbers are even."
+            ),
+            evidence=(
+                f"WR {split['winrate_high']:.0%} ({split['n_high']} games) vs "
+                f"{split['winrate_low']:.0%} ({split['n_low']} games), p={split['p_value']:.3f}"
+            ),
+            p_value=split["p_value"],
+            effect_size=round(delta, 3),
+            priority=_priority(delta, split["p_value"], split["n_high"] + split["n_low"]),
+            sample_size=split["n_high"] + split["n_low"],
+        )
+
+    def _rule_gank_deaths_laning(self) -> Recommendation | None:
+        if "gank_deaths_laning" not in self._matches.columns:
+            return None
+        split = self._stats.winrate_split_test("gank_deaths_laning", 1)
+        if split is None or split["n_high"] < 3:
+            return None
+        delta = split["winrate_low"] - split["winrate_high"]
+        if delta < 0.10:
+            return None
+        return Recommendation(
+            category="Laning",
+            title="Gank deaths in lane are a pattern",
+            detail=(
+                f"Games with a gank death before 14 minutes win only {split['winrate_high']:.0%} "
+                f"(vs {split['winrate_low']:.0%}). Track the jungler, respect river wards, and "
+                "don't push without knowing where the enemy jungler started."
+            ),
+            evidence=(
+                f"WR {split['winrate_high']:.0%} ({split['n_high']} games) vs "
+                f"{split['winrate_low']:.0%} ({split['n_low']} games), p={split['p_value']:.3f}"
+            ),
+            p_value=split["p_value"],
+            effect_size=round(delta, 3),
+            priority=_priority(delta, split["p_value"], split["n_high"] + split["n_low"]),
+            sample_size=split["n_high"] + split["n_low"],
+        )
+
+    def _rule_under_tower_laning_deaths(self) -> Recommendation | None:
+        if "under_tower_laning_deaths" not in self._matches.columns:
+            return None
+        split = self._stats.winrate_split_test("under_tower_laning_deaths", 1)
+        if split is None or split["n_high"] < 3:
+            return None
+        delta = split["winrate_low"] - split["winrate_high"]
+        if delta < 0.10:
+            return None
+        return Recommendation(
+            category="Laning",
+            title="You're dying under tower in lane",
+            detail=(
+                f"When you die under tower before 14 minutes your win rate is only "
+                f"{split['winrate_high']:.0%} (vs {split['winrate_low']:.0%}). Respect dive "
+                "threats: manage wave state, keep health above dive thresholds, and ping "
+                "for jungle help before you get trapped."
             ),
             evidence=(
                 f"WR {split['winrate_high']:.0%} ({split['n_high']} games) vs "

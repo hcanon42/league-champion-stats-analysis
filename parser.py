@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
-from typing import Any, Final
+from typing import Any, Iterable, Final
 
 from analysis.deaths import extract_deaths
 from analysis.objectives import extract_objectives
@@ -240,7 +240,7 @@ MatchFilter = BuildMatchFilter
 
 def discover_build_pools(
     store: MatchStore,
-    puuid: str,
+    puuids: str | Iterable[str],
     config: AppConfig,
     *,
     min_games: int = 20,
@@ -249,26 +249,31 @@ def discover_build_pools(
 
     Args:
         store: SQLite match store.
-        puuid: The tracked player's PUUID.
+        puuids: One or more tracked player PUUIDs (games are pooled).
         config: Application configuration (queue filter).
         min_games: Minimum solo/duo games required to include a build.
 
     Returns:
         Build pools sorted by game count (most played first).
     """
+    if isinstance(puuids, str):
+        puuid_list = [puuids]
+    else:
+        puuid_list = list(puuids)
     match_filter = BaseMatchFilter(config)
     counts: Counter[tuple[str, str]] = Counter()
-    for match_id in store.iter_match_ids(puuid):
-        match = store.load_match(match_id)
-        if not match or not match_filter.accept(match, puuid):
-            continue
-        me = match_filter.find_participant(match, puuid)
-        assert me is not None
-        champion = str(me.get("championName", ""))
-        role = str(me.get("teamPosition", ""))
-        if not champion or role not in VALID_ROLES:
-            continue
-        counts[(champion, role)] += 1
+    for puuid in puuid_list:
+        for match_id in store.iter_match_ids(puuid):
+            match = store.load_match(match_id)
+            if not match or not match_filter.accept(match, puuid):
+                continue
+            me = match_filter.find_participant(match, puuid)
+            assert me is not None
+            champion = str(me.get("championName", ""))
+            role = str(me.get("teamPosition", ""))
+            if not champion or role not in VALID_ROLES:
+                continue
+            counts[(champion, role)] += 1
 
     pools = [
         BuildPool(champion=champion, role=role, games=games)
@@ -324,7 +329,7 @@ class MatchParser:
         timeline_stats.solo_share = positioning["solo_share"]
         timeline_stats.side_lane_share = positioning["side_lane_share"]
         timeline_stats.avg_allies_nearby = positioning["avg_allies_nearby"]
-        deaths = extract_deaths(ctx, purchases, timeline_stats.recalls, ult_learned_min)
+        deaths = extract_deaths(ctx, timeline_stats.recalls, ult_learned_min)
         shutdown_collected = sum(
             int(e.get("shutdownBounty", 0))
             for e in ctx.events_of("CHAMPION_KILL")

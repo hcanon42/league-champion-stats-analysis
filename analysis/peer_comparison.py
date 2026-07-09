@@ -399,6 +399,45 @@ def peer_recommendations(
     return [rec for _, rec in tips[:5]]
 
 
+def peer_comparison_for_window(
+    base: PeerComparisonResult,
+    matches_df: pd.DataFrame,
+    records: list[MatchRecord],
+) -> PeerComparisonResult:
+    """Recompute user-side peer comparisons for a sliced game window.
+
+    Args:
+        base: Full-run peer comparison (benchmark and metadata reused).
+        matches_df: Filtered per-game table for this window.
+        records: Filtered parsed records for this window.
+
+    Returns:
+        Updated comparison with window-specific user averages.
+    """
+    peer_avgs = {comp.metric: comp.peer_avg for comp in base.comparisons}
+    user_avgs = _user_averages(matches_df)
+    if records:
+        for key in ("cs10", "gd10", "deaths_pre14"):
+            if key in matches_df.columns and matches_df[key].notna().any():
+                user_avgs[key] = float(
+                    pd.to_numeric(matches_df[key], errors="coerce").dropna().mean()
+                )
+    comparisons = build_comparisons(user_avgs, peer_avgs)
+    strengths = [
+        _comparison_summary_line(comp) for comp in comparisons if comp.verdict == "above"
+    ][:4]
+    weaknesses = [
+        _comparison_summary_line(comp) for comp in comparisons if comp.verdict == "below"
+    ][:4]
+    return base.model_copy(
+        update={
+            "comparisons": comparisons,
+            "strengths": strengths,
+            "weaknesses": weaknesses,
+        }
+    )
+
+
 def build_peer_comparison(
     client: RiotApiClient,
     store: MatchStore,

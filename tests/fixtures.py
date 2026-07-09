@@ -125,6 +125,7 @@ def make_player_match(
     *,
     champion: str = "Viktor",
     position: str = "MIDDLE",
+    puuid: str = MY_PUUID,
     duration_s: int = 1200,
     queue_id: int = 420,
 ) -> dict[str, Any]:
@@ -133,6 +134,7 @@ def make_player_match(
     match["metadata"]["matchId"] = match_id
     match["info"]["participants"][0]["championName"] = champion
     match["info"]["participants"][0]["teamPosition"] = position
+    match["info"]["participants"][0]["puuid"] = puuid
     return match
 
 
@@ -175,7 +177,7 @@ def make_timeline(duration_s: int = 1200) -> dict[str, Any]:
     """Build the synthetic timeline document.
 
     Includes purchases (boots, Lost Chapter, Luden's, Zhonya), skill-ups,
-    wards, one dragon, one baron, one tower, a mid-lane teamfight and two
+    wards, one dragon, one baron, one tower, a mid-lane teamfight and three
     deaths of the tracked player.
 
     Args:
@@ -230,6 +232,16 @@ def make_timeline(duration_s: int = 1200) -> dict[str, Any]:
             assistingParticipantIds=[],
             victimDamageReceived=[
                 {"participantId": 1, "physicalDamage": 0, "magicDamage": 900, "trueDamage": 0}
+            ],
+        ),
+        # Player dies to a mid-lane gank dive under tower at 8 min.
+        ev(
+            480_000, type="CHAMPION_KILL", killerId=6, victimId=1,
+            position={"x": 5750, "y": 6300}, bounty=200, shutdownBounty=0,
+            assistingParticipantIds=[7],
+            victimDamageReceived=[
+                {"participantId": 6, "physicalDamage": 0, "magicDamage": 700, "trueDamage": 0},
+                {"participantId": 7, "physicalDamage": 400, "magicDamage": 0, "trueDamage": 0},
             ],
         ),
         # Player dies alone in enemy jungle 60 s before the dragon.

@@ -30,8 +30,31 @@ MID_HALF_WIDTH: Final[float] = 1150.0
 LANE_EDGE: Final[float] = 1650.0
 BASE_RADIUS: Final[float] = 3200.0
 OBJECTIVE_RADIUS: Final[float] = 2500.0
+LANING_PHASE_END_MIN: Final[float] = 14.0
+TOWER_RADIUS: Final[float] = 1150.0
+# Outer, inner and inhibitor turrets on Summoner's Rift (map units).
+LANE_TOWER_POSITIONS: Final[tuple[Position, ...]] = (
+    Position(x=10504, y=1029),
+    Position(x=10505, y=2546),
+    Position(x=10481, y=4610),
+    Position(x=5846, y=6396),
+    Position(x=5048, y=4812),
+    Position(x=3651, y=3696),
+    Position(x=992, y=10441),
+    Position(x=2546, y=10504),
+    Position(x=4610, y=10481),
+    Position(x=13866, y=4505),
+    Position(x=13327, y=8220),
+    Position(x=13696, y=10504),
+    Position(x=8955, y=8510),
+    Position(x=9767, y=10113),
+    Position(x=11134, y=11223),
+    Position(x=4318, y=13875),
+    Position(x=7943, y=13411),
+    Position(x=10481, y=13650),
+)
 
-LOGGER_NAME: Final[str] = "viktor_analyzer"
+LOGGER_NAME: Final[str] = "league_champion_analyzer"
 
 
 def setup_logging(verbose: bool = False) -> logging.Logger:
@@ -119,6 +142,19 @@ def is_side_lane(zone: Zone) -> bool:
         ``True`` for top or bot lane.
     """
     return zone in (Zone.TOP_LANE, Zone.BOT_LANE)
+
+
+def near_lane_tower(pos: Position, radius: float = TOWER_RADIUS) -> bool:
+    """Whether a position lies within turret range of a lane tower.
+
+    Args:
+        pos: Position to test.
+        radius: Distance threshold in map units.
+
+    Returns:
+        ``True`` when within ``radius`` of any lane turret platform.
+    """
+    return any(distance(pos, tower) < radius for tower in LANE_TOWER_POSITIONS)
 
 
 def near_major_objective(pos: Position) -> bool:

@@ -85,6 +85,19 @@ tr:last-child td { border-bottom: none; }
 .badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 10px; background: var(--panel-2); color: var(--muted); margin-right: 8px; text-transform: uppercase; letter-spacing: .05em; }
 .delta-above { color: var(--win); } .delta-below { color: var(--loss); } .delta-inline { color: var(--muted); }
 footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px solid var(--border); }
+.game-window-bar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  position: sticky; top: 0; z-index: 5; background: var(--bg);
+  padding: 0 0 20px; margin-bottom: 8px; border-bottom: 1px solid var(--border);
+}
+.game-window-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.game-window-btn {
+  border: 1px solid var(--border); background: var(--panel-2); color: var(--text);
+  border-radius: 999px; padding: 8px 14px; font: inherit; font-size: 13px; cursor: pointer;
+}
+.game-window-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.game-window-btn.is-active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.game-window-btn:disabled { opacity: .45; cursor: not-allowed; }
 @media (max-width: 860px) {
   .layout { flex-direction: column; }
   nav { width: 100%; height: auto; position: static; display: flex; flex-wrap: wrap; }
@@ -99,7 +112,7 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
 <nav>
   <h1>{{ app_title }}</h1>
   <a href="../index.html" style="display:block;padding:0 20px 8px;color:var(--muted);font-size:13px;">← Your champions</a>
-  <a href="../../index.html" style="display:block;padding:0 20px 12px;color:var(--muted);font-size:13px;">← All players</a>
+  <a href="../../../index.html" style="display:block;padding:0 20px 12px;color:var(--muted);font-size:13px;">← All players</a>
   {% if player_builds %}
   <div style="padding:0 16px 16px;">
     <label for="build-switcher" style="display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">Switch build</label>
@@ -127,10 +140,22 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
 </nav>
 <main>
 
+<div class="game-window-bar" id="game-window-bar">
+  <span class="game-window-label">Games</span>
+  {% for option in game_window_options %}
+  <button
+    type="button"
+    class="game-window-btn{% if option.key == game_window_default %} is-active{% endif %}"
+    data-window="{{ option.key }}"
+    {% if not option.enabled %}disabled{% endif %}
+  >{{ option.label }}</button>
+  {% endfor %}
+</div>
+
 <section id="overview">
   <h2>Overview — {{ player_name }}</h2>
-  <p class="sub">{{ total_games }} ranked solo queue {{ build_label }} games analysed · patches {{ patch_range }}</p>
-  <div class="cards">
+  <p class="sub" id="overview-subtitle">{{ total_games }} ranked solo queue {{ build_label }} games analysed · patches {{ patch_range }}</p>
+  <div class="cards" id="overview-cards">
     <div class="card"><div class="label">Win rate</div><div class="value {{ 'win' if overview.winrate >= 0.5 else 'loss' }}">{{ '%.0f' % (overview.winrate * 100) }}%</div></div>
     <div class="card"><div class="label">KDA</div><div class="value">{{ overview.avg_kda }}</div></div>
     <div class="card"><div class="label">DPM</div><div class="value">{{ overview.avg_dpm }}</div></div>
@@ -140,15 +165,15 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
     <div class="card"><div class="label">Vision/min</div><div class="value">{{ overview.avg_vspm }}</div></div>
     <div class="card"><div class="label">Avg game</div><div class="value">{{ overview.avg_duration }} min</div></div>
   </div>
-  <div class="figure">{{ figures.winrate_trend | safe }}</div>
+  <div class="figure" id="fig-winrate_trend">{{ figures.winrate_trend | safe }}</div>
 </section>
 
 <section id="score">
   <h2>Improvement score</h2>
   <p class="sub">Composite of laning, farming, survival, damage, vision, objectives and reset quality against fixed benchmarks.</p>
   <div class="score-ring">
-    <div class="score-big">{{ score }}<span style="font-size:24px;color:var(--muted)">/100</span></div>
-    <div class="score-comps">
+    <div class="score-big" id="score-value">{{ score }}<span style="font-size:24px;color:var(--muted)">/100</span></div>
+    <div class="score-comps" id="score-comps">
       {% for comp in score_components %}
       <div class="comp">
         <strong>{{ comp.name }}</strong> — {{ comp.value }}
@@ -160,11 +185,11 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
   </div>
 </section>
 
-{% if peer_comparison %}
+{% if has_peer_comparison %}
 <section id="rank-peers">
   <h2>Rank peer comparison</h2>
-  <p class="sub">Your averages vs {{ build_label }} at <strong>{{ peer_comparison.rank_label }}</strong> · {{ peer_comparison.source }} · {{ peer_comparison.peer_games }} peer games ({{ peer_comparison.peer_players }} players)</p>
-  <div class="cards">
+  <p class="sub" id="peer-subtitle">Your averages vs {{ build_label }} at <strong>{{ peer_comparison.rank_label }}</strong> · {{ peer_comparison.source }} · {{ peer_comparison.peer_games }} peer games ({{ peer_comparison.peer_players }} players)</p>
+  <div class="cards" id="peer-highlight-cards">
     {% for label, items in [('Strengths', peer_comparison.strengths), ('Weaknesses', peer_comparison.weaknesses)] %}
     <div class="card" style="grid-column: span 2;">
       <div class="label">{{ label }}</div>
@@ -176,9 +201,12 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
     </div>
     {% endfor %}
   </div>
-  <div class="figure">{{ figures.peer_comparison | safe }}</div>
+  <div class="figure" id="fig-peer_comparison">{{ figures.peer_comparison | safe }}</div>
   <table>
+    <thead>
     <tr><th>Metric</th><th>You</th><th>{{ peer_comparison.tier|title }} {{ build_label }} avg</th><th>Gap</th><th>Verdict</th></tr>
+    </thead>
+    <tbody id="peer-table-body">
     {% for row in peer_rows %}
     <tr>
       <td>{{ row.label }}</td>
@@ -188,62 +216,64 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
       <td class="delta-{{ row.verdict }}">{{ row.verdict }}</td>
     </tr>
     {% endfor %}
+    </tbody>
   </table>
 </section>
 {% endif %}
 
 <section id="lane">
   <h2>Lane</h2>
-  <div class="cards">
+  <div class="cards" id="lane-cards">
     {% for label, value in lane_cards %}
     <div class="card"><div class="label">{{ label }}</div><div class="value">{{ value }}</div></div>
     {% endfor %}
   </div>
-  <div class="figure">{{ figures.gd10_histogram | safe }}</div>
-  <div class="figure">{{ figures.gold_diff_timeline | safe }}</div>
-  <div class="figure">{{ figures.cs10_violin | safe }}</div>
+  <div class="figure" id="fig-gd10_histogram">{{ figures.gd10_histogram | safe }}</div>
+  <div class="figure" id="fig-gold_diff_timeline">{{ figures.gold_diff_timeline | safe }}</div>
+  <div class="figure" id="fig-cs10_violin">{{ figures.cs10_violin | safe }}</div>
 </section>
 
 <section id="economy">
   <h2>Economy</h2>
-  <div class="cards">
+  <div class="cards" id="economy-cards">
     {% for label, value in economy_cards %}
     <div class="card"><div class="label">{{ label }}</div><div class="value">{{ value }}</div></div>
     {% endfor %}
   </div>
-  <div class="figure">{{ figures.dpm_scatter | safe }}</div>
+  <div class="figure" id="fig-dpm_scatter">{{ figures.dpm_scatter | safe }}</div>
 </section>
 
 <section id="vision">
   <h2>Vision</h2>
-  <div class="cards">
+  <div class="cards" id="vision-cards">
     {% for label, value in vision_cards %}
     <div class="card"><div class="label">{{ label }}</div><div class="value">{{ value }}</div></div>
     {% endfor %}
   </div>
-  <div class="figure">{{ figures.vision_trend | safe }}</div>
+  <div class="figure" id="fig-vision_trend">{{ figures.vision_trend | safe }}</div>
 </section>
 
 <section id="deaths">
   <h2>Deaths</h2>
-  <div class="cards">
+  <div class="cards" id="death-cards">
     {% for label, value in death_cards %}
     <div class="card"><div class="label">{{ label }}</div><div class="value">{{ value }}</div></div>
     {% endfor %}
   </div>
-  <div class="figure">{{ figures.death_heatmap | safe }}</div>
-  <div class="figure">{{ figures.deaths_box | safe }}</div>
-  {% if blind_spots %}
+  <div class="figure" id="fig-death_heatmap">{{ figures.death_heatmap | safe }}</div>
+  <div class="figure" id="fig-deaths_box">{{ figures.deaths_box | safe }}</div>
+  <div id="blind-spots-block"{% if not blind_spots %} style="display:none"{% endif %}>
   <h3>Most dangerous zones (solo deaths without recent team vision)</h3>
-  <table><tr><th>Zone</th><th>Deaths</th></tr>
+  <table><thead><tr><th>Zone</th><th>Deaths</th></tr></thead>
+  <tbody id="blind-spots-body">
   {% for spot in blind_spots %}<tr><td>{{ spot.zone }}</td><td>{{ spot.deaths }}</td></tr>{% endfor %}
-  </table>
-  {% endif %}
+  </tbody></table>
+  </div>
 </section>
 
 <section id="teamfights">
   <h2>Teamfights</h2>
-  <div class="cards">
+  <div class="cards" id="teamfight-cards">
     {% for label, value in teamfight_cards %}
     <div class="card"><div class="label">{{ label }}</div><div class="value">{{ value }}</div></div>
     {% endfor %}
@@ -253,53 +283,63 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
 <section id="objectives">
   <h2>Objectives</h2>
   <table>
+    <thead>
     <tr><th>Objective</th><th>Count</th><th>Taken</th><th>Present</th><th>Arrived early</th><th>Dead before</th><th>Wards before</th></tr>
+    </thead>
+    <tbody id="objective-table-body">
     {% for kind, row in objective_rows %}
     <tr><td>{{ kind }}</td><td>{{ row.count }}</td><td>{{ '%.0f' % (row.taken_rate * 100) }}%</td><td>{{ '%.0f' % (row.presence_rate * 100) }}%</td><td>{{ '%.0f' % (row.early_rate * 100) }}%</td><td>{{ '%.0f' % (row.dead_before_rate * 100) }}%</td><td>{{ row.avg_wards_before }}</td></tr>
     {% endfor %}
+    </tbody>
   </table>
-  <div class="figure">{{ figures.objective_timing | safe }}</div>
+  <div class="figure" id="fig-objective_timing">{{ figures.objective_timing | safe }}</div>
 </section>
 
 <section id="items">
   <h2>Items</h2>
-  <div class="figure">{{ figures.item_winrate_bar | safe }}</div>
+  <div class="figure" id="fig-item_winrate_bar">{{ figures.item_winrate_bar | safe }}</div>
   <h3>Two-item cores</h3>
   <table>
-    <tr><th>Core</th><th>Games</th><th>Win rate</th><th>Avg DPM</th><th>Avg deaths</th></tr>
+    <thead><tr><th>Core</th><th>Games</th><th>Win rate</th><th>Avg DPM</th><th>Avg deaths</th></tr></thead>
+    <tbody id="build-paths-body">
     {% for row in build_paths %}
     <tr><td>{{ row.core }}</td><td>{{ row.games }}</td><td>{{ '%.0f' % (row.winrate * 100) }}%</td><td>{{ row.avg_dpm }}</td><td>{{ row.avg_deaths }}</td></tr>
     {% endfor %}
+    </tbody>
   </table>
 </section>
 
 <section id="runes">
   <h2>Runes</h2>
-  <div class="figure">{{ figures.rune_winrate_bar | safe }}</div>
+  <div class="figure" id="fig-rune_winrate_bar">{{ figures.rune_winrate_bar | safe }}</div>
   <table>
-    <tr><th>Keystone</th><th>Games</th><th>Win rate</th><th>Avg DPM</th><th>Avg deaths</th></tr>
+    <thead><tr><th>Keystone</th><th>Games</th><th>Win rate</th><th>Avg DPM</th><th>Avg deaths</th></tr></thead>
+    <tbody id="rune-rows-body">
     {% for row in rune_rows %}
     <tr><td>{{ row.keystone }}</td><td>{{ row.games }}</td><td>{{ '%.0f' % (row.winrate * 100) }}%</td><td>{{ row.avg_dpm }}</td><td>{{ row.avg_deaths }}</td></tr>
     {% endfor %}
+    </tbody>
   </table>
 </section>
 
 <section id="matchups">
   <h2>Matchups</h2>
-  <div class="figure">{{ figures.matchup_bar | safe }}</div>
+  <div class="figure" id="fig-matchup_bar">{{ figures.matchup_bar | safe }}</div>
   <table>
-    <tr><th>Opponent</th><th>Games</th><th>Win rate</th><th>GD@10</th><th>CSD@10</th><th>Deaths pre-14</th><th>Recommendation</th></tr>
+    <thead><tr><th>Opponent</th><th>Games</th><th>Win rate</th><th>GD@10</th><th>CSD@10</th><th>Deaths pre-14</th><th>Recommendation</th></tr></thead>
+    <tbody id="matchup-rows-body">
     {% for row in matchup_rows %}
     <tr><td>{{ row.opponent }}</td><td>{{ row.games }}</td><td>{{ '%.0f' % (row.winrate * 100) }}%</td><td>{{ row.avg_gd10 }}</td><td>{{ row.avg_csd10 }}</td><td>{{ row.avg_deaths_pre14 }}</td><td>{{ row.recommendation }}</td></tr>
     {% endfor %}
+    </tbody>
   </table>
 </section>
 
 <section id="graphs">
   <h2>Graphs</h2>
-  <div class="figure">{{ figures.correlation_heatmap | safe }}</div>
-  <div class="figure">{{ figures.win_correlation_bar | safe }}</div>
-  <div class="figure">{{ figures.feature_importance | safe }}</div>
+  <div class="figure" id="fig-correlation_heatmap">{{ figures.correlation_heatmap | safe }}</div>
+  <div class="figure" id="fig-win_correlation_bar">{{ figures.win_correlation_bar | safe }}</div>
+  <div class="figure" id="fig-feature_importance">{{ figures.feature_importance | safe }}</div>
   <div class="figure figure--with-help">
     <button type="button" class="figure-info-btn" aria-expanded="false" aria-controls="archetype-help" title="How to read this chart">?</button>
     <div class="figure-info-panel" id="archetype-help" role="region" aria-label="Game archetypes guide">
@@ -320,16 +360,15 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
         <li><em>Close loss</em> — other losses</li>
       </ul>
     </div>
-    {{ figures.cluster_scatter | safe }}
+    <div id="fig-cluster_scatter">{{ figures.cluster_scatter | safe }}</div>
   </div>
 </section>
 
 <section id="recommendations">
   <h2>Recommendations</h2>
   <p class="sub">Strengths on the left, areas to improve on the right — top {{ recommendation_visible_count }} per side, ranked by priority.</p>
-  {% if positive_recommendations or negative_recommendations %}
-  <div class="rec-columns">
-    <div class="rec-column rec-column-positive">
+  <div class="rec-columns" id="recommendations-root">
+    <div class="rec-column rec-column-positive" id="rec-positive-column">
       <h3>Keep doing</h3>
       {% if positive_recommendations %}
       {% for rec in positive_recommendations[:recommendation_visible_count] %}
@@ -357,7 +396,7 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
       <p class="rec-empty">No clear strengths surfaced yet — keep playing more games.</p>
       {% endif %}
     </div>
-    <div class="rec-column rec-column-negative">
+    <div class="rec-column rec-column-negative" id="rec-negative-column">
       <h3>Work on</h3>
       {% if negative_recommendations %}
       {% for rec in negative_recommendations[:recommendation_visible_count] %}
@@ -386,10 +425,223 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
       {% endif %}
     </div>
   </div>
-  {% else %}
-  <p class="sub">Not enough data to generate recommendations.</p>
-  {% endif %}
 </section>
+<script type="application/json" id="game-windows-data">{{ game_windows_json | safe }}</script>
+<script>
+(function () {
+  var buildLabel = {{ build_label | tojson }};
+  var visibleCount = {{ recommendation_visible_count }};
+  var gameWindows = {};
+  try {
+    gameWindows = JSON.parse(document.getElementById('game-windows-data').textContent || '{}');
+  } catch (err) {
+    gameWindows = {};
+  }
+
+  function pct(value) {
+    return Math.round(Number(value) * 100) + '%';
+  }
+
+  function renderCards(container, cards) {
+    if (!container) return;
+    container.innerHTML = (cards || []).map(function (card) {
+      var cls = card.value_class ? ' value ' + card.value_class : ' value';
+      return '<div class="card"><div class="label">' + card.label + '</div><div class="' + cls.trim() + '">' + card.value + '</div></div>';
+    }).join('');
+  }
+
+  function renderCardPairs(container, cards) {
+    if (!container) return;
+    container.innerHTML = (cards || []).map(function (card) {
+      return '<div class="card"><div class="label">' + card.label + '</div><div class="value">' + card.value + '</div></div>';
+    }).join('');
+  }
+
+  function setFigure(id, html) {
+    var node = document.getElementById(id);
+    if (!node) return;
+    if (window.Plotly && window.Plotly.purge) {
+      window.Plotly.purge(node);
+    }
+    node.innerHTML = html || '';
+    node.querySelectorAll('script').forEach(function (script) {
+      var replacement = document.createElement('script');
+      if (script.src) {
+        replacement.src = script.src;
+      } else {
+        replacement.textContent = script.textContent;
+      }
+      script.parentNode.replaceChild(replacement, script);
+    });
+  }
+
+  function renderScore(bundle) {
+    var scoreNode = document.getElementById('score-value');
+    var compsNode = document.getElementById('score-comps');
+    if (scoreNode) {
+      scoreNode.innerHTML = String(bundle.score) + '<span style="font-size:24px;color:var(--muted)">/100</span>';
+    }
+    if (!compsNode) return;
+    compsNode.innerHTML = (bundle.score_components || []).map(function (comp) {
+      return '<div class="comp"><strong>' + comp.name + '</strong> — ' + comp.value +
+        '<div class="bar"><i style="width:' + comp.score + '%"></i></div>' +
+        '<small style="color:var(--muted)">' + comp.hint + '</small></div>';
+    }).join('');
+  }
+
+  function renderPeer(bundle) {
+    var section = document.getElementById('rank-peers');
+    if (!bundle.peer) {
+      if (section) section.style.display = 'none';
+      return;
+    }
+    if (section) section.style.display = '';
+    var subtitle = document.getElementById('peer-subtitle');
+    if (subtitle) subtitle.textContent = bundle.peer.subtitle;
+    var cards = document.getElementById('peer-highlight-cards');
+    if (cards) {
+      cards.innerHTML =
+        '<div class="card" style="grid-column: span 2;"><div class="label">Strengths</div>' +
+        (bundle.peer.strengths.length ? '<ul style="margin-top:8px;padding-left:18px;color:var(--muted);">' +
+          bundle.peer.strengths.map(function (item) { return '<li>' + item + '</li>'; }).join('') + '</ul>' :
+          '<p class="sub" style="margin:8px 0 0">—</p>') + '</div>' +
+        '<div class="card" style="grid-column: span 2;"><div class="label">Weaknesses</div>' +
+        (bundle.peer.weaknesses.length ? '<ul style="margin-top:8px;padding-left:18px;color:var(--muted);">' +
+          bundle.peer.weaknesses.map(function (item) { return '<li>' + item + '</li>'; }).join('') + '</ul>' :
+          '<p class="sub" style="margin:8px 0 0">—</p>') + '</div>';
+    }
+    var body = document.getElementById('peer-table-body');
+    if (body) {
+      body.innerHTML = (bundle.peer.rows || []).map(function (row) {
+        return '<tr><td>' + row.label + '</td><td>' + row.yours + '</td><td>' + row.peer_avg +
+          '</td><td class="delta-' + row.verdict + '">' + row.gap + '</td><td class="delta-' + row.verdict + '">' + row.verdict + '</td></tr>';
+      }).join('');
+    }
+    setFigure('fig-peer_comparison', bundle.figures.peer_comparison || '');
+  }
+
+  function renderTableBody(id, rows, renderRow) {
+    var body = document.getElementById(id);
+    if (!body) return;
+    body.innerHTML = (rows || []).map(renderRow).join('');
+  }
+
+  function renderRecommendations(bundle) {
+    function renderRec(rec) {
+      var pValue = rec.p_value != null ? ' · p = ' + Number(rec.p_value).toFixed(4) : '';
+      return '<div class="rec ' + rec.badge + '"><span class="badge">' + rec.category + '</span><strong>' + rec.title +
+        '</strong><p>' + rec.detail + '</p><p class="meta">Evidence: ' + rec.evidence + pValue +
+        ' · priority ' + Number(rec.priority).toFixed(2) + '</p></div>';
+    }
+    var positive = bundle.positive_recommendations || [];
+    var negative = bundle.negative_recommendations || [];
+    var posCol = document.getElementById('rec-positive-column');
+    var negCol = document.getElementById('rec-negative-column');
+    if (!posCol || !negCol) return;
+    var posVisible = positive.slice(0, visibleCount).map(renderRec).join('');
+    var posMore = positive.slice(visibleCount).map(renderRec).join('');
+    posCol.innerHTML = '<h3>Keep doing</h3>' + (positive.length ? posVisible +
+      (posMore ? '<div class="rec-more is-open">' + posMore + '</div>' : '') :
+      '<p class="rec-empty">No clear strengths surfaced yet — keep playing more games.</p>');
+    var negVisible = negative.slice(0, visibleCount).map(renderRec).join('');
+    var negMore = negative.slice(visibleCount).map(renderRec).join('');
+    negCol.innerHTML = '<h3>Work on</h3>' + (negative.length ? negVisible +
+      (negMore ? '<div class="rec-more is-open">' + negMore + '</div>' : '') :
+      '<p class="rec-empty">Nothing critical flagged — solid performance overall.</p>');
+  }
+
+  function applyWindow(key) {
+    var bundle = gameWindows[key];
+    if (!bundle) return;
+    var subtitle = document.getElementById('overview-subtitle');
+    if (subtitle) {
+      subtitle.textContent = bundle.total_games + ' ranked solo queue ' + buildLabel +
+        ' games analysed · patches ' + bundle.patch_range;
+    }
+    renderCards(document.getElementById('overview-cards'), bundle.overview_cards);
+    renderScore(bundle);
+    renderPeer(bundle);
+    renderCardPairs(document.getElementById('lane-cards'), bundle.lane_cards);
+    renderCardPairs(document.getElementById('economy-cards'), bundle.economy_cards);
+    renderCardPairs(document.getElementById('vision-cards'), bundle.vision_cards);
+    renderCardPairs(document.getElementById('death-cards'), bundle.death_cards);
+    renderCardPairs(document.getElementById('teamfight-cards'), bundle.teamfight_cards);
+
+    var blindBlock = document.getElementById('blind-spots-block');
+    var blindBody = document.getElementById('blind-spots-body');
+    if (blindBody) {
+      blindBody.innerHTML = (bundle.blind_spots || []).map(function (spot) {
+        return '<tr><td>' + spot.zone + '</td><td>' + spot.deaths + '</td></tr>';
+      }).join('');
+    }
+    if (blindBlock) blindBlock.style.display = (bundle.blind_spots || []).length ? '' : 'none';
+
+    renderTableBody('objective-table-body', bundle.objective_rows, function (row) {
+      return '<tr><td>' + row.kind + '</td><td>' + row.count + '</td><td>' + pct(row.taken_rate) + '</td><td>' +
+        pct(row.presence_rate) + '</td><td>' + pct(row.early_rate) + '</td><td>' + pct(row.dead_before_rate) +
+        '</td><td>' + row.avg_wards_before + '</td></tr>';
+    });
+    renderTableBody('build-paths-body', bundle.build_paths, function (row) {
+      return '<tr><td>' + row.core + '</td><td>' + row.games + '</td><td>' + pct(row.winrate) + '</td><td>' +
+        row.avg_dpm + '</td><td>' + row.avg_deaths + '</td></tr>';
+    });
+    renderTableBody('rune-rows-body', bundle.rune_rows, function (row) {
+      return '<tr><td>' + row.keystone + '</td><td>' + row.games + '</td><td>' + pct(row.winrate) + '</td><td>' +
+        row.avg_dpm + '</td><td>' + row.avg_deaths + '</td></tr>';
+    });
+    renderTableBody('matchup-rows-body', bundle.matchup_rows, function (row) {
+      return '<tr><td>' + row.opponent + '</td><td>' + row.games + '</td><td>' + pct(row.winrate) + '</td><td>' +
+        row.avg_gd10 + '</td><td>' + row.avg_csd10 + '</td><td>' + row.avg_deaths_pre14 + '</td><td>' +
+        row.recommendation + '</td></tr>';
+    });
+
+    Object.keys(bundle.figures || {}).forEach(function (name) {
+      setFigure('fig-' + name, bundle.figures[name]);
+    });
+    renderRecommendations(bundle);
+
+    document.querySelectorAll('.game-window-btn').forEach(function (btn) {
+      btn.classList.toggle('is-active', btn.getAttribute('data-window') === key);
+    });
+    try { localStorage.setItem('reportGameWindow', key); } catch (e) {}
+  }
+
+  document.querySelectorAll('.game-window-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      if (btn.disabled) return;
+      applyWindow(btn.getAttribute('data-window'));
+    });
+  });
+
+  var saved = null;
+  try { saved = localStorage.getItem('reportGameWindow'); } catch (e) {}
+  var defaultKey = {{ game_window_default | tojson }};
+  var initial = saved && gameWindows[saved] ? saved : defaultKey;
+
+  function whenPlotlyReady(callback) {
+    if (window.Plotly) {
+      callback();
+      return;
+    }
+    var attempts = 0;
+    var timer = setInterval(function () {
+      if (window.Plotly) {
+        clearInterval(timer);
+        callback();
+      } else if (++attempts > 200) {
+        clearInterval(timer);
+      }
+    }, 25);
+  }
+
+  whenPlotlyReady(function () {
+    if (!gameWindows[initial]) return;
+    // Server HTML already matches the default window; only swap when restoring another slice.
+    if (!saved || initial === defaultKey) return;
+    applyWindow(initial);
+  });
+})();
+</script>
 <script>
 (function () {
   document.querySelectorAll('.rec-extend').forEach(function (btn) {

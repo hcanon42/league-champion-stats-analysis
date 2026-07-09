@@ -8,7 +8,7 @@ import pytest
 
 from cache import MatchStore
 from config import AppConfig
-from main import _group_records, run_all_builds
+from main import PlayerContext, _group_records, run_all_builds
 from parser import ItemCatalog, MatchParser, discover_build_pools
 from tests.fixtures import FAKE_ITEMS, MY_PUUID, make_player_match, make_timeline
 
@@ -130,7 +130,11 @@ def test_run_all_builds_generates_player_hub(tmp_path: Path, monkeypatch: pytest
 
     services = Services(config=config, http_cache=http_cache, store=store, client=client)
     try:
-        hub_path = run_all_builds(services, MY_PUUID, fetch=False)
+        hub_path = run_all_builds(
+            services,
+            [PlayerContext(riot_id="Test", tagline="EUW", puuid=MY_PUUID)],
+            fetch=False,
+        )
     finally:
         store.close()
         http_cache.close()
