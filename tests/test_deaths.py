@@ -21,11 +21,12 @@ def test_three_deaths_extracted(record: MatchRecord) -> None:
     assert len(record.deaths) == 3
 
 
-def test_gank_death_under_tower_laning(record: MatchRecord) -> None:
-    """The 8-minute dive is flagged as a gank and under-tower laning death."""
+def test_gank_death_under_own_tower_laning(record: MatchRecord) -> None:
+    """The 8-minute dive is flagged as a gank and death under own tower."""
     death = next(d for d in record.deaths if d.minute == pytest.approx(8.0, abs=0.1))
     assert death.to_gank is True
-    assert death.under_tower_laning is True
+    assert death.under_own_tower_laning is True
+    assert death.under_enemy_tower_laning is False
     assert death.killer_champion == "Syndra"
 
 
@@ -48,7 +49,8 @@ def test_second_death_context(record: MatchRecord) -> None:
     assert death.zone == Zone.BOT_LANE
     assert death.side_lane_push is True
     assert death.to_gank is False  # after laning phase
-    assert death.under_tower_laning is False
+    assert death.under_own_tower_laning is False
+    assert death.under_enemy_tower_laning is False
     assert death.after_objective is True  # baron 10 s earlier
     assert death.bounty_held is True  # 450 g bounty
     assert death.zhonya_available is True  # bought at 15 min
@@ -61,5 +63,6 @@ def test_deaths_dataframe_shape(record: MatchRecord) -> None:
     frame = deaths_dataframe([record])
     assert len(frame) == 3
     assert set(
-        ["match_id", "win", "zone", "minute", "alone", "ult_available", "to_gank", "under_tower_laning"]
+        ["match_id", "win", "zone", "minute", "alone", "ult_available", "to_gank",
+         "under_own_tower_laning", "under_enemy_tower_laning"]
     ).issubset(frame.columns)

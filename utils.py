@@ -33,7 +33,7 @@ OBJECTIVE_RADIUS: Final[float] = 2500.0
 LANING_PHASE_END_MIN: Final[float] = 14.0
 TOWER_RADIUS: Final[float] = 1150.0
 # Outer, inner and inhibitor turrets on Summoner's Rift (map units).
-LANE_TOWER_POSITIONS: Final[tuple[Position, ...]] = (
+BLUE_LANE_TOWER_POSITIONS: Final[tuple[Position, ...]] = (
     Position(x=10504, y=1029),
     Position(x=10505, y=2546),
     Position(x=10481, y=4610),
@@ -43,6 +43,8 @@ LANE_TOWER_POSITIONS: Final[tuple[Position, ...]] = (
     Position(x=992, y=10441),
     Position(x=2546, y=10504),
     Position(x=4610, y=10481),
+)
+RED_LANE_TOWER_POSITIONS: Final[tuple[Position, ...]] = (
     Position(x=13866, y=4505),
     Position(x=13327, y=8220),
     Position(x=13696, y=10504),
@@ -52,6 +54,10 @@ LANE_TOWER_POSITIONS: Final[tuple[Position, ...]] = (
     Position(x=4318, y=13875),
     Position(x=7943, y=13411),
     Position(x=10481, y=13650),
+)
+LANE_TOWER_POSITIONS: Final[tuple[Position, ...]] = (
+    *BLUE_LANE_TOWER_POSITIONS,
+    *RED_LANE_TOWER_POSITIONS,
 )
 
 LOGGER_NAME: Final[str] = "league_champion_analyzer"
@@ -145,7 +151,7 @@ def is_side_lane(zone: Zone) -> bool:
 
 
 def near_lane_tower(pos: Position, radius: float = TOWER_RADIUS) -> bool:
-    """Whether a position lies within turret range of a lane tower.
+    """Whether a position lies within turret range of any lane tower.
 
     Args:
         pos: Position to test.
@@ -155,6 +161,18 @@ def near_lane_tower(pos: Position, radius: float = TOWER_RADIUS) -> bool:
         ``True`` when within ``radius`` of any lane turret platform.
     """
     return any(distance(pos, tower) < radius for tower in LANE_TOWER_POSITIONS)
+
+
+def near_own_lane_tower(pos: Position, blue_side: bool, radius: float = TOWER_RADIUS) -> bool:
+    """Whether a position lies within range of one of the player's lane turrets."""
+    towers = BLUE_LANE_TOWER_POSITIONS if blue_side else RED_LANE_TOWER_POSITIONS
+    return any(distance(pos, tower) < radius for tower in towers)
+
+
+def near_enemy_lane_tower(pos: Position, blue_side: bool, radius: float = TOWER_RADIUS) -> bool:
+    """Whether a position lies within range of an enemy lane turret."""
+    towers = RED_LANE_TOWER_POSITIONS if blue_side else BLUE_LANE_TOWER_POSITIONS
+    return any(distance(pos, tower) < radius for tower in towers)
 
 
 def near_major_objective(pos: Position) -> bool:

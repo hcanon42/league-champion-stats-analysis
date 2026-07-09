@@ -18,8 +18,9 @@ from utils import (
     distance,
     is_side_lane,
     ms_to_min,
-    near_lane_tower,
+    near_enemy_lane_tower,
     near_major_objective,
+    near_own_lane_tower,
     push_progress,
 )
 
@@ -162,6 +163,9 @@ def extract_deaths(
         allies, enemies = _headcount_near(ctx, pos, ts)
         alone = allies == 0
         zhonya = _zhonya_in_inventory_at(ctx, ts)
+        laning = minute < LANING_PHASE_END_MIN
+        under_own_tower_laning = laning and near_own_lane_tower(pos, ctx.blue_side)
+        under_enemy_tower_laning = laning and near_enemy_lane_tower(pos, ctx.blue_side)
         wards_recent = sum(
             1
             for w in ward_events
@@ -195,7 +199,8 @@ def extract_deaths(
                     0 <= ts - int(r.minute * 60_000) <= AFTER_RECALL_WINDOW_MS for r in recalls
                 ),
                 to_gank=_is_gank_death(event, ctx, minute=minute, zone=zone),
-                under_tower_laning=minute < LANING_PHASE_END_MIN and near_lane_tower(pos),
+                under_own_tower_laning=under_own_tower_laning,
+                under_enemy_tower_laning=under_enemy_tower_laning,
                 killer_champion=ctx.id_to_champion.get(int(event.get("killerId", 0))),
             )
         )
@@ -240,7 +245,8 @@ def deaths_dataframe(records: list[MatchRecord]) -> pd.DataFrame:
                     "before_baron": death.before_baron,
                     "after_recall": death.after_recall,
                     "to_gank": death.to_gank,
-                    "under_tower_laning": death.under_tower_laning,
+                    "under_own_tower_laning": death.under_own_tower_laning,
+                    "under_enemy_tower_laning": death.under_enemy_tower_laning,
                     "killer": death.killer_champion or "Unknown",
                 }
             )
@@ -264,8 +270,11 @@ def death_summary(deaths_df: pd.DataFrame) -> dict[str, Any]:
         "solo_death_rate": round(float(deaths_df["alone"].mean()), 3),
         "greed_death_rate": round(float(deaths_df["after_greed"].mean()), 3),
         "gank_death_rate": round(float(deaths_df["to_gank"].mean()), 3),
-        "under_tower_laning_death_rate": round(
-            float(deaths_df["under_tower_laning"].mean()), 3
+        "under_own_tower_laning_death_rate": round(
+            float(deaths_df["under_own_tower_laning"].mean()), 3
+        ),
+        "under_enemy_tower_laning_death_rate": round(
+            float(deaths_df["under_enemy_tower_laning"].mean()), 3
         ),
         "side_lane_death_rate": round(float(deaths_df["side_lane_push"].mean()), 3),
         "death_before_dragon_rate": round(float(deaths_df["before_dragon"].mean()), 3),

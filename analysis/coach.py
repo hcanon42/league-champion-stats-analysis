@@ -173,7 +173,8 @@ class CoachEngine:
             self._rule_solo_deaths,
             self._rule_greed_deaths,
             self._rule_gank_deaths_laning,
-            self._rule_under_tower_laning_deaths,
+            self._rule_under_own_tower_laning_deaths,
+            self._rule_under_enemy_tower_laning_deaths,
             self._rule_shutdown_bounties,
             self._rule_throw_leads,
             self._rule_teamfight_participation,
@@ -564,10 +565,10 @@ class CoachEngine:
             sample_size=split["n_high"] + split["n_low"],
         )
 
-    def _rule_under_tower_laning_deaths(self) -> Recommendation | None:
-        if "under_tower_laning_deaths" not in self._matches.columns:
+    def _rule_under_own_tower_laning_deaths(self) -> Recommendation | None:
+        if "under_own_tower_laning_deaths" not in self._matches.columns:
             return None
-        split = self._stats.winrate_split_test("under_tower_laning_deaths", 1)
+        split = self._stats.winrate_split_test("under_own_tower_laning_deaths", 1)
         if split is None or split["n_high"] < 3:
             return None
         delta = split["winrate_low"] - split["winrate_high"]
@@ -575,12 +576,40 @@ class CoachEngine:
             return None
         return Recommendation(
             category="Laning",
-            title="You're dying under tower in lane",
+            title="You're dying under your own tower in lane",
             detail=(
-                f"When you die under tower before 14 minutes your win rate is only "
+                f"When you die under your own tower before 14 minutes your win rate is only "
                 f"{split['winrate_high']:.0%} (vs {split['winrate_low']:.0%}). Respect dive "
                 "threats: manage wave state, keep health above dive thresholds, and ping "
                 "for jungle help before you get trapped."
+            ),
+            evidence=(
+                f"WR {split['winrate_high']:.0%} ({split['n_high']} games) vs "
+                f"{split['winrate_low']:.0%} ({split['n_low']} games), p={split['p_value']:.3f}"
+            ),
+            p_value=split["p_value"],
+            effect_size=round(delta, 3),
+            priority=_priority(delta, split["p_value"], split["n_high"] + split["n_low"]),
+            sample_size=split["n_high"] + split["n_low"],
+        )
+
+    def _rule_under_enemy_tower_laning_deaths(self) -> Recommendation | None:
+        if "under_enemy_tower_laning_deaths" not in self._matches.columns:
+            return None
+        split = self._stats.winrate_split_test("under_enemy_tower_laning_deaths", 1)
+        if split is None or split["n_high"] < 3:
+            return None
+        delta = split["winrate_low"] - split["winrate_high"]
+        if delta < 0.10:
+            return None
+        return Recommendation(
+            category="Laning",
+            title="Your tower dives in lane are costing games",
+            detail=(
+                f"When you die under an enemy tower before 14 minutes your win rate is only "
+                f"{split['winrate_high']:.0%} (vs {split['winrate_low']:.0%}). Only dive with "
+                "clear kill pressure, wave setup, and jungle cover — reset if the trade "
+                "isn't guaranteed."
             ),
             evidence=(
                 f"WR {split['winrate_high']:.0%} ({split['n_high']} games) vs "

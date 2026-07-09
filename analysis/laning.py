@@ -43,7 +43,8 @@ def laning_summary(matches_df: pd.DataFrame) -> dict[str, Any]:
         "lane_win_rate": round(float((gd10 > 0).mean()), 3) if not gd10.empty else None,
         "avg_deaths_pre14": mean_of("deaths_pre14"),
         "avg_gank_deaths_laning": mean_of("gank_deaths_laning"),
-        "avg_under_tower_laning_deaths": mean_of("under_tower_laning_deaths"),
+        "avg_under_own_tower_laning_deaths": mean_of("under_own_tower_laning_deaths"),
+        "avg_under_enemy_tower_laning_deaths": mean_of("under_enemy_tower_laning_deaths"),
         "avg_lane_priority": (
             round(float(matches_df["lane_priority"].dropna().mean()), 3)
             if matches_df["lane_priority"].notna().any()
