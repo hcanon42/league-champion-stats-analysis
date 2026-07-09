@@ -11,7 +11,7 @@ from champions import player_slug
 from config import AppConfig
 from main import run_analysis
 from models import MatchRecord, PeerComparisonResult, RankedEntry
-from report import discover_reports, refresh_report_index
+from report import discover_reports, refresh_report_indexes
 from tests.fixtures import FAKE_ITEMS, MY_PUUID, make_match, make_timeline
 from parser import ItemCatalog, MatchParser
 
@@ -127,7 +127,7 @@ def test_refresh_index_lists_all_reports(tmp_path: Path) -> None:
     run_analysis(_config(tmp_path, champion="Viktor"), records, peer_comparison=peer, ranked=ranked)
     run_analysis(_config(tmp_path, champion="Ahri"), records, peer_comparison=peer, ranked=ranked)
 
-    index_path = refresh_report_index(tmp_path / "output", _config(tmp_path).template_dir)
+    index_path = refresh_report_indexes(tmp_path / "output", _config(tmp_path).template_dir)[0]
     html = index_path.read_text(encoding="utf-8")
     assert "Viktor mid" in html or "Viktor" in html
     assert "Ahri" in html

@@ -49,9 +49,8 @@ from report import (
     build_player_builds_nav,
     discover_reports,
     improvement_score,
-    refresh_report_index,
+    refresh_report_indexes,
     score_badge,
-    write_player_manifest,
     write_report_meta,
 )
 from riot_api import RiotApiClient
@@ -183,7 +182,6 @@ def run_analysis(
     peer_comparison: PeerComparisonResult | None = None,
     ranked: RankedEntry | None = None,
     player_builds: list[dict[str, Any]] | None = None,
-    refresh_index: bool = True,
 ) -> Path:
     """Run every analysis, write exports and render the report.
 
@@ -457,11 +455,17 @@ def run_analysis(
             "generated_at": generated_at,
         },
     )
-    if refresh_index:
-        index_path = refresh_report_index(config.output_dir, config.template_dir)
-        log.info("Done. Open %s (index: %s)", report_path, index_path)
+    player_label = f"{config.riot_id}#{config.tagline}"
+    global_index, player_hub = refresh_report_indexes(
+        config.output_dir,
+        config.template_dir,
+        player_dir=config.player_reports_dir,
+        player_label=player_label,
+    )
+    if player_hub is not None:
+        log.info("Done. Open %s (player hub: %s, index: %s)", report_path, player_hub, global_index)
     else:
-        log.info("Done. Open %s", report_path)
+        log.info("Done. Open %s (index: %s)", report_path, global_index)
     return report_path
 
 
@@ -489,7 +493,6 @@ def _run_with_peer(
     *,
     ranked: RankedEntry | None = None,
     player_builds: list[dict[str, Any]] | None = None,
-    refresh_index: bool = True,
 ) -> Path:
     """Fetch rank, build peer comparison and run the analysis pipeline."""
     if ranked is None:
@@ -512,7 +515,6 @@ def _run_with_peer(
         peer_comparison=peer,
         ranked=ranked,
         player_builds=player_builds,
-        refresh_index=refresh_index,
     )
 
 
@@ -556,7 +558,6 @@ def run_all_builds(services: Services, puuid: str, *, fetch: bool = False) -> Pa
             )
         )
 
-    default_href = manifest_builds[0]["href"] if manifest_builds else ""
     player_label = f"{services.config.riot_id}#{services.config.tagline}"
     player_dir = services.config.player_reports_dir
 
@@ -582,28 +583,25 @@ def run_all_builds(services: Services, puuid: str, *, fetch: bool = False) -> Pa
             records,
             ranked=ranked,
             player_builds=manifest_builds,
-            refresh_index=False,
         )
 
     if last_report is None:
         log.error("No builds could be analysed.")
         raise typer.Exit(code=1)
 
-    manifest = {
-        "player": player_label,
-        "builds": manifest_builds,
-        "default_href": default_href,
-    }
-    write_player_manifest(player_dir, manifest)
-    builder = ReportBuilder(services.config.template_dir)
-    hub_path = builder.render_player_hub(player_dir, manifest)
-    index_path = refresh_report_index(services.config.output_dir, services.config.template_dir)
+    global_index, hub_path = refresh_report_indexes(
+        services.config.output_dir,
+        services.config.template_dir,
+        player_dir=player_dir,
+        player_label=player_label,
+    )
+    hub_path = hub_path or player_dir / "index.html"
     log.info(
         "Generated %d report(s) (≥%d games). Open %s (global index: %s)",
         len(manifest_builds),
         services.config.min_games,
         hub_path,
-        index_path,
+        global_index,
     )
     return hub_path
 
@@ -697,7 +695,7 @@ def reports(
     setup_logging(verbose)
     config = load_config(api_key="unused", riot_id="unused", tagline="unused")
     config.output_dir.mkdir(parents=True, exist_ok=True)
-    index_path = refresh_report_index(config.output_dir, config.template_dir)
+    index_path = refresh_report_indexes(config.output_dir, config.template_dir)[0]
     count = len(discover_reports(config.output_dir))
     get_logger().info("Index refreshed with %d report(s). Open %s", count, index_path)
 

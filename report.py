@@ -246,6 +246,95 @@ def write_report_meta(report_dir: Path, meta: dict[str, Any]) -> Path:
     return path
 
 
+def discover_player_builds(player_dir: Path) -> list[dict[str, Any]]:
+    """Scan a player directory for completed build reports.
+
+    Args:
+        player_dir: ``output/reports/{player}/`` directory.
+
+    Returns:
+        Build metadata dicts sorted by game count (most played first).
+        Each entry includes an ``href`` relative to ``player_dir``.
+    """
+    if not player_dir.is_dir():
+        return []
+
+    builds: list[dict[str, Any]] = []
+    for meta_path in sorted(player_dir.glob("*/meta.json")):
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        report_html = meta_path.parent / "report.html"
+        if not report_html.is_file():
+            continue
+        slug = meta_path.parent.name
+        meta["href"] = f"{slug}/report.html"
+        builds.append(meta)
+
+    builds.sort(key=lambda entry: (entry.get("games", 0), entry.get("generated_at", "")), reverse=True)
+    return builds
+
+
+def refresh_player_hub(
+    player_dir: Path,
+    template_dir: Path,
+    *,
+    player_label: str | None = None,
+) -> Path | None:
+    """Rebuild ``output/reports/{player}/index.html`` from on-disk build metadata.
+
+    Args:
+        player_dir: Player reports root.
+        template_dir: Directory containing ``player_hub.html``.
+        player_label: Display label (``Name#TAG``); inferred from builds when omitted.
+
+    Returns:
+        Path of the player hub, or ``None`` when no builds exist yet.
+    """
+    builds = discover_player_builds(player_dir)
+    if not builds:
+        return None
+
+    label = player_label or str(builds[0].get("player", ""))
+    manifest = {
+        "player": label,
+        "builds": builds,
+        "default_href": builds[0]["href"],
+    }
+    write_player_manifest(player_dir, manifest)
+    return ReportBuilder(template_dir).render_player_hub(player_dir, manifest)
+
+
+def refresh_report_indexes(
+    output_dir: Path,
+    template_dir: Path,
+    *,
+    player_dir: Path | None = None,
+    player_label: str | None = None,
+) -> tuple[Path, Path | None]:
+    """Rebuild global and optional player report index pages.
+
+    Call after each report is written so indexes stay current during batch runs.
+
+    Args:
+        output_dir: Root output directory.
+        template_dir: Template directory.
+        player_dir: Optional player reports root for the player hub.
+        player_label: Optional player display label for the hub.
+
+    Returns:
+        Tuple of global index path and optional player hub path.
+    """
+    global_index = refresh_report_index(output_dir, template_dir)
+    player_hub = None
+    if player_dir is not None:
+        player_hub = refresh_player_hub(
+            player_dir, template_dir, player_label=player_label
+        )
+    return global_index, player_hub
+
+
 def discover_reports(output_dir: Path) -> list[dict[str, Any]]:
     """Scan ``output/reports/`` for saved report metadata.
 
