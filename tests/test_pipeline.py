@@ -45,8 +45,7 @@ def _make_records(n: int = 15) -> list[MatchRecord]:
 def test_full_pipeline_generates_all_artifacts(tmp_path: Path) -> None:
     """The full analysis produces the report, every CSV and the summary."""
     config = AppConfig(
-        riot_id="Test",
-        tagline="EUW",
+        players=[{"game_name": "Test", "tagline": "EUW"}],
         region="europe",
         api_key="RGAPI-test",
         output_dir=tmp_path / "output",

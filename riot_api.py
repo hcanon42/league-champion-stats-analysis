@@ -367,8 +367,11 @@ class RiotApiClient:
             except RiotApiError as exc:
                 self._log.error("Skipping %s: %s", match_id, exc)
                 continue
-            self._store.save_match(match_id, puuid, match)
+            self._store.save_match(match_id, match)
             self._store.save_timeline(match_id, timeline)
+        for match_id in match_ids:
+            if self._store.has_match(match_id):
+                self._store.register_ownership(match_id, puuid)
 
     # ----------------------------------------------------------- Static data
 

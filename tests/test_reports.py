@@ -58,8 +58,7 @@ def _peer(records: list[MatchRecord]) -> PeerComparisonResult:
 
 def _config(tmp_path: Path, *, champion: str = "Viktor", role: str = "MIDDLE") -> AppConfig:
     config = AppConfig(
-        riot_id="Test",
-        tagline="EUW",
+        players=[{"game_name": "Test", "tagline": "EUW"}],
         region="europe",
         api_key="RGAPI-test",
         champion=champion,

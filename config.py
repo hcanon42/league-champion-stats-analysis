@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Final
 
 from champions import build_label, champion_slug, normalize_role, player_slug, role_display
+from dotenv import load_dotenv
 from pydantic import BaseModel, Field, field_validator
 
 # Platform routing values -> regional routing hosts used by account-v1/match-v5.
@@ -51,11 +52,42 @@ RANKED_SOLO_QUEUE_ID: Final[int] = 420
 REMAKE_MAX_DURATION_S: Final[int] = 300
 
 
+class PlayerIdentity(BaseModel):
+    """A single tracked Riot account (game name + tagline)."""
+
+    game_name: str
+    tagline: str
+
+    @property
+    def label(self) -> str:
+        """Display form, e.g. ``Faker#KR1``."""
+        return f"{self.game_name}#{self.tagline}"
+
+    @classmethod
+    def parse(cls, raw: str) -> "PlayerIdentity":
+        """Parse a ``Name#Tag`` CLI string into a :class:`PlayerIdentity`.
+
+        Args:
+            raw: Raw ``--player`` value.
+
+        Returns:
+            The parsed identity.
+
+        Raises:
+            ValueError: When ``raw`` has no ``#`` separator.
+        """
+        if "#" not in raw:
+            raise ValueError(f"Invalid --player {raw!r}; expected 'Name#Tag'.")
+        game_name, tagline = raw.rsplit("#", 1)
+        if not game_name or not tagline:
+            raise ValueError(f"Invalid --player {raw!r}; expected 'Name#Tag'.")
+        return cls(game_name=game_name, tagline=tagline)
+
+
 class AppConfig(BaseModel):
     """Validated runtime configuration for a full analysis run."""
 
-    riot_id: str
-    tagline: str
+    players: list[PlayerIdentity] = Field(min_length=1)
     region: str = "europe"
     platform: str | None = None
     api_key: str
@@ -91,19 +123,19 @@ class AppConfig(BaseModel):
         return build_label(self.champion, self.role)
 
     @property
+    def players_slug(self) -> str:
+        """Filesystem slug for the tracked player(s) (joined with ``+`` when pooled)."""
+        return "+".join(player_slug(p.game_name, p.tagline) for p in self.players)
+
+    @property
     def player_reports_dir(self) -> Path:
-        """Directory holding every build report for this player."""
-        return self.output_dir / "reports" / player_slug(self.riot_id, self.tagline)
+        """Directory holding every build report for this player (or pooled group)."""
+        return self.output_dir / "reports" / self.players_slug
 
     @property
     def report_dir(self) -> Path:
-        """Per-player/champion/lane output directory (overwritten on re-run)."""
-        return (
-            self.output_dir
-            / "reports"
-            / player_slug(self.riot_id, self.tagline)
-            / champion_slug(self.champion, self.role)
-        )
+        """Per-player(s)/champion/lane output directory (overwritten on re-run)."""
+        return self.player_reports_dir / champion_slug(self.champion, self.role)
 
     @property
     def run_graphs_dir(self) -> Path:
@@ -191,12 +223,58 @@ def _read_toml(path: Path) -> dict[str, Any]:
         return tomllib.load(fh)
 
 
-def load_config(config_file: Path | None = None, **overrides: Any) -> AppConfig:
+def _resolve_players(
+    data: dict[str, Any],
+    player_overrides: list[str] | None,
+    riot_id_override: str | None,
+    tagline_override: str | None,
+) -> list[dict[str, str]] | None:
+    """Resolve the ``players`` list from CLI, env and config.toml sources.
+
+    Precedence: repeated ``--player`` > ``--riot-id``/``--tagline`` >
+    ``config.toml``'s own ``players`` table > legacy single ``riot_id``/
+    ``tagline`` keys (env or config.toml).
+
+    Args:
+        data: Config-file data, already merged with legacy env values.
+        player_overrides: Raw ``"Name#Tag"`` strings from repeated ``--player``.
+        riot_id_override: CLI ``--riot-id`` shortcut.
+        tagline_override: CLI ``--tagline`` shortcut.
+
+    Returns:
+        A list of ``{"game_name": ..., "tagline": ...}`` dicts, or ``None``
+        when no source provided any player identity.
+    """
+    if player_overrides:
+        return [
+            {"game_name": p.game_name, "tagline": p.tagline}
+            for p in (PlayerIdentity.parse(raw) for raw in player_overrides)
+        ]
+    if riot_id_override and tagline_override:
+        return [{"game_name": riot_id_override, "tagline": tagline_override}]
+    if data.get("players"):
+        return data["players"]
+    if data.get("riot_id") and data.get("tagline"):
+        return [{"game_name": data["riot_id"], "tagline": data["tagline"]}]
+    return None
+
+
+def load_config(
+    config_file: Path | None = None,
+    *,
+    players: list[str] | None = None,
+    riot_id: str | None = None,
+    tagline: str | None = None,
+    **overrides: Any,
+) -> AppConfig:
     """Build an :class:`AppConfig` from file, environment and overrides.
 
     Args:
         config_file: Optional path to a ``config.toml``; defaults to
             ``./config.toml`` when present.
+        players: Repeated ``--player "Name#Tag"`` CLI values.
+        riot_id: Single-player ``--riot-id`` shortcut.
+        tagline: Single-player ``--tagline`` shortcut.
         **overrides: CLI-level overrides; ``None`` values are ignored.
 
     Returns:
@@ -204,7 +282,9 @@ def load_config(config_file: Path | None = None, **overrides: Any) -> AppConfig:
 
     Raises:
         pydantic.ValidationError: If required values are missing or invalid.
+        ValueError: If a ``--player`` value doesn't match ``Name#Tag``.
     """
+    load_dotenv()
     data: dict[str, Any] = _read_toml(config_file or Path("config.toml"))
     env_map = {
         "api_key": os.environ.get("RIOT_API_KEY"),
@@ -214,6 +294,11 @@ def load_config(config_file: Path | None = None, **overrides: Any) -> AppConfig:
         "platform": os.environ.get("ANALYZER_PLATFORM") or os.environ.get("VIKTOR_PLATFORM"),
     }
     data.update({k: v for k, v in env_map.items() if v})
+    resolved_players = _resolve_players(data, players, riot_id, tagline)
+    data.pop("riot_id", None)
+    data.pop("tagline", None)
+    if resolved_players is not None:
+        data["players"] = resolved_players
     region_override = overrides.get("region")
     if region_override and not data.get("platform") and not overrides.get("platform"):
         inferred = AppConfig.platform_from_region_input(str(region_override))

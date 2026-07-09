@@ -244,6 +244,7 @@ def discover_build_pools(
     config: AppConfig,
     *,
     min_games: int = 20,
+    limit: int | None = None,
 ) -> list[BuildPool]:
     """Scan stored matches and return champion+lane pools with enough games.
 
@@ -252,13 +253,16 @@ def discover_build_pools(
         puuid: The tracked player's PUUID.
         config: Application configuration (queue filter).
         min_games: Minimum solo/duo games required to include a build.
+        limit: Maximum number of the player's most-recent matches to scan
+            (``None`` for every stored match); enforces the exact "last N
+            games" window regardless of what else is cached.
 
     Returns:
         Build pools sorted by game count (most played first).
     """
     match_filter = BaseMatchFilter(config)
     counts: Counter[tuple[str, str]] = Counter()
-    for match_id in store.iter_match_ids(puuid):
+    for match_id in store.iter_match_ids(puuid, limit=limit):
         match = store.load_match(match_id)
         if not match or not match_filter.accept(match, puuid):
             continue

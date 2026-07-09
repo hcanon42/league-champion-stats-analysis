@@ -24,14 +24,19 @@ from utils import get_logger
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS matches (
     match_id TEXT PRIMARY KEY,
-    puuid    TEXT NOT NULL,
-    payload  TEXT NOT NULL
+    payload  TEXT NOT NULL,
+    game_creation_ms INTEGER
 );
 CREATE TABLE IF NOT EXISTS timelines (
     match_id TEXT PRIMARY KEY,
     payload  TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_matches_puuid ON matches (puuid);
+CREATE TABLE IF NOT EXISTS match_players (
+    match_id TEXT NOT NULL,
+    puuid    TEXT NOT NULL,
+    PRIMARY KEY (match_id, puuid)
+);
+CREATE INDEX IF NOT EXISTS idx_match_players_puuid ON match_players (puuid);
 """
 
 
@@ -90,6 +95,35 @@ class MatchStore:
         self._conn = sqlite3.connect(str(db_path))
         self._conn.executescript(_SCHEMA)
         self._log = get_logger("cache")
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """Migrate a pre-existing database to the current schema.
+
+        Handles two legacy shapes: a ``matches.puuid`` ownership column
+        (moved into ``match_players``) and a missing ``game_creation_ms``
+        column (added and backfilled from the stored payload).
+        """
+        columns = {row[1] for row in self._conn.execute("PRAGMA table_info(matches)")}
+        if "game_creation_ms" not in columns:
+            self._conn.execute("ALTER TABLE matches ADD COLUMN game_creation_ms INTEGER")
+        if "puuid" in columns:
+            self._conn.execute(
+                "INSERT OR IGNORE INTO match_players (match_id, puuid) "
+                "SELECT match_id, puuid FROM matches"
+            )
+            self._conn.execute("ALTER TABLE matches DROP COLUMN puuid")
+        rows = self._conn.execute(
+            "SELECT match_id, payload FROM matches WHERE game_creation_ms IS NULL"
+        ).fetchall()
+        for match_id, payload in rows:
+            creation_ms = json.loads(payload).get("info", {}).get("gameCreation")
+            if creation_ms is not None:
+                self._conn.execute(
+                    "UPDATE matches SET game_creation_ms = ? WHERE match_id = ?",
+                    (creation_ms, match_id),
+                )
+        self._conn.commit()
 
     def __enter__(self) -> "MatchStore":
         """Enter a context manager scope."""
@@ -119,17 +153,33 @@ class MatchStore:
         ).fetchone()
         return row is not None
 
-    def save_match(self, match_id: str, puuid: str, match: dict[str, Any]) -> None:
+    def save_match(self, match_id: str, match: dict[str, Any]) -> None:
         """Persist a raw match document.
 
         Args:
             match_id: Riot match id.
-            puuid: PUUID of the tracked player (for indexing).
             match: Raw match-v5 JSON document.
         """
+        creation_ms = match.get("info", {}).get("gameCreation")
         self._conn.execute(
-            "INSERT OR REPLACE INTO matches (match_id, puuid, payload) VALUES (?, ?, ?)",
-            (match_id, puuid, json.dumps(match)),
+            "INSERT OR REPLACE INTO matches (match_id, payload, game_creation_ms) VALUES (?, ?, ?)",
+            (match_id, json.dumps(match), creation_ms),
+        )
+        self._conn.commit()
+
+    def register_ownership(self, match_id: str, puuid: str) -> None:
+        """Record that ``puuid``'s history includes ``match_id``.
+
+        Idempotent and independent of whether the match payload itself was
+        just downloaded or was already stored from another player.
+
+        Args:
+            match_id: Riot match id.
+            puuid: PUUID whose history includes this match.
+        """
+        self._conn.execute(
+            "INSERT OR IGNORE INTO match_players (match_id, puuid) VALUES (?, ?)",
+            (match_id, puuid),
         )
         self._conn.commit()
 
@@ -174,16 +224,26 @@ class MatchStore:
         ).fetchone()
         return json.loads(row[0]) if row else None
 
-    def iter_match_ids(self, puuid: str) -> Iterator[str]:
-        """Iterate over every stored match id for a player.
+    def iter_match_ids(self, puuid: str, limit: int | None = None) -> Iterator[str]:
+        """Iterate over a player's stored match ids, most recent game first.
 
         Args:
             puuid: The player's PUUID.
+            limit: Maximum number of match ids to yield (most recent by
+                actual game date), or ``None`` for every stored match.
 
         Yields:
-            Match ids, most recent insertion order not guaranteed.
+            Match ids ordered by ``game_creation_ms`` descending.
         """
-        cursor = self._conn.execute("SELECT match_id FROM matches WHERE puuid = ?", (puuid,))
+        query = (
+            "SELECT match_id FROM match_players JOIN matches USING (match_id) "
+            "WHERE puuid = ? ORDER BY game_creation_ms DESC"
+        )
+        params: tuple[Any, ...] = (puuid,)
+        if limit is not None:
+            query += " LIMIT ?"
+            params += (limit,)
+        cursor = self._conn.execute(query, params)
         for (match_id,) in cursor:
             yield match_id
 

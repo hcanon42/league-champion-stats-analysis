@@ -3,6 +3,7 @@
 Commands:
 
 * ``analyze`` — download matches + analyse every eligible champion/lane build,
+  pooling players who share a build into one combined report,
 * ``fetch``  — download matches into the local store only,
 * ``report`` — rebuild all eligible build reports from stored matches,
 * ``reports`` — rebuild the global report index,
@@ -38,7 +39,7 @@ from analysis.teamfights import teamfight_summary, teamfights_dataframe
 from analysis.timeline import timeline_dataframe_rows
 from analysis.vision import vision_dataframe, vision_summary
 from cache import HttpCache, MatchStore
-from config import AppConfig, load_config
+from config import AppConfig, PlayerIdentity, load_config
 from export import Exporter
 from graphs import GraphFactory
 from models import MatchRecord, PeerComparisonResult, RankedEntry
@@ -73,6 +74,7 @@ class Services:
 
 
 def _build_services(
+    player: list[str],
     riot_id: str | None,
     tagline: str | None,
     region: str | None,
@@ -85,12 +87,14 @@ def _build_services(
     """Load configuration and construct every service.
 
     Args:
-        riot_id: Riot ID game name (CLI override).
-        tagline: Riot ID tagline (CLI override).
+        player: Repeated ``--player "Name#Tag"`` values; takes precedence
+            over ``riot_id``/``tagline`` when non-empty.
+        riot_id: Single-player Riot ID game name shortcut (CLI override).
+        tagline: Single-player Riot ID tagline shortcut (CLI override).
         region: Regional or platform routing value (CLI override).
         platform: Platform host for league-v4 (``euw1``, ``na1``, ...).
         api_key: Riot API key (CLI override; falls back to ``RIOT_API_KEY``).
-        count: Number of matches to consider (CLI override).
+        count: Number of matches to consider per player (CLI override).
         min_games: Minimum solo/duo games per champion+lane build.
         verbose: Enable debug logging.
 
@@ -99,6 +103,7 @@ def _build_services(
     """
     setup_logging(verbose)
     config = load_config(
+        players=player or None,
         riot_id=riot_id,
         tagline=tagline,
         region=region,
@@ -115,24 +120,30 @@ def _build_services(
     return Services(config=config, http_cache=http_cache, store=store, client=client)
 
 
-def _fetch(services: Services) -> str:
-    """Resolve the PUUID and download the match history.
+def _fetch(services: Services) -> list[tuple[PlayerIdentity, str]]:
+    """Resolve every configured player's PUUID and download their history.
 
     Args:
         services: Wired services.
 
     Returns:
-        The player's PUUID.
+        ``(identity, puuid)`` pairs, one per configured player.
     """
     config = services.config
-    puuid = services.client.resolve_puuid(config.riot_id, config.tagline)
-    match_ids = services.client.fetch_match_ids(puuid, config.match_count)
-    services.client.download_matches(puuid, match_ids)
-    return puuid
+    identities_puuids: list[tuple[PlayerIdentity, str]] = []
+    for identity in config.players:
+        puuid = services.client.resolve_puuid(identity.game_name, identity.tagline)
+        match_ids = services.client.fetch_match_ids(puuid, config.match_count)
+        services.client.download_matches(puuid, match_ids)
+        identities_puuids.append((identity, puuid))
+    return identities_puuids
 
 
-def _load_all_records(services: Services, puuid: str) -> list[MatchRecord]:
-    """Parse every stored ranked solo game for the player (all champions/lanes).
+def _load_player_records(services: Services, puuid: str) -> list[MatchRecord]:
+    """Parse a player's stored ranked solo games (all champions/lanes).
+
+    Capped to that player's ``match_count`` most recent games, regardless of
+    how many older matches are cached locally.
 
     Args:
         services: Wired services.
@@ -146,7 +157,7 @@ def _load_all_records(services: Services, puuid: str) -> list[MatchRecord]:
     match_filter = BaseMatchFilter(services.config)
     parser = MatchParser(catalog)
     records: list[MatchRecord] = []
-    match_ids = list(services.store.iter_match_ids(puuid))
+    match_ids = list(services.store.iter_match_ids(puuid, limit=services.config.match_count))
     for match_id in tqdm(match_ids, desc="Parsing matches", unit="match"):
         match = services.store.load_match(match_id)
         timeline = services.store.load_timeline(match_id)
@@ -163,11 +174,70 @@ def _load_all_records(services: Services, puuid: str) -> list[MatchRecord]:
     return records
 
 
-def _group_records(
-    records: list[MatchRecord], champion: str, role: str
-) -> list[MatchRecord]:
+def _group_records(records: list[MatchRecord], champion: str, role: str) -> list[MatchRecord]:
     """Filter parsed records to one champion + lane build."""
     return [r for r in records if r.champion == champion and r.role == role]
+
+
+@dataclass
+class PlayerData:
+    """One tracked player's resolved identity, records and eligible builds."""
+
+    identity: PlayerIdentity
+    puuid: str
+    records: list[MatchRecord]
+    pools: dict[tuple[str, str], Any]
+
+
+def _discover_player_data(
+    services: Services, identities_puuids: list[tuple[PlayerIdentity, str]]
+) -> list[PlayerData]:
+    """Load records and discover eligible champion+lane builds per player.
+
+    Args:
+        services: Wired services.
+        identities_puuids: ``(identity, puuid)`` pairs to process.
+
+    Returns:
+        One :class:`PlayerData` per tracked player.
+    """
+    config = services.config
+    result: list[PlayerData] = []
+    for identity, puuid in identities_puuids:
+        pools = discover_build_pools(
+            services.store, puuid, config, min_games=config.min_games, limit=config.match_count
+        )
+        result.append(
+            PlayerData(
+                identity=identity,
+                puuid=puuid,
+                records=_load_player_records(services, puuid),
+                pools={(pool.champion, pool.role): pool for pool in pools},
+            )
+        )
+    return result
+
+
+def _resolve_build_groups(
+    players: list[PlayerData],
+) -> list[tuple[str, str, list[PlayerData]]]:
+    """Pair each eligible champion+lane build with the players who qualify for it.
+
+    A build qualifies for pooling only when each contributing player already
+    independently meets ``min_games`` on it; builds only one player has stay
+    single-player.
+
+    Args:
+        players: Per-player records and eligible build pools.
+
+    Returns:
+        ``(champion, role, players)`` tuples, one per distinct eligible build.
+    """
+    groups: dict[tuple[str, str], list[PlayerData]] = {}
+    for player in players:
+        for key in player.pools:
+            groups.setdefault(key, []).append(player)
+    return [(champion, role, group) for (champion, role), group in groups.items()]
 
 
 def _card(value: Any, suffix: str = "") -> str:
@@ -263,7 +333,7 @@ def run_analysis(
     objectives_agg = objective_summary(obj_df)
     macro = macro_summary(records, matches_df)
     summary: dict[str, Any] = {
-        "player": f"{config.riot_id}#{config.tagline}",
+        "player": " + ".join(p.label for p in config.players),
         "champion": config.champion,
         "role": config.role,
         "build_label": config.build_label,
@@ -359,7 +429,7 @@ def run_analysis(
         "build_label": config.build_label,
         "champion": config.champion,
         "role_display": config.role_display,
-        "player_name": f"{config.riot_id}#{config.tagline}",
+        "player_name": " + ".join(p.label for p in config.players),
         "total_games": len(records),
         "patch_range": f"{matches_df['patch'].min()} – {matches_df['patch'].max()}",
         "overview": overview,
@@ -440,12 +510,12 @@ def run_analysis(
     builder = ReportBuilder(config.template_dir)
     report_path = builder.render(run_dir / "report.html", context)
     generated_at = context.get("generated_at", "")
+    player_label = " + ".join(p.label for p in config.players)
     write_report_meta(
         run_dir,
         {
-            "player": f"{config.riot_id}#{config.tagline}",
-            "riot_id": config.riot_id,
-            "tagline": config.tagline,
+            "player": player_label,
+            "players": [p.label for p in config.players],
             "champion": config.champion,
             "role": config.role,
             "role_display": config.role_display,
@@ -455,7 +525,6 @@ def run_analysis(
             "generated_at": generated_at,
         },
     )
-    player_label = f"{config.riot_id}#{config.tagline}"
     global_index, player_hub = refresh_report_indexes(
         config.output_dir,
         config.template_dir,
@@ -488,16 +557,24 @@ def _ensure_platform(client: RiotApiClient, records: list[MatchRecord], config: 
 def _run_with_peer(
     config: AppConfig,
     services: Services,
-    puuid: str,
+    group: list[PlayerData],
     records: list[MatchRecord],
     *,
-    ranked: RankedEntry | None = None,
     player_builds: list[dict[str, Any]] | None = None,
 ) -> Path:
-    """Fetch rank, build peer comparison and run the analysis pipeline."""
-    if ranked is None:
-        _ensure_platform(services.client, records, config)
-        ranked = services.client.fetch_solo_rank(puuid)
+    """Optionally build a peer comparison, then run the analysis pipeline.
+
+    Peer comparison only makes sense for a single tracked player (it's
+    anchored on one player's rank and duo-partner lookups), so builds pooled
+    across multiple players skip it and analyse the pooled records directly.
+    """
+    log = get_logger("pipeline")
+    if len(group) != 1:
+        log.info("Peer comparison skipped: not supported with multiple players.")
+        return run_analysis(config, records, player_builds=player_builds)
+    puuid = group[0].puuid
+    _ensure_platform(services.client, records, config)
+    ranked = services.client.fetch_solo_rank(puuid)
     matches_df = pd.DataFrame([r.to_row() for r in records])
     peer = build_peer_comparison(
         services.client,
@@ -518,112 +595,106 @@ def _run_with_peer(
     )
 
 
-def run_all_builds(services: Services, puuid: str, *, fetch: bool = False) -> Path:
-    """Discover, parse once and analyse every eligible champion+lane build."""
-    log = get_logger("pipeline")
-    if fetch:
-        _fetch(services)
+def run_all_builds(
+    services: Services, identities_puuids: list[tuple[PlayerIdentity, str]]
+) -> Path:
+    """Discover, parse once and analyse every eligible champion+lane build.
 
-    pools = discover_build_pools(
-        services.store,
-        puuid,
-        services.config,
-        min_games=services.config.min_games,
-    )
-    if not pools:
+    Builds only one tracked player has stay single-player (with peer
+    comparison). Builds two or more tracked players independently qualify
+    for (same champion + lane) are pooled into one combined report instead.
+    """
+    log = get_logger("pipeline")
+    config = services.config
+    players = _discover_player_data(services, identities_puuids)
+
+    build_groups = _resolve_build_groups(players)
+    if not build_groups:
         log.error(
-            "No champion+lane builds with at least %d ranked solo queue games found.",
-            services.config.min_games,
+            "No champion+lane builds with at least %d ranked solo queue games found "
+            "for any tracked player.",
+            config.min_games,
         )
         raise typer.Exit(code=1)
 
     log.info(
-        "Found %d eligible build(s) with >= %d games: %s",
-        len(pools),
-        services.config.min_games,
-        ", ".join(pool.build_label for pool in pools),
+        "Found %d eligible build(s) across %d player(s) with >= %d games: %s",
+        len(build_groups),
+        len(players),
+        config.min_games,
+        ", ".join(f"{champion} {role}" for champion, role, _ in build_groups),
     )
 
-    all_records = _load_all_records(services, puuid)
-    manifest_builds: list[dict[str, Any]] = []
-    for pool in pools:
-        grouped = _group_records(all_records, pool.champion, pool.role)
-        winrate = float(sum(r.win for r in grouped) / len(grouped)) if grouped else 0.0
-        manifest_builds.append(
-            build_manifest_entry(
-                champion=pool.champion,
-                role=pool.role,
-                games=len(grouped),
-                winrate=winrate,
-            )
+    manifest_by_playerset: dict[frozenset[str], list[dict[str, Any]]] = {}
+    for champion, role, group in build_groups:
+        pooled = [r for player in group for r in _group_records(player.records, champion, role)]
+        winrate = float(sum(r.win for r in pooled) / len(pooled)) if pooled else 0.0
+        playerset = frozenset(player.puuid for player in group)
+        manifest_by_playerset.setdefault(playerset, []).append(
+            build_manifest_entry(champion=champion, role=role, games=len(pooled), winrate=winrate)
         )
 
-    player_label = f"{services.config.riot_id}#{services.config.tagline}"
-    player_dir = services.config.player_reports_dir
-
-    ranked: RankedEntry | None = None
     last_report: Path | None = None
-    for pool in tqdm(pools, desc="Analyzing builds", unit="build"):
-        records = _group_records(all_records, pool.champion, pool.role)
-        if len(records) < services.config.min_games:
-            log.warning("Skipping %s: only %d games after parse", pool.build_label, len(records))
+    for champion, role, group in tqdm(build_groups, desc="Analyzing builds", unit="build"):
+        pooled = [r for player in group for r in _group_records(player.records, champion, role)]
+        if len(pooled) < config.min_games:
+            log.warning("Skipping %s %s: only %d games after parse", champion, role, len(pooled))
             continue
-        if ranked is None:
-            _ensure_platform(services.client, records, services.config)
-            ranked = services.client.fetch_solo_rank(puuid)
-        build_config = services.config.model_copy(
-            update={"champion": pool.champion, "role": pool.role}
+        build_config = config.model_copy(
+            update={"champion": champion, "role": role, "players": [p.identity for p in group]}
         )
         build_config.report_dir.mkdir(parents=True, exist_ok=True)
         build_config.run_graphs_dir.mkdir(parents=True, exist_ok=True)
+        playerset = frozenset(player.puuid for player in group)
         last_report = _run_with_peer(
             build_config,
             services,
-            puuid,
-            records,
-            ranked=ranked,
-            player_builds=manifest_builds,
+            group,
+            pooled,
+            player_builds=manifest_by_playerset.get(playerset),
         )
 
     if last_report is None:
         log.error("No builds could be analysed.")
         raise typer.Exit(code=1)
 
-    global_index, hub_path = refresh_report_indexes(
-        services.config.output_dir,
-        services.config.template_dir,
-        player_dir=player_dir,
-        player_label=player_label,
-    )
-    hub_path = hub_path or player_dir / "index.html"
+    global_index = refresh_report_indexes(config.output_dir, config.template_dir)[0]
     log.info(
-        "Generated %d report(s) (≥%d games). Open %s (global index: %s)",
-        len(manifest_builds),
-        services.config.min_games,
-        hub_path,
+        "Generated %d report(s) (>=%d games). Open %s (global index: %s)",
+        sum(len(v) for v in manifest_by_playerset.values()),
+        config.min_games,
+        last_report,
         global_index,
     )
-    return hub_path
+    return last_report
+
+
+PLAYER_OPTION = typer.Option(
+    [],
+    "--player",
+    help="Riot ID as 'Name#Tag'. Repeatable to pool several players' games into one report.",
+)
 
 
 @app.command()
 def analyze(
-    riot_id: str = typer.Option(None, "--riot-id", help="Riot ID game name (e.g. 'Faker')."),
-    tagline: str = typer.Option(None, "--tagline", help="Riot ID tagline without '#'."),
+    player: list[str] = PLAYER_OPTION,
+    riot_id: str = typer.Option(None, "--riot-id", help="Riot ID game name (e.g. 'Faker'). Ignored if --player is used."),
+    tagline: str = typer.Option(None, "--tagline", help="Riot ID tagline without '#'. Ignored if --player is used."),
     region: str = typer.Option(None, "--region", help="Routing region (europe/americas/asia/sea) or platform (euw1, na1...)."),
     platform: str = typer.Option(None, "--platform", help="Platform for league-v4 rank lookup (euw1, eun1, na1...). Auto-detected from match ids when omitted."),
     api_key: str = typer.Option(None, "--api-key", envvar="RIOT_API_KEY", help="Riot API key."),
-    count: int = typer.Option(None, "--count", help="Max matches to scan (default 500)."),
+    count: int = typer.Option(None, "--count", help="Max matches to scan per player (default 500)."),
     min_games: int = typer.Option(None, "--min-games", help="Min solo/duo games per champion+lane (default 20)."),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Debug logging."),
 ) -> None:
     """Run the full pipeline: download, analyse all eligible builds and generate reports."""
     services = _build_services(
-        riot_id, tagline, region, platform, api_key, count, min_games, verbose
+        player, riot_id, tagline, region, platform, api_key, count, min_games, verbose
     )
     try:
-        puuid = _fetch(services)
-        run_all_builds(services, puuid, fetch=False)
+        identities_puuids = _fetch(services)
+        run_all_builds(services, identities_puuids)
     finally:
         services.store.close()
         services.http_cache.close()
@@ -631,18 +702,19 @@ def analyze(
 
 @app.command()
 def fetch(
+    player: list[str] = PLAYER_OPTION,
     riot_id: str = typer.Option(None, "--riot-id"),
     tagline: str = typer.Option(None, "--tagline"),
     region: str = typer.Option(None, "--region"),
     platform: str = typer.Option(None, "--platform"),
     api_key: str = typer.Option(None, "--api-key", envvar="RIOT_API_KEY"),
-    count: int = typer.Option(None, "--count"),
+    count: int = typer.Option(None, "--count", help="Max matches to scan per player (default 500)."),
     min_games: int = typer.Option(None, "--min-games"),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
 ) -> None:
     """Download matches into the local store without analysing them."""
     services = _build_services(
-        riot_id, tagline, region, platform, api_key, count, min_games, verbose
+        player, riot_id, tagline, region, platform, api_key, count, min_games, verbose
     )
     try:
         _fetch(services)
@@ -654,21 +726,26 @@ def fetch(
 
 @app.command()
 def report(
+    player: list[str] = PLAYER_OPTION,
     riot_id: str = typer.Option(None, "--riot-id"),
     tagline: str = typer.Option(None, "--tagline"),
     region: str = typer.Option(None, "--region"),
     platform: str = typer.Option(None, "--platform"),
     api_key: str = typer.Option(None, "--api-key", envvar="RIOT_API_KEY"),
+    count: int = typer.Option(None, "--count", help="Max matches to scan per player (default 500)."),
     min_games: int = typer.Option(None, "--min-games"),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
 ) -> None:
     """Rebuild all eligible build reports from already-downloaded matches."""
     services = _build_services(
-        riot_id, tagline, region, platform, api_key, None, min_games, verbose
+        player, riot_id, tagline, region, platform, api_key, count, min_games, verbose
     )
     try:
-        puuid = services.client.resolve_puuid(services.config.riot_id, services.config.tagline)
-        run_all_builds(services, puuid, fetch=False)
+        identities_puuids = [
+            (identity, services.client.resolve_puuid(identity.game_name, identity.tagline))
+            for identity in services.config.players
+        ]
+        run_all_builds(services, identities_puuids)
     finally:
         services.store.close()
         services.http_cache.close()
