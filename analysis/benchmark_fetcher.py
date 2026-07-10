@@ -1,100 +1,48 @@
-"""Build rank-peer benchmarks by sampling league players via the Riot API.
-
-Riot does not expose champion-by-rank population averages directly. This module
-approximates them by:
-
-1. Listing players in the requester's solo queue league (same tier + division),
-2. Scanning their recent ranked games for the configured champion + lane,
-3. Averaging end-of-game stats across the collected sample.
-
-Results are cached on disk for :data:`BENCHMARK_CACHE_TTL_S` so later runs do
-not repeat the full scan.
-"""
+"""Build rank-peer benchmarks by sampling league players via the Riot API."""
 
 from __future__ import annotations
 
-import json
 import random
-import time
+from collections import deque
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Final
 
 import pandas as pd
 from tqdm import tqdm
 
-from analysis.benchmarks import BENCHMARKS_DIR
-from champions import champion_slug
-from config import REMAKE_MAX_DURATION_S, RANKED_SOLO_QUEUE_ID
+from analysis.peer_ingest import ingest_match
+from analysis.peer_metrics import (
+    BENCHMARK_METRIC_KEYS,
+    match_duration_minutes,
+    participant_position,
+    participant_row,
+    team_damage_totals,
+)
+from analysis.rank_scope import RankScope, build_widened_scope, league_lookup_pairs, rank_matches
+from cache import MatchStore
+from config import RANKED_SOLO_QUEUE_ID
 from models import RankedEntry
 from riot_api import RiotApiClient, RiotApiError
 from utils import get_logger, safe_div
 
 MIN_BENCHMARK_GAMES: Final[int] = 12
-MAX_PLAYERS_TO_SCAN: Final[int] = 25
-MATCH_IDS_PER_PLAYER: Final[int] = 20
-MAX_MATCH_DOWNLOADS: Final[int] = 80
-BENCHMARK_CACHE_TTL_S: Final[float] = 7 * 24 * 3600
-
-BENCHMARK_METRIC_KEYS: Final[tuple[str, ...]] = (
-    "win",
-    "kda",
-    "dpm",
-    "cspm",
-    "deaths",
-    "vspm",
-    "control_wards",
-    "kill_participation",
-    "damage_share",
-)
+TARGET_PEER_GAMES: Final[int] = 100
+MAX_PLAYERS_TO_SCAN: Final[int] = 150
+MATCH_IDS_PER_PLAYER: Final[int] = 100
+MAX_MATCH_DOWNLOADS: Final[int] = 400
+LEAGUE_PAGES: Final[int] = 3
+MAX_LEAGUE_CANDIDATES: Final[int] = 500
 
 
 @dataclass(frozen=True)
 class BenchmarkSnapshot:
-    """Peer baseline built from Riot API sampling or a recent cache."""
+    """Peer baseline built from Riot API sampling."""
 
     metrics: dict[str, float]
     games_sampled: int
     players_sampled: int
     from_cache: bool
     platform: str
-
-
-def benchmark_cache_path(
-    champion: str, role: str, platform: str, tier: str, rank: str
-) -> Path:
-    """Return the on-disk cache path for a champion + lane + rank sample."""
-    slug = champion_slug(champion, role)
-    rank_part = rank.lower() if rank else "masterplus"
-    return BENCHMARKS_DIR / f"{slug}__{platform}__{tier.lower()}__{rank_part}.json"
-
-
-def _participant_row(participant: dict[str, Any], duration_min: float) -> dict[str, Any]:
-    """Extract comparable scalars from a match participant block."""
-    minutes = max(1.0, duration_min)
-    kills = int(participant.get("kills", 0))
-    deaths = int(participant.get("deaths", 0))
-    assists = int(participant.get("assists", 0))
-    damage = int(participant.get("totalDamageDealtToChampions", 0))
-    gold = int(participant.get("goldEarned", 0))
-    cs = int(participant.get("totalMinionsKilled", 0)) + int(
-        participant.get("neutralMinionsKilled", 0)
-    )
-    challenges = participant.get("challenges", {}) or {}
-    return {
-        "puuid": str(participant.get("puuid", "")),
-        "win": int(bool(participant.get("win"))),
-        "kda": (kills + assists) / max(1, deaths),
-        "dpm": damage / minutes,
-        "cspm": cs / minutes,
-        "deaths": float(deaths),
-        "vspm": int(participant.get("visionScore", 0)) / minutes,
-        "control_wards": float(int(participant.get("visionWardsBoughtInGame", 0))),
-        "kill_participation": float(challenges.get("killParticipation", 0.0)),
-        "damage_share": safe_div(damage, damage),
-        "gold": gold,
-        "damage": damage,
-    }
 
 
 def extract_champion_role_for_puuid(
@@ -104,34 +52,45 @@ def extract_champion_role_for_puuid(
     role: str,
 ) -> dict[str, Any] | None:
     """Return end-of-game stats when a player used the configured champion + lane."""
-    info = match.get("info", {})
-    if int(info.get("queueId", 0)) != RANKED_SOLO_QUEUE_ID:
+    duration_min = match_duration_minutes(match)
+    if duration_min is None:
         return None
-    duration_s = int(info.get("gameDuration", 0))
-    if duration_s > 100_000:
-        duration_s //= 1000
-    if duration_s <= REMAKE_MAX_DURATION_S:
-        return None
-    duration_min = duration_s / 60.0
-    participants: list[dict[str, Any]] = info.get("participants", [])
-    team_damage: dict[int, int] = {}
-    for participant in participants:
-        team_id = int(participant.get("teamId", 0))
-        team_damage[team_id] = team_damage.get(team_id, 0) + int(
-            participant.get("totalDamageDealtToChampions", 0)
-        )
+
+    participants: list[dict[str, Any]] = match.get("info", {}).get("participants", [])
+    team_damage = team_damage_totals(participants)
     for participant in participants:
         if str(participant.get("puuid", "")) != puuid:
             continue
         if str(participant.get("championName", "")) != champion:
             return None
-        if str(participant.get("teamPosition", "")) != role:
+        if participant_position(participant) != role:
             return None
-        row = _participant_row(participant, duration_min)
+        row = participant_row(participant, duration_min)
         team_id = int(participant.get("teamId", 0))
         row["damage_share"] = safe_div(row["damage"], team_damage.get(team_id, row["damage"]))
         return row
     return None
+
+
+def _match_has_build(match: dict[str, Any], champion: str, role: str) -> bool:
+    """Whether any participant played the configured champion + lane."""
+    if match_duration_minutes(match) is None:
+        return False
+    for participant in match.get("info", {}).get("participants", []):
+        if str(participant.get("championName", "")) != champion:
+            continue
+        if participant_position(participant) == role:
+            return True
+    return False
+
+
+def _participant_puuids(match: dict[str, Any]) -> list[str]:
+    """Return every participant PUUID in a match."""
+    return [
+        str(participant.get("puuid", ""))
+        for participant in match.get("info", {}).get("participants", [])
+        if participant.get("puuid")
+    ]
 
 
 def _average_metrics(frame: pd.DataFrame, columns: list[str]) -> dict[str, float]:
@@ -146,116 +105,6 @@ def _average_metrics(frame: pd.DataFrame, columns: list[str]) -> dict[str, float
     return result
 
 
-def _load_cache(path: Path) -> BenchmarkSnapshot | None:
-    """Load a cached benchmark when metadata matches and TTL has not expired."""
-    if not path.is_file():
-        return None
-    try:
-        with path.open(encoding="utf-8") as fh:
-            payload: dict[str, Any] = json.load(fh)
-    except (OSError, json.JSONDecodeError):
-        return None
-
-    meta = payload.get("_meta", {})
-    fetched_at = float(meta.get("fetched_at", 0))
-    if time.time() - fetched_at > BENCHMARK_CACHE_TTL_S:
-        return None
-
-    metrics = payload.get("metrics")
-    if not isinstance(metrics, dict):
-        return None
-
-    return BenchmarkSnapshot(
-        metrics={key: float(value) for key, value in metrics.items()},
-        games_sampled=int(meta.get("games_sampled", 0)),
-        players_sampled=int(meta.get("players_sampled", 0)),
-        from_cache=True,
-        platform=str(meta.get("platform", "")),
-    )
-
-
-def _save_cache(
-    path: Path,
-    *,
-    champion: str,
-    role: str,
-    platform: str,
-    tier: str,
-    rank: str,
-    metrics: dict[str, float],
-    games_sampled: int,
-    players_sampled: int,
-) -> None:
-    """Persist a freshly sampled benchmark."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "_meta": {
-            "champion": champion,
-            "role": role,
-            "platform": platform,
-            "tier": tier.upper(),
-            "rank": rank.upper() if rank else "",
-            "fetched_at": time.time(),
-            "games_sampled": games_sampled,
-            "players_sampled": players_sampled,
-        },
-        "metrics": {key: round(value, 4) for key, value in metrics.items()},
-    }
-    with path.open("w", encoding="utf-8") as fh:
-        json.dump(payload, fh, indent=2)
-
-
-def _collect_sample_rows(
-    client: RiotApiClient,
-    *,
-    champion: str,
-    role: str,
-    puuids: list[str],
-    exclude_puuid: str | None,
-) -> tuple[list[dict[str, Any]], int, int]:
-    """Scan recent games for matching champion + lane performances."""
-    log = get_logger("benchmark_fetcher")
-    rows: list[dict[str, Any]] = []
-    players_used: set[str] = set()
-    downloads = 0
-
-    for puuid in tqdm(puuids, desc="Sampling rank peers", unit="player"):
-        if len(rows) >= MIN_BENCHMARK_GAMES and downloads >= MIN_BENCHMARK_GAMES:
-            break
-        if downloads >= MAX_MATCH_DOWNLOADS:
-            break
-
-        try:
-            match_ids = client.fetch_match_ids(puuid, MATCH_IDS_PER_PLAYER)
-        except RiotApiError as exc:
-            log.debug("Skipping %s...: %s", puuid[:12], exc)
-            continue
-
-        for match_id in match_ids:
-            if len(rows) >= MIN_BENCHMARK_GAMES * 3:
-                break
-            if downloads >= MAX_MATCH_DOWNLOADS:
-                break
-
-            try:
-                match = client.fetch_match(match_id)
-            except RiotApiError as exc:
-                log.debug("Skipping match %s: %s", match_id, exc)
-                continue
-            downloads += 1
-
-            row = extract_champion_role_for_puuid(match, puuid, champion, role)
-            if row is None:
-                continue
-            if exclude_puuid and row.get("puuid") == exclude_puuid:
-                continue
-            row["match_id"] = match_id
-            rows.append(row)
-            players_used.add(puuid)
-
-    return rows, len(rows), len(players_used)
-
-
 def _aggregate_rows(rows: list[dict[str, Any]]) -> dict[str, float]:
     """Average comparable metrics across sampled games."""
     frame = pd.DataFrame(rows)
@@ -265,45 +114,156 @@ def _aggregate_rows(rows: list[dict[str, Any]]) -> dict[str, float]:
     return metrics
 
 
+def _gather_seed_puuids(client: RiotApiClient, scope: RankScope, exclude_puuid: str | None) -> list[str]:
+    """Collect league entry PUUIDs across the configured rank scope."""
+    seen: set[str] = set()
+    puuids: list[str] = []
+    for tier, division in league_lookup_pairs(scope):
+        try:
+            entries = client.fetch_league_entries_pages(tier, division, max_pages=LEAGUE_PAGES)
+        except RiotApiError:
+            continue
+        for entry in entries:
+            puuid = str(entry.get("puuid", ""))
+            if not puuid or puuid in seen or puuid == (exclude_puuid or ""):
+                continue
+            seen.add(puuid)
+            puuids.append(puuid)
+            if len(puuids) >= MAX_LEAGUE_CANDIDATES:
+                return puuids
+    random.shuffle(puuids)
+    return puuids[:MAX_PLAYERS_TO_SCAN]
+
+
+def _load_or_fetch_match(
+    client: RiotApiClient,
+    store: MatchStore,
+    match_id: str,
+    owner_puuid: str,
+) -> dict[str, Any] | None:
+    """Return a match document from the store or Riot API."""
+    cached = store.load_match(match_id)
+    if cached is not None:
+        return cached
+    try:
+        match = client.fetch_match(match_id)
+    except RiotApiError as exc:
+        get_logger("benchmark_fetcher").debug("Skipping match %s: %s", match_id, exc)
+        return None
+    store.save_match(match_id, owner_puuid, match)
+    ingest_match(store, match_id, match, client.platform)
+    return match
+
+
+def _collect_sample_rows(
+    client: RiotApiClient,
+    store: MatchStore,
+    *,
+    champion: str,
+    role: str,
+    ranked: RankedEntry,
+    seed_puuids: list[str],
+    exclude_puuid: str | None,
+) -> tuple[list[dict[str, Any]], int, int]:
+    """Snowball-scan recent games for matching champion + lane performances."""
+    log = get_logger("benchmark_fetcher")
+    scope = build_widened_scope(ranked)
+    rows: list[dict[str, Any]] = []
+    players_used: set[str] = set()
+    downloads = 0
+    seen_puuids: set[str] = set()
+    seen_matches: set[str] = set()
+    queue: deque[str] = deque(seed_puuids)
+
+    progress = tqdm(total=MAX_MATCH_DOWNLOADS, desc="Sampling rank peers", unit="match")
+    try:
+        while queue and downloads < MAX_MATCH_DOWNLOADS and len(rows) < TARGET_PEER_GAMES:
+            puuid = queue.popleft()
+            if puuid in seen_puuids:
+                continue
+            seen_puuids.add(puuid)
+
+            try:
+                match_ids = client.fetch_match_ids(
+                    puuid, MATCH_IDS_PER_PLAYER, queue_id=RANKED_SOLO_QUEUE_ID
+                )
+            except RiotApiError as exc:
+                log.debug("Skipping %s...: %s", puuid[:12], exc)
+                continue
+
+            for match_id in match_ids:
+                if len(rows) >= TARGET_PEER_GAMES or downloads >= MAX_MATCH_DOWNLOADS:
+                    break
+                if match_id in seen_matches:
+                    continue
+                seen_matches.add(match_id)
+
+                match = _load_or_fetch_match(client, store, match_id, puuid)
+                if match is None:
+                    continue
+                downloads += 1
+                progress.update(1)
+
+                if _match_has_build(match, champion, role):
+                    for other_puuid in _participant_puuids(match):
+                        if other_puuid and other_puuid not in seen_puuids:
+                            queue.append(other_puuid)
+
+                row = extract_champion_role_for_puuid(match, puuid, champion, role)
+                if row is None:
+                    continue
+                if exclude_puuid and row.get("puuid") == exclude_puuid:
+                    continue
+
+                peer_rank = client.fetch_solo_rank(puuid)
+                if peer_rank is None:
+                    continue
+                store.set_puuid_rank(puuid, peer_rank.tier, peer_rank.rank)
+                if not rank_matches(peer_rank.tier, peer_rank.rank, scope):
+                    continue
+
+                row["match_id"] = match_id
+                rows.append(row)
+                players_used.add(puuid)
+    finally:
+        progress.close()
+
+    return rows, len(rows), len(players_used)
+
+
 def fetch_benchmark_from_api(
     client: RiotApiClient,
+    store: MatchStore,
     ranked: RankedEntry,
     champion: str,
     role: str,
     *,
     exclude_puuid: str | None = None,
 ) -> BenchmarkSnapshot | None:
-    """Sample same-rank players and aggregate their champion + lane stats."""
+    """Sample rank-scoped players and aggregate their champion + lane stats."""
     log = get_logger("benchmark_fetcher")
-    entries = client.fetch_league_entries(ranked.tier, ranked.rank)
-    puuids = [
-        str(entry["puuid"])
-        for entry in entries
-        if entry.get("puuid") and str(entry["puuid"]) != (exclude_puuid or "")
-    ]
-    if not puuids:
+    scope = build_widened_scope(ranked)
+    seed_puuids = _gather_seed_puuids(client, scope, exclude_puuid)
+    if not seed_puuids:
         log.warning(
-            "No league entries returned for %s %s on %s",
-            ranked.tier,
-            ranked.rank or "Master+",
+            "No league entries returned for %s on %s",
+            ranked.label,
             client.platform,
         )
         return None
 
-    random.shuffle(puuids)
-    puuids = puuids[:MAX_PLAYERS_TO_SCAN]
-
     rows, games, players = _collect_sample_rows(
         client,
+        store,
         champion=champion,
         role=role,
-        puuids=puuids,
+        ranked=ranked,
+        seed_puuids=seed_puuids,
         exclude_puuid=exclude_puuid,
     )
     if games < MIN_BENCHMARK_GAMES:
         log.warning(
-            "Only found %d %s %s games at %s (need %d). "
-            "Try again later or pick a more popular champion.",
+            "Only found %d %s %s games near %s (need %d).",
             games,
             champion,
             role,
@@ -327,44 +287,3 @@ def fetch_benchmark_from_api(
         from_cache=False,
         platform=client.platform,
     )
-
-
-def ensure_tier_benchmark(
-    client: RiotApiClient,
-    ranked: RankedEntry,
-    champion: str,
-    role: str,
-    *,
-    exclude_puuid: str | None = None,
-) -> BenchmarkSnapshot | None:
-    """Return a peer baseline, using cache when fresh else sampling via Riot API."""
-    cache_path = benchmark_cache_path(
-        champion, role, client.platform, ranked.tier, ranked.rank
-    )
-    cached = _load_cache(cache_path)
-    if cached is not None:
-        get_logger("benchmark_fetcher").info("Using cached benchmark: %s", cache_path.name)
-        return cached
-
-    snapshot = fetch_benchmark_from_api(
-        client,
-        ranked,
-        champion,
-        role,
-        exclude_puuid=exclude_puuid,
-    )
-    if snapshot is None:
-        return None
-
-    _save_cache(
-        cache_path,
-        champion=champion,
-        role=role,
-        platform=client.platform,
-        tier=ranked.tier,
-        rank=ranked.rank,
-        metrics=snapshot.metrics,
-        games_sampled=snapshot.games_sampled,
-        players_sampled=snapshot.players_sampled,
-    )
-    return snapshot

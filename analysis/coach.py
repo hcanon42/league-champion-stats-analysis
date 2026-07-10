@@ -24,8 +24,24 @@ from utils import get_logger
 
 MIN_GAMES: int = 10
 SIGNIFICANT_P: float = 0.05
-SUGGESTIVE_P: float = 0.15
-VISIBLE_RECOMMENDATIONS: int = 5
+SUGGESTIVE_P: float = 0.12
+VISIBLE_RECOMMENDATIONS: int = 3
+
+# Effect-size gates — raised slightly to keep only the strongest signals.
+MIN_WINRATE_DELTA: float = 0.12
+MIN_WINRATE_DELTA_SOFT: float = 0.10
+MIN_WIN_CORRELATION: float = 0.20
+MIN_FEATURE_CORRELATION: float = 0.18
+MIN_LANE_PRIORITY_CORRELATION: float = 0.22
+BEST_MATCHUP_WINRATE: float = 0.58
+WORST_MATCHUP_WINRATE: float = 0.42
+MIN_SIDE_LANE_DEATHS_PER_GAME: float = 0.6
+MIN_OBJECTIVE_PRESENCE: float = 0.50
+MIN_DEAD_BEFORE_OBJECTIVE_RATE: float = 0.22
+MAX_AHEAD_WR_AT_15: float = 0.58
+MIN_CS10_FOR_REC: float = 74
+MIN_FIRST_ITEM_GAP_MIN: float = 0.6
+MIN_DEAD_BEFORE_OBJECTIVE_SAMPLE: int = 14
 
 # Human labels and coaching tips for the personal win-condition rule.
 WIN_FEATURE_HINTS: dict[str, tuple[str, str]] = {
@@ -201,7 +217,7 @@ class CoachEngine:
     def _rule_personal_win_condition(self) -> Recommendation | None:
         """Surface the top positive win correlates for this player."""
         corrs = self._stats.win_correlations()
-        positive = [c for c in corrs if c.correlation >= 0.18 and c.p_value <= SUGGESTIVE_P]
+        positive = [c for c in corrs if c.correlation >= MIN_WIN_CORRELATION and c.p_value <= SUGGESTIVE_P]
         if not positive:
             return None
 
@@ -219,7 +235,7 @@ class CoachEngine:
             if split is None or split["n_high"] < 3 or split["n_low"] < 3:
                 continue
             delta = split["winrate_high"] - split["winrate_low"]
-            if delta < 0.08:
+            if delta < MIN_WINRATE_DELTA_SOFT:
                 continue
             label, tip = WIN_FEATURE_HINTS[pick.feature]
             segments.append(
@@ -254,7 +270,7 @@ class CoachEngine:
         if split is None or split["n_high"] < 3:
             return None
         delta = split["winrate_low"] - split["winrate_high"]
-        if delta < 0.10:
+        if delta < MIN_WINRATE_DELTA:
             return None
         return Recommendation(
             category="Deaths",
@@ -313,7 +329,7 @@ class CoachEngine:
             return None
         stat_result = scipy_stats.mannwhitneyu(wins, losses, alternative="two-sided")
         gap = float(losses.mean() - wins.mean())
-        if gap < 0.5:
+        if gap < MIN_FIRST_ITEM_GAP_MIN:
             return None
         return Recommendation(
             category="Items",
@@ -339,7 +355,7 @@ class CoachEngine:
         if len(frame) < MIN_GAMES or frame["control_wards"].nunique() < 2:
             return None
         corr, p_value = scipy_stats.pointbiserialr(frame["win"], frame["control_wards"])
-        if corr < 0.15 or p_value > SUGGESTIVE_P:
+        if corr < MIN_FEATURE_CORRELATION or p_value > SUGGESTIVE_P:
             return None
         wins_avg = frame[frame["win"] == 1]["control_wards"].mean()
         losses_avg = frame[frame["win"] == 0]["control_wards"].mean()
@@ -364,7 +380,7 @@ class CoachEngine:
             return None
         side = self._deaths[self._deaths["side_lane_push"]]
         games = self._matches["match_id"].nunique()
-        if games == 0 or len(side) / games < 0.5:
+        if games == 0 or len(side) / games < MIN_SIDE_LANE_DEATHS_PER_GAME:
             return None
         late = side[side["minute"] >= 22]
         loss_share = float((side["win"] == 0).mean()) if len(side) else 0.0
@@ -388,7 +404,7 @@ class CoachEngine:
         from analysis.matchups import matchup_summary
 
         summary = matchup_summary(self._matchups)
-        if not summary or summary["best_matchup_winrate"] < 0.55:
+        if not summary or summary["best_matchup_winrate"] < BEST_MATCHUP_WINRATE:
             return None
         return Recommendation(
             category="Matchups",
@@ -415,7 +431,7 @@ class CoachEngine:
         from analysis.matchups import matchup_summary
 
         summary = matchup_summary(self._matchups)
-        if not summary or summary["worst_matchup_winrate"] > 0.45:
+        if not summary or summary["worst_matchup_winrate"] > WORST_MATCHUP_WINRATE:
             return None
         cause = ""
         deaths_pre14 = summary.get("worst_matchup_deaths_pre14")
@@ -452,7 +468,7 @@ class CoachEngine:
         if split is None or split["n_high"] < 3:
             return None
         delta = split["winrate_low"] - split["winrate_high"]
-        if delta < 0.10:
+        if delta < MIN_WINRATE_DELTA:
             return None
         pre_dragon = int((dragon >= 1).sum())
         pre_baron = int((baron >= 1).sum())
@@ -479,7 +495,7 @@ class CoachEngine:
         if self._objectives.empty:
             return None
         presence = float(self._objectives["present"].mean())
-        if presence >= 0.55 or len(self._objectives) < 15:
+        if presence >= MIN_OBJECTIVE_PRESENCE or len(self._objectives) < 15:
             return None
         return Recommendation(
             category="Objectives",
@@ -501,7 +517,7 @@ class CoachEngine:
         if split is None or split["n_high"] < 3:
             return None
         delta = split["winrate_low"] - split["winrate_high"]
-        if delta < 0.10:
+        if delta < MIN_WINRATE_DELTA:
             return None
         return Recommendation(
             category="Deaths",
@@ -528,7 +544,7 @@ class CoachEngine:
         if split is None or split["n_high"] < 3:
             return None
         delta = split["winrate_low"] - split["winrate_high"]
-        if delta < 0.10:
+        if delta < MIN_WINRATE_DELTA:
             return None
         return Recommendation(
             category="Deaths",
@@ -555,7 +571,7 @@ class CoachEngine:
         if split is None or split["n_high"] < 3:
             return None
         delta = split["winrate_low"] - split["winrate_high"]
-        if delta < 0.10:
+        if delta < MIN_WINRATE_DELTA:
             return None
         return Recommendation(
             category="Laning",
@@ -582,7 +598,7 @@ class CoachEngine:
         if split is None or split["n_high"] < 3:
             return None
         delta = split["winrate_low"] - split["winrate_high"]
-        if delta < 0.10:
+        if delta < MIN_WINRATE_DELTA:
             return None
         return Recommendation(
             category="Laning",
@@ -610,7 +626,7 @@ class CoachEngine:
         if split is None or split["n_high"] < 3:
             return None
         delta = split["winrate_low"] - split["winrate_high"]
-        if delta < 0.10:
+        if delta < MIN_WINRATE_DELTA:
             return None
         return Recommendation(
             category="Laning",
@@ -677,7 +693,7 @@ class CoachEngine:
         if len(ahead) < 5:
             return None
         ahead_wr = float(ahead["win"].mean())
-        if ahead_wr >= 0.62:
+        if ahead_wr >= MAX_AHEAD_WR_AT_15:
             return None
         throws = ahead[ahead["win"] == 0]
         throw_rate = len(throws) / len(frame)
@@ -711,7 +727,7 @@ class CoachEngine:
         if split is None or split["n_low"] < 3:
             return None
         delta = split["winrate_high"] - split["winrate_low"]
-        if delta < 0.10:
+        if delta < MIN_WINRATE_DELTA:
             return None
         low_avg = float(frame[frame["tf_participation"] < 0.65]["tf_participation"].mean())
         return Recommendation(
@@ -737,7 +753,7 @@ class CoachEngine:
         if self._objectives.empty or "dead_before" not in self._objectives.columns:
             return None
         dead_rate = float(self._objectives["dead_before"].mean())
-        if dead_rate < 0.18 or len(self._objectives) < 12:
+        if dead_rate < MIN_DEAD_BEFORE_OBJECTIVE_RATE or len(self._objectives) < MIN_DEAD_BEFORE_OBJECTIVE_SAMPLE:
             return None
         by_kind = self._objectives.groupby("kind")["dead_before"].mean().sort_values(ascending=False)
         worst_kind = str(by_kind.index[0]) if not by_kind.empty else "objective"
@@ -761,7 +777,7 @@ class CoachEngine:
         if len(frame) < MIN_GAMES:
             return None
         avg = float(frame["cs10"].mean())
-        if avg >= 72:
+        if avg >= MIN_CS10_FOR_REC:
             return None
         return Recommendation(
             category="Laning",
@@ -784,7 +800,7 @@ class CoachEngine:
         if len(frame) < MIN_GAMES or frame["lane_priority"].nunique() < 2:
             return None
         corr, p_value = scipy_stats.pointbiserialr(frame["win"], frame["lane_priority"])
-        if corr < 0.2 or p_value > SUGGESTIVE_P:
+        if corr < MIN_LANE_PRIORITY_CORRELATION or p_value > SUGGESTIVE_P:
             return None
         return Recommendation(
             category="Laning",

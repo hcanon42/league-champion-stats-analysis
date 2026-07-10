@@ -233,6 +233,11 @@ class AppConfig(BaseModel):
         """Directory of the diskcache HTTP cache."""
         return self.cache_dir / "http"
 
+    @property
+    def assets_dir(self) -> Path:
+        """Shared champion/rune icons for generated HTML reports."""
+        return self.output_dir / "assets"
+
     def ensure_directories(self) -> None:
         """Create output, player report and cache directories if missing."""
         for path in (self.output_dir, self.player_reports_dir, self.cache_dir):

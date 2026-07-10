@@ -1,14 +1,7 @@
 """Rank-peer comparison: your stats vs same-rank peers on the same champion + lane.
 
-The comparison baseline is built in two layers:
-
-1. **Live peers** — other players on the configured champion + lane in your
-   downloaded match history whose solo queue tier matches yours.
-2. **Tier benchmarks** — averages from other players at your solo queue rank
-   playing the same champion + lane, sampled via league-v4 and match-v5 when
-   you run the analyzer (cached under ``data/benchmarks/`` for seven days).
-
-Gap-based recommendations highlight the largest weaknesses relative to peers.
+Baselines are resolved from the persistent peer store, live snowball sampling,
+and static JSON fallbacks via :func:`analysis.peer_baseline.resolve_peer_baseline`.
 """
 
 from __future__ import annotations
@@ -17,12 +10,13 @@ from typing import Any, Final, Literal
 
 import pandas as pd
 
-from analysis.benchmark_fetcher import ensure_tier_benchmark
+from analysis.peer_baseline import resolve_peer_baseline
+from analysis.peer_cache import collect_user_history_peers
+from analysis.peer_metrics import extract_champion_role_rows
 from cache import MatchStore
 from champions import build_label
-from config import REMAKE_MAX_DURATION_S, RANKED_SOLO_QUEUE_ID
 from models import MatchRecord, MetricComparison, PeerComparisonResult, RankedEntry, Recommendation
-from riot_api import RiotApiClient, RiotApiError
+from riot_api import RiotApiClient
 from utils import get_logger, safe_div
 
 MIN_PEER_GAMES: Final[int] = 12
@@ -45,7 +39,7 @@ COMPARE_METRICS: Final[tuple[tuple[str, str, Literal["higher", "lower"]], ...]] 
 )
 
 # Minimum relative gap (%) to flag a weakness/strength
-GAP_THRESHOLD_PCT: Final[float] = 8.0
+GAP_THRESHOLD_PCT: Final[float] = 10.0
 
 
 def _participant_row(participant: dict[str, Any], duration_min: float) -> dict[str, Any]:
@@ -93,46 +87,10 @@ def _extract_champion_role_from_match(
     champion: str,
     role: str,
 ) -> list[dict[str, Any]]:
-    """Pull performances on the configured champion + lane from a raw match.
-
-    Args:
-        match: Raw match-v5 JSON.
-        exclude_puuid: The tracked player's PUUID (excluded).
-        champion: Riot champion id to match.
-        role: Normalised team position to match.
-
-    Returns:
-        One metrics dict per other matching participant in the game.
-    """
-    info = match.get("info", {})
-    if int(info.get("queueId", 0)) != RANKED_SOLO_QUEUE_ID:
-        return []
-    duration_s = int(info.get("gameDuration", 0))
-    if duration_s > 100_000:
-        duration_s //= 1000
-    if duration_s <= REMAKE_MAX_DURATION_S:
-        return []
-    duration_min = duration_s / 60.0
-    participants: list[dict[str, Any]] = info.get("participants", [])
-    team_damage: dict[int, int] = {}
-    for p in participants:
-        team_id = int(p.get("teamId", 0))
-        team_damage[team_id] = team_damage.get(team_id, 0) + int(
-            p.get("totalDamageDealtToChampions", 0)
-        )
-    rows: list[dict[str, Any]] = []
-    for p in participants:
-        if str(p.get("puuid", "")) == exclude_puuid:
-            continue
-        if str(p.get("championName", "")) != champion:
-            continue
-        if str(p.get("teamPosition", "")) != role:
-            continue
-        row = _participant_row(p, duration_min)
-        team_id = int(p.get("teamId", 0))
-        row["damage_share"] = safe_div(row["damage"], team_damage.get(team_id, row["damage"]))
-        rows.append(row)
-    return rows
+    """Pull performances on the configured champion + lane from a raw match."""
+    return extract_champion_role_rows(
+        match, exclude_puuid=exclude_puuid, champion=champion, role=role
+    )
 
 
 def collect_peer_games(
@@ -473,50 +431,37 @@ def build_peer_comparison(
         )
         return None
 
-    try:
-        snapshot = ensure_tier_benchmark(
-            client,
-            ranked,
-            champion,
-            role,
-            exclude_puuid=user_puuid,
-        )
-    except RiotApiError as exc:
-        log.warning("Skipping peer comparison: Riot API error while sampling peers: %s", exc)
-        return None
-
-    if snapshot is None:
+    baseline = resolve_peer_baseline(
+        client,
+        store,
+        ranked,
+        champion,
+        role,
+        exclude_puuid=user_puuid,
+    )
+    if baseline is None:
         log.warning(
-            "Skipping peer comparison: could not sample enough %s %s games at %s",
-            champion,
-            role,
+            "Skipping peer comparison: no baseline available for %s at %s",
+            label,
             ranked.label,
         )
         return None
 
-    benchmark = snapshot.metrics
-    if "win" not in benchmark and "winrate" in benchmark:
-        benchmark = {**benchmark, "win": float(benchmark["winrate"])}
-
-    peer_df = collect_peer_games(store, user_puuid, champion, role)
-    peer_games = len(peer_df)
-    peer_players = int(peer_df["puuid"].nunique()) if peer_games else 0
-
     final_peer: dict[str, float] = {
-        key: float(benchmark[key])
+        key: float(baseline.metrics[key])
         for key, _, _ in COMPARE_METRICS
-        if key in benchmark and benchmark[key] is not None
+        if key in baseline.metrics and baseline.metrics[key] is not None
     }
 
-    cache_note = "cached " if snapshot.from_cache else "fresh "
-    source = (
-        f"{cache_note}Riot API sample: {snapshot.games_sampled} ranked solo games "
-        f"from {snapshot.players_sampled} {ranked.label} players on {label}."
-    )
-    if peer_games:
+    history_df = collect_user_history_peers(store, user_puuid, champion, role)
+    history_games = len(history_df)
+    history_players = int(history_df["puuid"].nunique()) if history_games else 0
+
+    source = baseline.source
+    if history_games:
         source += (
-            f" ({peer_games} other {label} games in your match history — "
-            "not used for averages because they are mostly your opponents.)"
+            f" ({history_games} other {label} games in your match history from "
+            f"{history_players} players.)"
         )
 
     user_avgs = _user_averages(matches_df)
@@ -541,8 +486,10 @@ def build_peer_comparison(
         role=role,
         build_label=label,
         source=source,
-        peer_games=peer_games,
-        peer_players=peer_players,
+        peer_games=baseline.games,
+        peer_players=baseline.players,
+        confidence=baseline.confidence,
+        fallback_level=baseline.fallback_level,
         comparisons=comparisons,
         strengths=strengths,
         weaknesses=weaknesses,

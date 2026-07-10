@@ -493,6 +493,8 @@ class PeerComparisonResult(BaseModel):
     source: str
     peer_games: int
     peer_players: int
+    confidence: str = "high"
+    fallback_level: int = 0
     comparisons: list[MetricComparison] = Field(default_factory=list)
     strengths: list[str] = Field(default_factory=list)
     weaknesses: list[str] = Field(default_factory=list)

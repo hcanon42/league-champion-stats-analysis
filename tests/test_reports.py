@@ -11,7 +11,7 @@ from champions import player_slug
 from config import AppConfig
 from main import run_analysis
 from models import MatchRecord, PeerComparisonResult, RankedEntry
-from report import discover_reports, refresh_report_indexes
+from report import discover_reports, group_reports_by_player, refresh_report_indexes
 from tests.fixtures import FAKE_ITEMS, MY_PUUID, make_match, make_timeline
 from parser import ItemCatalog, MatchParser
 
@@ -132,3 +132,43 @@ def test_refresh_index_lists_all_reports(tmp_path: Path) -> None:
     assert "Viktor mid" in html or "Viktor" in html
     assert "Ahri" in html
     assert "reports/" in html
+    assert "player-group" in html
+    assert 'class="sortable"' in html
+
+
+def test_group_reports_by_player(tmp_path: Path) -> None:
+    """Reports are grouped by player with hub links and default build order."""
+    reports = [
+        {
+            "player": "Beta#EUW",
+            "champion": "Ahri",
+            "role": "MIDDLE",
+            "games": 30,
+            "winrate": 0.55,
+            "generated_at": "2026-01-02",
+            "href": "reports/beta_euw/ahri_middle/report.html",
+        },
+        {
+            "player": "Alpha#EUW",
+            "champion": "Viktor",
+            "role": "MIDDLE",
+            "games": 50,
+            "winrate": 0.6,
+            "generated_at": "2026-01-01",
+            "href": "reports/alpha_euw/viktor_middle/report.html",
+        },
+        {
+            "player": "Beta#EUW",
+            "champion": "Viktor",
+            "role": "TOP",
+            "games": 10,
+            "winrate": 0.4,
+            "generated_at": "2026-01-03",
+            "href": "reports/beta_euw/viktor_top/report.html",
+        },
+    ]
+    groups = group_reports_by_player(reports)
+    assert [group["player"] for group in groups] == ["Alpha#EUW", "Beta#EUW"]
+    assert groups[1]["hub_href"] == "reports/beta_euw/index.html"
+    assert groups[1]["build_count"] == 2
+    assert [build["champion"] for build in groups[1]["reports"]] == ["Ahri", "Viktor"]

@@ -150,5 +150,5 @@ def test_run_all_builds_generates_player_hub(tmp_path: Path, monkeypatch: pytest
     report_html = (config.player_reports_dir / "viktor_middle" / "report.html").read_text(
         encoding="utf-8"
     )
-    assert 'id="build-switcher"' in report_html
+    assert 'class="build-card' in report_html
     assert "../ahri_middle/report.html" in report_html
