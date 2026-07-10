@@ -55,8 +55,10 @@ from config import (
     PlayerIdentity,
     load_config,
 )
+from brand_assets import brand_context
+from ddragon_assets import DDragonAssets
 from export import Exporter
-from graphs import GraphFactory
+from graphs import ChartIconResolver, GraphFactory
 from models import MatchRecord, PeerComparisonResult, RankedEntry
 from parser import BaseMatchFilter, ItemCatalog, MatchParser, discover_build_pools
 from report import (
@@ -66,11 +68,13 @@ from report import (
     build_player_builds_nav,
     discover_reports,
     improvement_score,
+    refresh_all_player_hubs,
     refresh_report_indexes,
     score_badge,
     write_report_meta,
 )
 from riot_api import RiotApiClient
+from ui_icons import attach_metric_icon_hrefs, icon_fields_for_label, with_icons
 from utils import get_logger, setup_logging
 
 app = typer.Typer(
@@ -87,6 +91,7 @@ class Services:
     http_cache: HttpCache
     store: MatchStore
     client: RiotApiClient
+    assets: DDragonAssets
 
 
 @dataclass
@@ -166,7 +171,14 @@ def _build_services(
     http_cache = HttpCache(config.http_cache_dir)
     store = MatchStore(config.db_path)
     client = RiotApiClient(config, http_cache, store)
-    return Services(config=config, http_cache=http_cache, store=store, client=client)
+    assets = DDragonAssets(config)
+    return Services(
+        config=config,
+        http_cache=http_cache,
+        store=store,
+        client=client,
+        assets=assets,
+    )
 
 
 def _fetch(services: Services) -> list[PlayerContext]:
@@ -260,34 +272,36 @@ def _pct(value: float | None) -> str | None:
 
 def _card_entries(pairs: list[tuple[str, str]]) -> list[dict[str, str]]:
     """Convert label/value card pairs to JSON-friendly dicts."""
-    return [{"label": label, "value": value} for label, value in pairs]
+    return with_icons([{"label": label, "value": value} for label, value in pairs])
 
 
 def _overview_card_entries(overview: dict[str, Any]) -> list[dict[str, str]]:
     """Build overview cards with win/loss styling metadata."""
     winrate = float(overview.get("winrate", 0.0))
-    return [
-        {
-            "label": "Win rate",
-            "value": f"{winrate * 100:.0f}%",
-            "value_class": "win" if winrate >= 0.5 else "loss",
-        },
-        {"label": "KDA", "value": str(overview.get("avg_kda", "—")), "value_class": ""},
-        {"label": "DPM", "value": str(overview.get("avg_dpm", "—")), "value_class": ""},
-        {"label": "CS/min", "value": str(overview.get("avg_cspm", "—")), "value_class": ""},
-        {
-            "label": "Damage share",
-            "value": f"{float(overview.get('avg_damage_share', 0)) * 100:.0f}%",
-            "value_class": "",
-        },
-        {"label": "Deaths/game", "value": str(overview.get("avg_deaths", "—")), "value_class": ""},
-        {"label": "Vision/min", "value": str(overview.get("avg_vspm", "—")), "value_class": ""},
-        {
-            "label": "Avg game",
-            "value": f"{overview.get('avg_duration', '—')} min",
-            "value_class": "",
-        },
-    ]
+    return with_icons(
+        [
+            {
+                "label": "Win rate",
+                "value": f"{winrate * 100:.0f}%",
+                "value_class": "win" if winrate >= 0.5 else "loss",
+            },
+            {"label": "KDA", "value": str(overview.get("avg_kda", "—")), "value_class": ""},
+            {"label": "DPM", "value": str(overview.get("avg_dpm", "—")), "value_class": ""},
+            {"label": "CS/min", "value": str(overview.get("avg_cspm", "—")), "value_class": ""},
+            {
+                "label": "Damage share",
+                "value": f"{float(overview.get('avg_damage_share', 0)) * 100:.0f}%",
+                "value_class": "",
+            },
+            {"label": "Deaths/game", "value": str(overview.get("avg_deaths", "—")), "value_class": ""},
+            {"label": "Vision/min", "value": str(overview.get("avg_vspm", "—")), "value_class": ""},
+            {
+                "label": "Avg game",
+                "value": f"{overview.get('avg_duration', '—')} min",
+                "value_class": "",
+            },
+        ]
+    )
 
 
 def _filter_records_by_queue(records: list[MatchRecord], key: str) -> list[MatchRecord]:
@@ -384,11 +398,22 @@ def _peer_row_display(row: dict[str, Any]) -> dict[str, str]:
         gap_display = f"{float(delta):+.1f}"
     return {
         "label": str(row.get("label", "")),
+        **icon_fields_for_label(str(row.get("label", ""))),
         "yours": yours_display,
         "peer_avg": peer_display,
         "gap": gap_display,
         "verdict": str(row.get("verdict", "inline")),
     }
+
+
+def _peer_subtitle(peer: PeerComparisonResult) -> str:
+    """Build the peer comparison subtitle with sample size and confidence."""
+    confidence = peer.confidence.replace("_", " ")
+    return (
+        f"Your averages vs {peer.build_label} at {peer.rank_label} · "
+        f"{peer.source} · {peer.peer_games} peer games "
+        f"({peer.peer_players} players, {confidence} confidence)"
+    )
 
 
 def _build_window_bundle(
@@ -398,6 +423,7 @@ def _build_window_bundle(
     *,
     peer_comparison: PeerComparisonResult | None = None,
     queue_label: str = "ranked solo queue",
+    assets: DDragonAssets | None = None,
 ) -> dict[str, Any]:
     """Run the analysis pipeline for one game window and return a JSON bundle."""
     if not records:
@@ -481,7 +507,15 @@ def _build_window_bundle(
         matchups_export["recommendation"] = matchups_export.apply(matchup_recommendation, axis=1)
     matchup_rows = matchups_export.head(20).to_dict("records") if not matchups_export.empty else []
 
-    graphs = GraphFactory(graphs_dir)
+    icon_resolver = None
+    if assets is not None:
+        icon_resolver = ChartIconResolver(
+            from_dir=graphs_dir.parent,
+            champion_href=assets.champion_chart_source,
+            item_href=assets.item_chart_source,
+            keystone_href=assets.keystone_chart_source,
+        )
+    graphs = GraphFactory(graphs_dir, icon_resolver=icon_resolver)
     series = [(r.win, r.timeline.gold_series, r.timeline.opp_gold_series) for r in records]
     figures = {
         "winrate_trend": graphs.winrate_trend(matches_df),
@@ -513,7 +547,13 @@ def _build_window_bundle(
         "overview": overview,
         "overview_cards": _overview_card_entries(overview),
         "score": score,
-        "score_components": [asdict(component) for component in components],
+        "score_components": [
+            {
+                **asdict(component),
+                **icon_fields_for_label(component.name),
+            }
+            for component in components
+        ],
         "lane_cards": _card_entries(
             [
                 ("Gold diff @10", _card(lane.get("avg_gd10"))),
@@ -608,12 +648,9 @@ def _build_window_bundle(
             window_peer.comparisons, build_label=window_peer.build_label
         )
         bundle["peer"] = {
-            "subtitle": (
-                f"Your averages vs {config.build_label} at {window_peer.rank_label} · "
-                f"{window_peer.source} · {window_peer.peer_games} peer games "
-                f"({window_peer.peer_players} players)"
-            ),
+            "subtitle": _peer_subtitle(window_peer),
             "tier": window_peer.tier,
+            "confidence": window_peer.confidence,
             "strengths": window_peer.strengths,
             "weaknesses": window_peer.weaknesses,
             "rows": [
@@ -622,6 +659,27 @@ def _build_window_bundle(
         }
         bundle["figures"]["peer_comparison"] = figures["peer_comparison"]
         bundle["_peer_result"] = window_peer
+
+    if assets is not None:
+        from_dir = graphs_dir.parent
+        bundle["rune_rows"] = assets.enrich_rune_rows(bundle["rune_rows"], from_dir=from_dir)
+        bundle["matchup_rows"] = assets.enrich_matchup_rows(bundle["matchup_rows"], from_dir=from_dir)
+        bundle["objective_rows"] = assets.enrich_objective_rows(bundle["objective_rows"], from_dir=from_dir)
+        bundle["objectives_section_icon"] = assets.objective_href("dragon", from_dir=from_dir)
+        metric_lists = [
+            bundle["overview_cards"],
+            bundle["lane_cards"],
+            bundle["economy_cards"],
+            bundle["vision_cards"],
+            bundle["death_cards"],
+            bundle["teamfight_cards"],
+            bundle["score_components"],
+        ]
+        peer = bundle.get("peer")
+        if peer and peer.get("rows"):
+            metric_lists.append(peer["rows"])
+        for entries in metric_lists:
+            attach_metric_icon_hrefs(entries, assets, from_dir=from_dir)
 
     return bundle
 
@@ -638,18 +696,16 @@ def _bundle_to_template_context(
         "queue_label": bundle.get("queue_label", "ranked solo queue"),
         "overview": bundle["overview"],
         "score": bundle["score"],
-        "score_components": [
-            ScoreComponent(**component) for component in bundle["score_components"]
-        ],
+        "score_components": bundle["score_components"],
         "figures": bundle["figures"],
-        "lane_cards": [(card["label"], card["value"]) for card in bundle["lane_cards"]],
-        "economy_cards": [(card["label"], card["value"]) for card in bundle["economy_cards"]],
-        "vision_cards": [(card["label"], card["value"]) for card in bundle["vision_cards"]],
-        "death_cards": [(card["label"], card["value"]) for card in bundle["death_cards"]],
-        "teamfight_cards": [
-            (card["label"], card["value"]) for card in bundle["teamfight_cards"]
-        ],
-        "objective_rows": [(row["kind"], row) for row in bundle["objective_rows"]],
+        "overview_cards": bundle.get("overview_cards", []),
+        "lane_cards": bundle["lane_cards"],
+        "economy_cards": bundle["economy_cards"],
+        "vision_cards": bundle["vision_cards"],
+        "death_cards": bundle["death_cards"],
+        "teamfight_cards": bundle["teamfight_cards"],
+        "objective_rows": bundle["objective_rows"],
+        "objectives_section_icon": bundle.get("objectives_section_icon"),
         "blind_spots": bundle["blind_spots"],
         "build_paths": bundle["build_paths"],
         "rune_rows": bundle["rune_rows"],
@@ -800,6 +856,7 @@ def run_analysis(
     peer_comparison: PeerComparisonResult | None = None,
     ranked: RankedEntry | None = None,
     player_builds: list[dict[str, Any]] | None = None,
+    assets: DDragonAssets | None = None,
 ) -> Path:
     """Run every analysis, write exports and render the report.
 
@@ -829,6 +886,9 @@ def run_analysis(
     run_dir.mkdir(parents=True, exist_ok=True)
     graphs_dir = config.run_graphs_dir
     graphs_dir.mkdir(parents=True, exist_ok=True)
+
+    asset_catalog = assets or DDragonAssets(config)
+    asset_catalog.ensure_downloaded()
 
     _write_full_exports(
         config,
@@ -862,6 +922,7 @@ def run_analysis(
                 graphs_dir,
                 peer_comparison=queue_peer,
                 queue_label=queue_label,
+                assets=asset_catalog,
             )
             window_peers[window_key] = bundle.pop("_peer_result", None)
             serializable = {k: v for k, v in bundle.items() if not k.startswith("_")}
@@ -880,9 +941,11 @@ def run_analysis(
     default_peer = view_peers.get(default_queue, {}).get(default_window)
 
     context: dict[str, Any] = {
-        "app_title": "Champion Stats Analyzer",
+        **brand_context(from_dir=run_dir, output_dir=config.output_dir),
         "build_label": config.build_label,
         "champion": config.champion,
+        "champion_icon": asset_catalog.champion_href(config.champion, from_dir=run_dir),
+        "role_icon": asset_catalog.role_href(config.role, from_dir=run_dir),
         "role_display": config.role_display,
         "player_name": config.players_label,
         "recommendation_visible_count": VISIBLE_RECOMMENDATIONS,
@@ -905,6 +968,8 @@ def run_analysis(
             player_builds,
             current_champion=config.champion,
             current_role=config.role,
+            assets=asset_catalog,
+            from_dir=run_dir,
         )
 
     builder = ReportBuilder(config.template_dir)
@@ -931,6 +996,7 @@ def run_analysis(
         config.template_dir,
         player_dir=config.player_reports_dir,
         player_label=player_label,
+        assets=asset_catalog,
     )
     if player_hub is not None:
         log.info("Done. Open %s (player hub: %s, index: %s)", report_path, player_hub, global_index)
@@ -958,28 +1024,32 @@ def _run_with_peer(
     *,
     ranked: RankedEntry | None = None,
     player_builds: list[dict[str, Any]] | None = None,
+    skip_peer: bool = False,
 ) -> Path:
-    """Fetch rank, build peer comparison and run the analysis pipeline."""
+    """Fetch rank, optionally build peer comparison and run the analysis pipeline."""
     if ranked is None:
         _ensure_platform(services.client, records, config)
         ranked = services.client.fetch_solo_rank(puuid)
-    matches_df = pd.DataFrame([r.to_row() for r in records])
-    peer = build_peer_comparison(
-        services.client,
-        services.store,
-        matches_df,
-        records,
-        puuid,
-        ranked,
-        champion=config.champion,
-        role=config.role,
-    )
+    peer = None
+    if not skip_peer:
+        matches_df = pd.DataFrame([r.to_row() for r in records])
+        peer = build_peer_comparison(
+            services.client,
+            services.store,
+            matches_df,
+            records,
+            puuid,
+            ranked,
+            champion=config.champion,
+            role=config.role,
+        )
     return run_analysis(
         config,
         records,
         peer_comparison=peer,
         ranked=ranked,
         player_builds=player_builds,
+        assets=services.assets,
     )
 
 
@@ -988,6 +1058,7 @@ def run_all_builds(
     player_contexts: list[PlayerContext],
     *,
     fetch: bool = False,
+    skip_peer: bool = False,
 ) -> Path:
     """Discover, parse once and analyse every eligible champion+lane build."""
     log = get_logger("pipeline")
@@ -1017,6 +1088,8 @@ def run_all_builds(
         services.config.min_games,
         ", ".join(pool.build_label for pool in pools),
     )
+
+    services.assets.ensure_downloaded()
 
     all_records = _load_all_records(services, puuids)
     manifest_builds: list[dict[str, Any]] = []
@@ -1057,6 +1130,7 @@ def run_all_builds(
             records,
             ranked=ranked,
             player_builds=manifest_builds,
+            skip_peer=skip_peer,
         )
 
     if last_report is None:
@@ -1068,6 +1142,7 @@ def run_all_builds(
         services.config.template_dir,
         player_dir=player_dir,
         player_label=player_label,
+        assets=services.assets,
     )
     hub_path = hub_path or player_dir / "index.html"
     log.info(
@@ -1094,6 +1169,7 @@ def analyze(
     api_key: str = typer.Option(None, "--api-key", envvar="RIOT_API_KEY", help="Riot API key."),
     count: int = typer.Option(None, "--count", help="Max matches to scan (default 500)."),
     min_games: int = typer.Option(None, "--min-games", help="Min solo/duo games per champion+lane (default 20)."),
+    skip_peer: bool = typer.Option(False, "--skip-peer", help="Skip rank-peer comparison (faster, no peer API/store lookups)."),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Debug logging."),
 ) -> None:
     """Run the full pipeline: download, analyse all eligible builds and generate reports."""
@@ -1103,7 +1179,7 @@ def analyze(
     )
     try:
         contexts = _fetch(services)
-        run_all_builds(services, contexts, fetch=False)
+        run_all_builds(services, contexts, fetch=False, skip_peer=skip_peer)
     finally:
         services.store.close()
         services.http_cache.close()
@@ -1143,6 +1219,7 @@ def report(
     platform: str = typer.Option(None, "--platform"),
     api_key: str = typer.Option(None, "--api-key", envvar="RIOT_API_KEY"),
     min_games: int = typer.Option(None, "--min-games"),
+    skip_peer: bool = typer.Option(False, "--skip-peer", help="Skip rank-peer comparison (faster, no peer API/store lookups)."),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
 ) -> None:
     """Rebuild all eligible build reports from already-downloaded matches."""
@@ -1152,10 +1229,31 @@ def report(
     )
     try:
         contexts = _resolve_player_contexts(services)
-        run_all_builds(services, contexts, fetch=False)
+        run_all_builds(services, contexts, fetch=False, skip_peer=skip_peer)
     finally:
         services.store.close()
         services.http_cache.close()
+
+
+@app.command("ingest-peers")
+def ingest_peers(
+    region: str = typer.Option("europe", "--region"),
+    platform: str = typer.Option(None, "--platform"),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """Backfill peer game rows from every match already stored locally."""
+    from analysis.peer_ingest import backfill_all_matches
+
+    setup_logging(verbose)
+    config = load_config(api_key="unused", riot_id="unused", tagline="unused", region=region, platform=platform)
+    config.ensure_directories()
+    store = MatchStore(config.db_path)
+    try:
+        platform_code = config.routing_platform
+        inserted = backfill_all_matches(store, platform_code)
+        get_logger().info("Peer store now holds rows for %d ingested performances.", inserted)
+    finally:
+        store.close()
 
 
 @app.command("clear-cache")
@@ -1171,6 +1269,24 @@ def clear_cache(
     get_logger().info("HTTP cache cleared.")
 
 
+@app.command("download-assets")
+def download_assets(
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+    force: bool = typer.Option(False, "--force", help="Re-download icons even when cached."),
+) -> None:
+    """Download champion and keystone icons from Data Dragon for report UI."""
+    setup_logging(verbose)
+    config = load_config(api_key="unused", riot_id="unused", tagline="unused")
+    config.ensure_directories()
+    assets = DDragonAssets(config)
+    version = assets.ensure_downloaded(force=force)
+    get_logger().info(
+        "Assets ready in %s (patch %s).",
+        assets.assets_root,
+        version,
+    )
+
+
 @app.command()
 def reports(
     verbose: bool = typer.Option(False, "--verbose", "-v"),
@@ -1179,7 +1295,14 @@ def reports(
     setup_logging(verbose)
     config = load_config(api_key="unused", riot_id="unused", tagline="unused")
     config.output_dir.mkdir(parents=True, exist_ok=True)
-    index_path = refresh_report_indexes(config.output_dir, config.template_dir)[0]
+    assets = DDragonAssets(config)
+    assets.ensure_downloaded()
+    index_path = refresh_report_indexes(
+        config.output_dir,
+        config.template_dir,
+        assets=assets,
+    )[0]
+    refresh_all_player_hubs(config.output_dir, config.template_dir, assets=assets)
     count = len(discover_reports(config.output_dir))
     get_logger().info("Index refreshed with %d report(s). Open %s", count, index_path)
 

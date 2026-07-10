@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ app_title }} — {{ player }}</title>
+{% from '_macros.html' import build_heading, favicon_links, app_brand %}
+{{ favicon_links(favicon_href) }}
 <style>
 :root {
   --bg: #0f1118; --panel: #171a24; --panel-2: #1e2230; --border: #2a2f40;
@@ -11,34 +13,55 @@
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { background: var(--bg); color: var(--text); font: 15px/1.55 -apple-system, "Segoe UI", Roboto, sans-serif; max-width: 720px; margin: 0 auto; padding: 48px 24px; }
+.app-brand { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; }
+.app-brand-title { font-size: 28px; font-weight: 700; color: var(--accent); line-height: 1.2; }
+.app-logo { width: 44px; height: 44px; border-radius: 10px; flex-shrink: 0; object-fit: cover; box-shadow: 0 2px 12px rgba(0, 0, 0, .35); }
 h1 { font-size: 28px; color: var(--accent); margin-bottom: 8px; }
 .sub { color: var(--muted); margin-bottom: 28px; }
 .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 24px; }
-label { display: block; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 8px; }
-select, .btn { width: 100%; font: inherit; border-radius: 8px; border: 1px solid var(--border); padding: 12px 14px; }
-select { background: var(--panel-2); color: var(--text); margin-bottom: 14px; }
-.btn { display: inline-block; text-align: center; background: var(--accent); color: #fff; text-decoration: none; font-weight: 600; }
-.btn:hover { filter: brightness(1.08); }
 .links { margin-top: 20px; font-size: 14px; }
 .links a { color: var(--accent); text-decoration: none; }
 .links a:hover { text-decoration: underline; }
+.icon-cell { display: inline-flex; align-items: center; gap: 8px; }
+.game-icon {
+  width: 32px; height: 32px; border-radius: 6px; flex-shrink: 0;
+  background: var(--panel-2); border: 1px solid var(--border);
+}
+.build-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+.build-card {
+  display: flex; align-items: center; gap: 12px; padding: 12px 14px;
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px;
+  color: var(--text); text-decoration: none;
+}
+.build-card:hover { border-color: var(--accent); }
+.build-card.is-default { border-color: var(--accent); }
+.build-card .meta { font-size: 13px; color: var(--muted); margin-top: 2px; }
+.role-icon { flex-shrink: 0; object-fit: contain; opacity: .92; }
+.role-icon--sm { width: 18px; height: 18px; }
+.role-icon--md { width: 22px; height: 22px; }
+.build-heading { display: inline-flex; align-items: center; gap: 6px; }
 footer { color: var(--muted); font-size: 13px; margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border); }
 </style>
 </head>
 <body>
+{{ app_brand(app_title, logo_href) }}
 <h1>{{ player }}</h1>
 <p class="sub">Choose a champion and lane to open its pre-generated coaching report.</p>
 
 <div class="panel">
-  <label for="build-select">Your builds (20+ ranked games)</label>
-  <select id="build-select" onchange="if (this.value) window.location = this.value">
+  <div class="build-grid">
     {% for build in builds %}
-    <option value="{{ build.href }}"{% if build.href == default_href %} selected{% endif %}>
-      {{ build.build_label }} · {{ build.games }}g · {{ '%.0f' % (build.winrate * 100) }}% WR
-    </option>
+    <a class="build-card{% if build.href == default_href %} is-default{% endif %}" href="{{ build.href }}">
+      {% if build.champion_icon %}
+      <img src="{{ build.champion_icon }}" alt="" class="game-icon">
+      {% endif %}
+      <div>
+        <strong>{{ build_heading(build.champion, build.role_icon, build.role_display) }}</strong>
+        <div class="meta">{{ build.games }} games · {{ '%.0f' % (build.winrate * 100) }}% WR</div>
+      </div>
+    </a>
     {% endfor %}
-  </select>
-  <a class="btn" href="{{ default_href }}">Open most-played report</a>
+  </div>
 </div>
 
 <p class="links"><a href="../../index.html">← All players</a></p>

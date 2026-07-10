@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ app_title }} — Reports</title>
+{% from '_macros.html' import role_icon, favicon_links, app_brand %}
+{{ favicon_links(favicon_href) }}
 <style>
 :root {
   --bg: #0f1118; --panel: #171a24; --panel-2: #1e2230; --border: #2a2f40;
@@ -11,13 +13,35 @@
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { background: var(--bg); color: var(--text); font: 15px/1.55 -apple-system, "Segoe UI", Roboto, sans-serif; max-width: 960px; margin: 0 auto; padding: 48px 24px; }
-h1 { font-size: 28px; color: var(--accent); margin-bottom: 8px; }
-.sub { color: var(--muted); margin-bottom: 32px; }
+.app-brand { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; }
+.app-brand-title { font-size: 28px; font-weight: 700; color: var(--accent); line-height: 1.2; }
+.app-logo { width: 44px; height: 44px; border-radius: 10px; flex-shrink: 0; object-fit: cover; box-shadow: 0 2px 12px rgba(0, 0, 0, .35); }
+.sub { color: var(--muted); margin-bottom: 24px; }
+.player-group { margin-bottom: 28px; }
+.player-header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; padding: 0 4px; }
+.player-header h2 { font-size: 18px; font-weight: 600; }
+.player-header h2 a { color: var(--text); text-decoration: none; }
+.player-header h2 a:hover { color: var(--accent); }
+.build-count { color: var(--muted); font-size: 13px; white-space: nowrap; }
 table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; font-size: 14px; }
-th, td { padding: 12px 16px; text-align: left; border-bottom: 1px solid var(--border); }
+th, td { padding: 11px 16px; text-align: left; border-bottom: 1px solid var(--border); }
 th { background: var(--panel-2); color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
-tr:last-child td { border-bottom: none; }
-tr:hover td { background: var(--panel-2); }
+th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+th.sortable:hover { color: var(--text); }
+th.sortable.active { color: var(--accent); }
+th .sort-icon { display: inline-block; width: 1em; margin-left: 4px; opacity: .35; }
+th.sortable.active .sort-icon { opacity: 1; }
+tbody tr:last-child td { border-bottom: none; }
+tbody tr:hover td { background: var(--panel-2); }
+.icon-cell { display: inline-flex; align-items: center; gap: 8px; }
+.game-icon {
+  width: 28px; height: 28px; border-radius: 6px; flex-shrink: 0;
+  background: var(--panel-2); border: 1px solid var(--border);
+}
+.role-icon { flex-shrink: 0; object-fit: contain; opacity: .92; }
+.role-icon--sm { width: 18px; height: 18px; }
+.role-icon--md { width: 22px; height: 22px; }
+.build-heading { display: inline-flex; align-items: center; gap: 6px; }
 a { color: var(--accent); text-decoration: none; font-weight: 600; }
 a:hover { text-decoration: underline; }
 .win { color: var(--win); } .loss { color: var(--loss); }
@@ -26,36 +50,123 @@ footer { color: var(--muted); font-size: 13px; margin-top: 32px; padding-top: 24
 </style>
 </head>
 <body>
-<h1>{{ app_title }}</h1>
-<p class="sub">Saved coaching reports — one per player. Open a player hub to switch between champion/lane builds.</p>
+{{ app_brand(app_title, logo_href) }}
+<p class="sub">Saved coaching reports grouped by player — {{ report_count }} build{{ 's' if report_count != 1 else '' }} across {{ players|length }} player{{ 's' if players|length != 1 else '' }}.</p>
 
-{% if reports %}
-<table>
-  <thead>
-    <tr>
-      <th>Player</th>
-      <th>Champion</th>
-      <th>Lane</th>
-      <th>Games</th>
-      <th>Win rate</th>
-      <th>Updated</th>
-      <th></th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for report in reports %}
-    <tr>
-      <td>{{ report.player }}</td>
-      <td>{{ report.champion }}</td>
-      <td>{{ report.role_display }}</td>
-      <td>{{ report.games }}</td>
-      <td class="{{ 'win' if report.winrate >= 0.5 else 'loss' }}">{{ '%.0f' % (report.winrate * 100) }}%</td>
-      <td>{{ report.generated_at }}</td>
-      <td><a href="{{ report.href }}">Open</a></td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+{% if players %}
+{% for group in players %}
+<section class="player-group">
+  <header class="player-header">
+    <h2><a href="{{ group.hub_href }}">{{ group.player }}</a></h2>
+    <span class="build-count">{{ group.build_count }} build{{ 's' if group.build_count != 1 else '' }}</span>
+  </header>
+  <table>
+    <thead>
+      <tr>
+        <th class="sortable" data-sort="name" aria-sort="none">Champion<span class="sort-icon"></span></th>
+        <th class="sortable" data-sort="position" aria-sort="none">Position<span class="sort-icon"></span></th>
+        <th class="sortable" data-sort="games" aria-sort="none">Games<span class="sort-icon"></span></th>
+        <th class="sortable" data-sort="winrate" aria-sort="none">Win rate<span class="sort-icon"></span></th>
+        <th class="sortable" data-sort="updated" aria-sort="none">Updated<span class="sort-icon"></span></th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody class="build-rows">
+      {% for report in group.reports %}
+      <tr data-champion="{{ report.champion }}" data-winrate="{{ report.winrate }}" data-role="{{ report.role }}" data-games="{{ report.games }}" data-updated="{{ report.generated_at }}">
+        <td>{% if report.champion_icon %}<span class="icon-cell"><img src="{{ report.champion_icon }}" alt="" class="game-icon"><span>{{ report.champion }}</span></span>{% else %}{{ report.champion }}{% endif %}</td>
+        <td>{{ role_icon(report.role_icon, report.role_display) }}</td>
+        <td>{{ report.games }}</td>
+        <td class="{{ 'win' if report.winrate >= 0.5 else 'loss' }}">{{ '%.0f' % (report.winrate * 100) }}%</td>
+        <td>{{ report.generated_at }}</td>
+        <td><a href="{{ report.href }}">Open</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endfor %}
+
+<script>
+(function () {
+  var ROLE_ORDER = { TOP: 0, JUNGLE: 1, MIDDLE: 2, BOTTOM: 3, UTILITY: 4 };
+  var DESC_FIRST = { winrate: true, games: true, updated: true };
+
+  function compareRows(a, b, key) {
+    var av, bv;
+    if (key === 'name') {
+      av = (a.dataset.champion || '').toLowerCase();
+      bv = (b.dataset.champion || '').toLowerCase();
+      return av.localeCompare(bv);
+    }
+    if (key === 'winrate') {
+      av = parseFloat(a.dataset.winrate) || 0;
+      bv = parseFloat(b.dataset.winrate) || 0;
+      return av - bv;
+    }
+    if (key === 'games') {
+      av = parseInt(a.dataset.games, 10) || 0;
+      bv = parseInt(b.dataset.games, 10) || 0;
+      return av - bv;
+    }
+    if (key === 'updated') {
+      av = a.dataset.updated || '';
+      bv = b.dataset.updated || '';
+      return av.localeCompare(bv);
+    }
+    av = ROLE_ORDER[a.dataset.role] ?? 99;
+    bv = ROLE_ORDER[b.dataset.role] ?? 99;
+    if (av !== bv) return av - bv;
+    return (a.dataset.champion || '').localeCompare(b.dataset.champion || '');
+  }
+
+  function updateHeaders(table, sortKey, descending) {
+    table.querySelectorAll('th.sortable').forEach(function (th) {
+      var key = th.dataset.sort;
+      var icon = th.querySelector('.sort-icon');
+      var active = key === sortKey;
+      th.classList.toggle('active', active);
+      if (active) {
+        th.setAttribute('aria-sort', descending ? 'descending' : 'ascending');
+        icon.textContent = descending ? '↓' : '↑';
+      } else {
+        th.setAttribute('aria-sort', 'none');
+        icon.textContent = '';
+      }
+    });
+  }
+
+  function sortTable(table, sortKey, descending) {
+    var tbody = table.querySelector('.build-rows');
+    if (!tbody || !sortKey) return;
+    var rows = Array.from(tbody.querySelectorAll('tr'));
+    rows.sort(function (a, b) {
+      var cmp = compareRows(a, b, sortKey);
+      return descending ? -cmp : cmp;
+    });
+    rows.forEach(function (row) { tbody.appendChild(row); });
+    updateHeaders(table, sortKey, descending);
+  }
+
+  document.querySelectorAll('.player-group table').forEach(function (table) {
+    var sortKey = null;
+    var descending = true;
+
+    table.querySelectorAll('th.sortable').forEach(function (th) {
+      th.addEventListener('click', function () {
+        var key = th.dataset.sort;
+        if (sortKey === key) {
+          descending = !descending;
+        } else {
+          sortKey = key;
+          descending = !!DESC_FIRST[key];
+        }
+        sortTable(table, sortKey, descending);
+      });
+    });
+  });
+})();
+</script>
 {% else %}
 <div class="empty">
   No reports yet. Run <code>python main.py analyze</code> or <code>python main.py report</code> to generate one.

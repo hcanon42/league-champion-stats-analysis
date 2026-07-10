@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 import pandas as pd
 from jinja2 import Environment, FileSystemLoader, select_autoescape
@@ -14,7 +14,12 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from analysis.economy import RECALL_GOLD_HEALTHY_AVG, RECALL_GOLD_HOARDING_WARN
 from champions import build_label, champion_slug, role_display
 from models import Recommendation
+from brand_assets import brand_context, refresh_saved_report_branding
+from ui_icons import iconify_for_key
 from utils import get_logger
+
+if TYPE_CHECKING:
+    from ddragon_assets import DDragonAssets
 
 
 @dataclass(frozen=True)
@@ -87,8 +92,8 @@ def improvement_score(matches_df: pd.DataFrame) -> tuple[float, list[ScoreCompon
             f"{mean('damage_share') * 100:.0f}% team damage", "Share of team damage to champions",
         ),
         ScoreComponent(
-            "Vision", _clamp_score(mean("vspm"), 0.8, 2.0),
-            f"{mean('vspm'):.2f} VS/min", "Vision score per minute (0.8 -> 2.0)",
+            "Vision", _clamp_score(mean("vspm"), 0.6, 1.6),
+            f"{mean('vspm'):.2f} VS/min", "Vision score per minute (0.6 -> 1.6)",
         ),
         ScoreComponent(
             "Objectives", _clamp_score(mean("objectives_present_rate", 0.0), 0.30, 0.75),
@@ -118,6 +123,7 @@ class ReportBuilder:
             loader=FileSystemLoader(str(template_dir)),
             autoescape=select_autoescape(["html"]),
         )
+        self._env.globals["iconify"] = iconify_for_key
         self._log = get_logger("report")
 
     def render(self, output_path: Path, context: dict[str, Any]) -> Path:
@@ -148,13 +154,20 @@ class ReportBuilder:
         """
         template = self._env.get_template("index.html")
         output_path = output_dir / "index.html"
+        players = group_reports_by_player(reports)
         context = {
-            "app_title": "Champion Stats Analyzer",
-            "reports": reports,
+            **brand_context(from_dir=output_dir, output_dir=output_dir),
+            "players": players,
+            "report_count": len(reports),
             "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         }
         output_path.write_text(template.render(**context), encoding="utf-8")
-        self._log.info("Report index written to %s (%d reports)", output_path, len(reports))
+        self._log.info(
+            "Report index written to %s (%d reports, %d players)",
+            output_path,
+            len(reports),
+            len(players),
+        )
         return output_path
 
     def render_player_hub(self, player_dir: Path, manifest: dict[str, Any]) -> Path:
@@ -170,7 +183,7 @@ class ReportBuilder:
         template = self._env.get_template("player_hub.html")
         output_path = player_dir / "index.html"
         context = {
-            "app_title": "Champion Stats Analyzer",
+            **brand_context(from_dir=player_dir, output_dir=player_dir.parent.parent),
             "player": manifest.get("player", ""),
             "builds": manifest.get("builds", []),
             "default_href": manifest.get("default_href", ""),
@@ -186,21 +199,37 @@ def build_player_builds_nav(
     *,
     current_champion: str,
     current_role: str,
+    assets: "DDragonAssets | None" = None,
+    from_dir: Path | None = None,
 ) -> list[dict[str, Any]]:
-    """Build sidebar dropdown entries relative to the current report directory."""
+    """Build sidebar champion links relative to the current report directory."""
     current_slug = champion_slug(current_champion, current_role)
     nav: list[dict[str, Any]] = []
     for build in builds:
         slug = champion_slug(str(build["champion"]), str(build["role"]))
         winrate = float(build.get("winrate", 0.0))
+        champion = str(build["champion"])
+        icon_href = None
+        role_icon = None
+        if assets is not None and from_dir is not None:
+            icon_href = assets.champion_href(champion, from_dir=from_dir)
+            role_icon = assets.role_href(str(build["role"]), from_dir=from_dir)
         nav.append(
             {
                 "label": (
                     f'{build["build_label"]} · {build["games"]}g · '
                     f"{winrate * 100:.0f}% WR"
                 ),
+                "build_label": str(build["build_label"]),
+                "champion": champion,
+                "role": str(build["role"]),
+                "role_display": str(build.get("role_display", role_display(str(build["role"])))),
+                "games": int(build.get("games", 0)),
+                "winrate": winrate,
                 "href": f"../{slug}/report.html",
                 "selected": slug == current_slug,
+                "champion_icon": icon_href,
+                "role_icon": role_icon,
             }
         )
     return nav
@@ -284,6 +313,7 @@ def refresh_player_hub(
     template_dir: Path,
     *,
     player_label: str | None = None,
+    assets: "DDragonAssets | None" = None,
 ) -> Path | None:
     """Rebuild ``output/reports/{player}/index.html`` from on-disk build metadata.
 
@@ -300,6 +330,16 @@ def refresh_player_hub(
         return None
 
     label = player_label or str(builds[0].get("player", ""))
+    if assets is not None:
+        for build in builds:
+            build["champion_icon"] = assets.champion_href(
+                str(build.get("champion", "")),
+                from_dir=player_dir,
+            )
+            build["role_icon"] = assets.role_href(
+                str(build.get("role", "")),
+                from_dir=player_dir,
+            )
     manifest = {
         "player": label,
         "builds": builds,
@@ -309,12 +349,34 @@ def refresh_player_hub(
     return ReportBuilder(template_dir).render_player_hub(player_dir, manifest)
 
 
+def refresh_all_player_hubs(
+    output_dir: Path,
+    template_dir: Path,
+    *,
+    assets: "DDragonAssets | None" = None,
+) -> list[Path]:
+    """Rebuild every player hub under ``output/reports/``."""
+    reports_root = output_dir / "reports"
+    if not reports_root.is_dir():
+        return []
+
+    hubs: list[Path] = []
+    for player_dir in sorted(reports_root.iterdir()):
+        if not player_dir.is_dir():
+            continue
+        hub = refresh_player_hub(player_dir, template_dir, assets=assets)
+        if hub is not None:
+            hubs.append(hub)
+    return hubs
+
+
 def refresh_report_indexes(
     output_dir: Path,
     template_dir: Path,
     *,
     player_dir: Path | None = None,
     player_label: str | None = None,
+    assets: "DDragonAssets | None" = None,
 ) -> tuple[Path, Path | None]:
     """Rebuild global and optional player report index pages.
 
@@ -329,11 +391,11 @@ def refresh_report_indexes(
     Returns:
         Tuple of global index path and optional player hub path.
     """
-    global_index = refresh_report_index(output_dir, template_dir)
+    global_index = refresh_report_index(output_dir, template_dir, assets=assets)
     player_hub = None
     if player_dir is not None:
         player_hub = refresh_player_hub(
-            player_dir, template_dir, player_label=player_label
+            player_dir, template_dir, player_label=player_label, assets=assets
         )
     return global_index, player_hub
 
@@ -368,18 +430,76 @@ def discover_reports(output_dir: Path) -> list[dict[str, Any]]:
     return entries
 
 
-def refresh_report_index(output_dir: Path, template_dir: Path) -> Path:
+def group_reports_by_player(reports: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Group flat report metadata into per-player sections for the global index.
+
+    Args:
+        reports: Metadata dicts from :func:`discover_reports`.
+
+    Returns:
+        Player groups sorted alphabetically. Each group contains ``player``,
+        ``hub_href``, ``build_count``, and ``reports`` (builds sorted by games).
+    """
+    by_player: dict[str, list[dict[str, Any]]] = {}
+    hub_hrefs: dict[str, str] = {}
+
+    for report in reports:
+        player = str(report.get("player", ""))
+        by_player.setdefault(player, []).append(report)
+        if player not in hub_hrefs and report.get("href"):
+            parts = report["href"].split("/")
+            if len(parts) >= 3:
+                hub_hrefs[player] = f"{parts[0]}/{parts[1]}/index.html"
+
+    groups: list[dict[str, Any]] = []
+    for player in sorted(by_player, key=str.lower):
+        builds = by_player[player]
+        builds.sort(
+            key=lambda entry: (entry.get("games", 0), entry.get("generated_at", "")),
+            reverse=True,
+        )
+        groups.append(
+            {
+                "player": player,
+                "hub_href": hub_hrefs.get(player, ""),
+                "build_count": len(builds),
+                "reports": builds,
+            }
+        )
+    return groups
+
+
+def refresh_report_index(
+    output_dir: Path,
+    template_dir: Path,
+    *,
+    assets: "DDragonAssets | None" = None,
+) -> Path:
     """Rebuild ``output/index.html`` from on-disk report metadata.
 
     Args:
         output_dir: Root output directory.
         template_dir: Directory containing ``index.html``.
+        assets: Optional icon catalog for champion images.
 
     Returns:
         Path of the rendered index page.
     """
+    reports = discover_reports(output_dir)
+    if assets is not None:
+        for report in reports:
+            report["champion_icon"] = assets.champion_href(
+                str(report.get("champion", "")),
+                from_dir=output_dir,
+            )
+            report["role_icon"] = assets.role_href(
+                str(report.get("role", "")),
+                from_dir=output_dir,
+            )
     builder = ReportBuilder(template_dir)
-    return builder.render_index(output_dir, discover_reports(output_dir))
+    index_path = builder.render_index(output_dir, reports)
+    refresh_saved_report_branding(output_dir)
+    return index_path
 
 
 def score_badge(recommendation: Recommendation) -> str:

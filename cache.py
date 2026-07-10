@@ -37,6 +37,24 @@ CREATE TABLE IF NOT EXISTS match_players (
     PRIMARY KEY (match_id, puuid)
 );
 CREATE INDEX IF NOT EXISTS idx_match_players_puuid ON match_players (puuid);
+CREATE TABLE IF NOT EXISTS peer_games (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    match_id TEXT NOT NULL,
+    puuid TEXT NOT NULL,
+    champion TEXT NOT NULL,
+    role TEXT NOT NULL,
+    tier TEXT NOT NULL DEFAULT '',
+    rank TEXT NOT NULL DEFAULT '',
+    platform TEXT NOT NULL,
+    queue_id INTEGER NOT NULL,
+    metrics TEXT NOT NULL,
+    ingested_at REAL NOT NULL,
+    rank_verified INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (match_id, puuid, champion, role)
+);
+CREATE INDEX IF NOT EXISTS idx_peer_lookup
+    ON peer_games (champion, role, platform, tier);
+CREATE INDEX IF NOT EXISTS idx_peer_puuid ON peer_games (puuid);
 """
 
 
@@ -242,6 +260,130 @@ class MatchStore:
         if claimed:
             self._conn.commit()
         return claimed
+
+    def iter_all_match_ids(self) -> Iterator[str]:
+        """Iterate over every stored match id.
+
+        Yields:
+            All match ids in the store.
+        """
+        cursor = self._conn.execute("SELECT match_id FROM matches")
+        for (match_id,) in cursor:
+            yield match_id
+
+    def upsert_peer_game(self, row: dict[str, Any]) -> bool:
+        """Insert a peer game row when it is not already stored.
+
+        Args:
+            row: Peer game fields including a JSON-serialisable ``metrics`` dict.
+
+        Returns:
+            ``True`` when a new row was inserted.
+        """
+        cursor = self._conn.execute(
+            """
+            INSERT OR IGNORE INTO peer_games (
+                match_id, puuid, champion, role, tier, rank, platform,
+                queue_id, metrics, ingested_at, rank_verified
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                row["match_id"],
+                row["puuid"],
+                row["champion"],
+                row["role"],
+                row.get("tier", ""),
+                row.get("rank", ""),
+                row["platform"],
+                int(row["queue_id"]),
+                json.dumps(row["metrics"]),
+                float(row["ingested_at"]),
+                int(row.get("rank_verified", 0)),
+            ),
+        )
+        if cursor.rowcount:
+            self._conn.commit()
+            return True
+        return False
+
+    def load_peer_games(
+        self,
+        *,
+        champion: str,
+        role: str,
+        platform: str,
+    ) -> list[dict[str, Any]]:
+        """Load peer game rows for a champion + lane on one platform."""
+        cursor = self._conn.execute(
+            """
+            SELECT match_id, puuid, champion, role, tier, rank, platform,
+                   queue_id, metrics, ingested_at, rank_verified
+            FROM peer_games
+            WHERE champion = ? AND role = ? AND platform = ?
+            """,
+            (champion, role, platform),
+        )
+        rows: list[dict[str, Any]] = []
+        for record in cursor.fetchall():
+            rows.append(
+                {
+                    "match_id": record[0],
+                    "puuid": record[1],
+                    "champion": record[2],
+                    "role": record[3],
+                    "tier": record[4],
+                    "rank": record[5],
+                    "platform": record[6],
+                    "queue_id": record[7],
+                    "metrics": json.loads(record[8]),
+                    "ingested_at": record[9],
+                    "rank_verified": bool(record[10]),
+                }
+            )
+        return rows
+
+    def count_peer_games(
+        self,
+        *,
+        champion: str,
+        role: str,
+        platform: str,
+    ) -> int:
+        """Count stored peer games for a champion + lane on one platform."""
+        row = self._conn.execute(
+            """
+            SELECT COUNT(*) FROM peer_games
+            WHERE champion = ? AND role = ? AND platform = ?
+            """,
+            (champion, role, platform),
+        ).fetchone()
+        return int(row[0]) if row else 0
+
+    def iter_unverified_puuids(self, limit: int = 100) -> list[str]:
+        """Return PUUIDs whose peer rows still need rank backfill."""
+        cursor = self._conn.execute(
+            """
+            SELECT DISTINCT puuid FROM peer_games
+            WHERE rank_verified = 0
+            LIMIT ?
+            """,
+            (limit,),
+        )
+        return [str(row[0]) for row in cursor.fetchall()]
+
+    def set_puuid_rank(self, puuid: str, tier: str, rank: str) -> int:
+        """Backfill rank metadata for every peer row owned by one player."""
+        cursor = self._conn.execute(
+            """
+            UPDATE peer_games
+            SET tier = ?, rank = ?, rank_verified = 1
+            WHERE puuid = ?
+            """,
+            (tier.upper(), rank.upper(), puuid),
+        )
+        if cursor.rowcount:
+            self._conn.commit()
+        return int(cursor.rowcount)
 
     def iter_match_ids(self, puuid: str) -> Iterator[str]:
         """Iterate over every stored match id owned by a player.

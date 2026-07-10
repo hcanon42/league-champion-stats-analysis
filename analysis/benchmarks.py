@@ -126,6 +126,33 @@ def tier_benchmark(
     return row
 
 
+def try_static_benchmark(
+    tier: str, champion: str, role: str
+) -> dict[str, float] | None:
+    """Return champion-specific static benchmarks when available."""
+    try:
+        return tier_benchmark(tier, champion, role)
+    except FileNotFoundError:
+        return None
+
+
+def try_role_benchmark(tier: str, role: str) -> dict[str, float] | None:
+    """Return role-only static benchmarks when available."""
+    path = BENCHMARKS_DIR / f"_{role.lower()}.json"
+    if not path.is_file():
+        return None
+    with path.open(encoding="utf-8") as fh:
+        raw: dict[str, Any] = json.load(fh)
+    benchmarks = {key: values for key, values in raw.items() if key in VALID_TIERS}
+    key = tier.upper() if tier else "GOLD"
+    row = dict(benchmarks.get(key, benchmarks.get("GOLD", {})))
+    if not row:
+        return None
+    if "winrate" in row:
+        row["win"] = float(row["winrate"])
+    return row
+
+
 def adjacent_tiers(tier: str) -> set[str]:
     """Return the tier and its immediate neighbours on the ladder.
 

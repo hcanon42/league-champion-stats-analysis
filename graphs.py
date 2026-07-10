@@ -7,8 +7,9 @@ Matplotlib is used for static death heatmap PNGs saved to ``graphs/``.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import matplotlib
 import numpy as np
@@ -29,28 +30,120 @@ LOSS_COLOR = "#e05563"
 
 
 def _div(fig: go.Figure) -> str:
-    """Serialise a figure as an embeddable HTML div (no plotly.js inline).
-
-    Args:
-        fig: The Plotly figure.
-
-    Returns:
-        HTML fragment string.
-    """
-    fig.update_layout(template=PLOTLY_TEMPLATE, paper_bgcolor="rgba(0,0,0,0)", margin=dict(t=48, b=40, l=48, r=24))
+    """Serialise a figure as an embeddable HTML div (no plotly.js inline)."""
+    margin = fig.layout.margin
+    left = margin.l if margin.l is not None else 48
+    fig.update_layout(
+        template=PLOTLY_TEMPLATE,
+        paper_bgcolor="rgba(0,0,0,0)",
+        margin=dict(t=48, b=40, l=left, r=24),
+    )
     return fig.to_html(full_html=False, include_plotlyjs=False, default_height=420)
+
+
+@dataclass
+class ChartIconResolver:
+    """Resolve champion, item and rune icon URLs for Plotly charts."""
+
+    from_dir: Path
+    champion_href: Callable[[str], str | None]
+    item_href: Callable[[str], str | None]
+    keystone_href: Callable[[str], str | None]
+
+
+def _horizontal_icon_bar(
+    *,
+    values: list[float],
+    labels: list[str],
+    icon_hrefs: list[str | None],
+    colors: list[str],
+    text: list[str] | None,
+    title: str,
+    xaxis_title: str,
+    vline: float | None = 50.0,
+    height: int | None = None,
+) -> go.Figure:
+    """Horizontal bar chart with optional row icons instead of y-axis text."""
+    y_indices = list(range(len(labels)))
+    fig = go.Figure(
+        go.Bar(
+            x=values,
+            y=y_indices,
+            orientation="h",
+            marker_color=colors,
+            text=text,
+            textposition="outside",
+            hovertext=labels,
+            hoverinfo="text+x",
+        )
+    )
+    fig.update_yaxes(
+        tickmode="array",
+        tickvals=y_indices,
+        ticktext=[""] * len(labels),
+        showgrid=False,
+    )
+    has_icons = any(icon_hrefs)
+    icon_slot = max(max(values) * 0.1, 10.0) if values else 10.0
+    icon_x = -icon_slot * 0.55
+    for index, href in enumerate(icon_hrefs):
+        if not href:
+            fig.add_annotation(
+                x=icon_x,
+                y=index,
+                xref="x",
+                yref="y",
+                text=labels[index],
+                showarrow=False,
+                xanchor="right",
+                font=dict(size=11, color="#9aa0b5"),
+            )
+            continue
+        fig.add_layout_image(
+            dict(
+                source=href,
+                xref="x",
+                yref="y",
+                x=icon_x,
+                y=index,
+                sizex=icon_slot,
+                sizey=0.85,
+                sizing="contain",
+                xanchor="center",
+                yanchor="middle",
+                layer="above",
+            )
+        )
+    if vline is not None:
+        fig.add_vline(x=vline, line_dash="dot", line_color="#888")
+    x_max = max(values) if values else 100.0
+    fig.update_xaxes(range=[-icon_slot if has_icons else 0, max(x_max * 1.12, 60)])
+    fig.update_layout(
+        title=title,
+        xaxis_title=xaxis_title,
+        height=height or max(360, 30 * len(labels)),
+        margin=dict(l=56, t=48, b=40, r=48),
+    )
+    return fig
 
 
 class GraphFactory:
     """Builds every chart of the report from the aggregated dataframes."""
 
-    def __init__(self, graphs_dir: Path) -> None:
+    def __init__(
+        self,
+        graphs_dir: Path,
+        *,
+        icon_resolver: ChartIconResolver | None = None,
+    ) -> None:
         """Create the factory.
 
         Args:
             graphs_dir: Directory where static PNG assets are written.
+            icon_resolver: Optional resolver for champion/item/rune chart icons.
         """
         self._graphs_dir = graphs_dir
+        self._icons = icon_resolver
         self._log = get_logger("graphs")
 
     # -------------------------------------------------------------- Trends
@@ -271,14 +364,22 @@ class GraphFactory:
         if matchups_df.empty:
             return _div(go.Figure().update_layout(title="Matchups (no data)"))
         frame = matchups_df[matchups_df["games"] >= min_games].sort_values("winrate")
-        fig = go.Figure(go.Bar(
-            x=frame["winrate"] * 100, y=frame["opponent"], orientation="h",
-            marker_color=[WIN_COLOR if w >= 0.5 else LOSS_COLOR for w in frame["winrate"]],
-            text=[f"{g} games" for g in frame["games"]], textposition="outside",
-        ))
-        fig.add_vline(x=50, line_dash="dot", line_color="#888")
-        fig.update_layout(title=f"Win rate by lane opponent (min {min_games} games)",
-                          xaxis_title="Win rate %", height=max(360, 26 * len(frame)))
+        labels = frame["opponent"].astype(str).tolist()
+        icon_hrefs = (
+            [self._icons.champion_href(label) for label in labels]
+            if self._icons
+            else [None] * len(labels)
+        )
+        fig = _horizontal_icon_bar(
+            values=(frame["winrate"] * 100).tolist(),
+            labels=labels,
+            icon_hrefs=icon_hrefs,
+            colors=[WIN_COLOR if w >= 0.5 else LOSS_COLOR for w in frame["winrate"]],
+            text=[f"{g} games" for g in frame["games"]],
+            title=f"Win rate by lane opponent (min {min_games} games)",
+            xaxis_title="Win rate %",
+            height=max(360, 26 * len(frame)),
+        )
         return _div(fig)
 
     def item_winrate_bar(self, items_df: pd.DataFrame, slot: str = "first_item") -> str:
@@ -286,26 +387,42 @@ class GraphFactory:
         if items_df.empty:
             return _div(go.Figure().update_layout(title="Items (no data)"))
         frame = items_df[items_df["slot"] == slot].sort_values("winrate")
-        fig = go.Figure(go.Bar(
-            x=frame["winrate"] * 100, y=frame["item"], orientation="h",
-            marker_color=ACCENT, text=[f"{g} games" for g in frame["games"]],
-            textposition="outside",
-        ))
-        fig.add_vline(x=50, line_dash="dot", line_color="#888")
-        fig.update_layout(title=f"Win rate by {slot.replace('_', ' ')}", xaxis_title="Win rate %")
+        labels = frame["item"].astype(str).tolist()
+        icon_hrefs = (
+            [self._icons.item_href(label) for label in labels]
+            if self._icons
+            else [None] * len(labels)
+        )
+        fig = _horizontal_icon_bar(
+            values=(frame["winrate"] * 100).tolist(),
+            labels=labels,
+            icon_hrefs=icon_hrefs,
+            colors=[ACCENT] * len(frame),
+            text=[f"{g} games" for g in frame["games"]],
+            title=f"Win rate by {slot.replace('_', ' ')}",
+            xaxis_title="Win rate %",
+        )
         return _div(fig)
 
     def rune_winrate_bar(self, rune_stats: pd.DataFrame, dimension: str = "keystone") -> str:
         """Win rate per rune setup dimension."""
         if rune_stats.empty:
             return _div(go.Figure().update_layout(title="Runes (no data)"))
-        fig = go.Figure(go.Bar(
-            x=rune_stats["winrate"] * 100, y=rune_stats[dimension], orientation="h",
-            marker_color=ACCENT, text=[f"{g} games" for g in rune_stats["games"]],
-            textposition="outside",
-        ))
-        fig.add_vline(x=50, line_dash="dot", line_color="#888")
-        fig.update_layout(title=f"Win rate by {dimension.replace('_', ' ')}", xaxis_title="Win rate %")
+        labels = rune_stats[dimension].astype(str).tolist()
+        icon_hrefs = (
+            [self._icons.keystone_href(label) for label in labels]
+            if self._icons and dimension == "keystone"
+            else [None] * len(labels)
+        )
+        fig = _horizontal_icon_bar(
+            values=(rune_stats["winrate"] * 100).tolist(),
+            labels=labels,
+            icon_hrefs=icon_hrefs,
+            colors=[ACCENT] * len(rune_stats),
+            text=[f"{g} games" for g in rune_stats["games"]],
+            title=f"Win rate by {dimension.replace('_', ' ')}",
+            xaxis_title="Win rate %",
+        )
         return _div(fig)
 
     def objective_timing(self, objectives_df: pd.DataFrame) -> str:

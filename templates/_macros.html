@@ -1,0 +1,63 @@
+{% macro role_icon(href=none, label=none, size='sm') -%}
+{%- if href -%}
+<img src="{{ href }}" alt="{{ label or '' }}" title="{{ label or '' }}" class="role-icon role-icon--{{ size }}">
+{%- elif label -%}
+<span>{{ label }}</span>
+{%- endif -%}
+{%- endmacro %}
+
+{% macro build_heading(champion, role_icon_href=none, role_label=none) -%}
+<span class="build-heading">
+  <span>{{ champion }}</span>
+  {{ role_icon(role_icon_href, role_label) }}
+</span>
+{%- endmacro %}
+
+{% macro metric_icon(icon=none, tone='muted', iconify_id=none, icon_href=none) -%}
+{%- if icon_href -%}
+<img src="{{ icon_href }}" alt="" class="metric-icon metric-icon--asset metric-icon--{{ tone }}" aria-hidden="true">
+{%- else -%}
+{%- set resolved = iconify_id or (iconify(icon) if icon else none) -%}
+{%- if resolved -%}
+<iconify-icon icon="{{ resolved }}" class="metric-icon metric-icon--{{ tone }}" aria-hidden="true"></iconify-icon>
+{%- endif -%}
+{%- endif -%}
+{%- endmacro %}
+
+{% macro metric_label(label, icon=none, tone='muted', iconify_id=none, icon_href=none) -%}
+<span class="metric-label">
+  {{ metric_icon(icon, tone, iconify_id, icon_href) }}
+  <span>{{ label }}</span>
+</span>
+{%- endmacro %}
+
+{% macro section_title(label, icon=none, tone='accent', iconify_id=none, icon_href=none) -%}
+<h2 class="section-title">
+  {{ metric_icon(icon, tone, iconify_id, icon_href) }}
+  <span>{{ label }}</span>
+</h2>
+{%- endmacro %}
+
+{% macro icon_cell(name, icon_href=none) -%}
+{%- if icon_href -%}
+<span class="icon-cell"><img src="{{ icon_href }}" alt="" class="game-icon game-icon--sm"><span>{{ name }}</span></span>
+{%- else -%}
+{{ name }}
+{%- endif -%}
+{%- endmacro %}
+
+{% macro favicon_links(href=none) -%}
+{%- if href -%}
+<link rel="icon" type="image/png" href="{{ href }}">
+<link rel="apple-touch-icon" href="{{ href }}">
+{%- endif -%}
+{%- endmacro %}
+
+{% macro app_brand(title, logo_href=none, variant='page') -%}
+<div class="app-brand app-brand--{{ variant }}">
+  {%- if logo_href -%}
+  <img src="{{ logo_href }}" alt="" class="app-logo" aria-hidden="true">
+  {%- endif -%}
+  <span class="app-brand-title">{{ title }}</span>
+</div>
+{%- endmacro %}

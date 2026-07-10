@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ app_title }} — {{ player_name }}</title>
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+{% from '_macros.html' import metric_label, metric_icon, section_title, role_icon, build_heading, favicon_links, app_brand, icon_cell %}
+{{ favicon_links(favicon_href) }}
 <style>
 :root {
   --bg: #0f1118; --panel: #171a24; --panel-2: #1e2230; --border: #2a2f40;
@@ -19,8 +22,21 @@ nav {
   padding: 24px 0; position: sticky; top: 0; height: 100vh; overflow-y: auto; flex-shrink: 0;
 }
 nav h1 { font-size: 18px; padding: 0 20px 16px; color: var(--accent); }
+.app-brand { display: flex; align-items: center; gap: 10px; padding: 0 20px 16px; }
+.app-brand--nav .app-brand-title { font-size: 18px; font-weight: 700; color: var(--accent); line-height: 1.2; }
+.app-brand--nav .app-logo { width: 34px; height: 34px; border-radius: 8px; flex-shrink: 0; object-fit: cover; box-shadow: 0 2px 10px rgba(0, 0, 0, .35); }
 nav a { display: block; padding: 9px 20px; color: var(--muted); border-left: 3px solid transparent; }
 nav a:hover { color: var(--text); background: var(--panel-2); border-left-color: var(--accent); }
+.nav-back {
+  display: flex; gap: 8px; align-items: center; padding: 0 16px 16px;
+}
+.nav-back a {
+  flex: 1 1 0; min-width: 0; display: inline-flex; align-items: center; justify-content: center;
+  padding: 8px 10px; border: 1px solid var(--border); border-left: 1px solid var(--border);
+  border-radius: 8px; background: var(--panel-2); color: var(--muted); font-size: 12px;
+  line-height: 1.2; text-align: center;
+}
+.nav-back a:hover { color: var(--accent); border-color: var(--accent); background: var(--panel-2); }
 main { flex: 1; padding: 32px clamp(16px, 4vw, 48px); max-width: 1280px; }
 section { margin-bottom: 56px; scroll-margin-top: 16px; }
 h2 { font-size: 24px; margin-bottom: 6px; }
@@ -29,6 +45,20 @@ h3 { font-size: 17px; margin: 24px 0 12px; color: var(--muted); }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 14px; margin: 18px 0; }
 .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
 .card .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.metric-label { display: inline-flex; align-items: center; gap: 6px; }
+iconify-icon.metric-icon { width: 14px; height: 14px; flex-shrink: 0; display: inline-block; vertical-align: middle; }
+img.metric-icon--asset { width: 14px; height: 14px; object-fit: contain; flex-shrink: 0; vertical-align: middle; }
+.metric-icon--gold { color: #e0b155; }
+.metric-icon--green { color: #7ecf8e; }
+.metric-icon--danger { color: var(--loss); }
+.metric-icon--blue { color: #6eb5ff; }
+.metric-icon--win { color: var(--win); }
+.metric-icon--accent { color: var(--accent); }
+.metric-icon--orange { color: #f0a060; }
+.metric-icon--purple { color: #b48cff; }
+.metric-icon--muted { color: var(--muted); }
+.section-title { display: flex; align-items: center; gap: 10px; }
+.section-title iconify-icon.metric-icon { width: 18px; height: 18px; }
 .card .value { font-size: 24px; font-weight: 600; margin-top: 4px; }
 .card .value.win { color: var(--win); } .card .value.loss { color: var(--loss); }
 .figure { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 8px; margin: 16px 0; }
@@ -85,11 +115,12 @@ tr:last-child td { border-bottom: none; }
 .badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 10px; background: var(--panel-2); color: var(--muted); margin-right: 8px; text-transform: uppercase; letter-spacing: .05em; }
 .delta-above { color: var(--win); } .delta-below { color: var(--loss); } .delta-inline { color: var(--muted); }
 footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px solid var(--border); }
-.game-window-bar {
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+.report-filter-bar {
+  display: flex; align-items: center; gap: 24px; flex-wrap: wrap;
   position: sticky; top: 0; z-index: 5; background: var(--bg);
-  padding: 0 0 20px; margin-bottom: 8px; border-bottom: 1px solid var(--border);
+  padding: 16px 0 20px; margin-bottom: 8px; border-bottom: 1px solid var(--border);
 }
+.filter-group { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .game-window-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
 .game-window-btn {
   border: 1px solid var(--border); background: var(--panel-2); color: var(--text);
@@ -98,11 +129,34 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
 .game-window-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .game-window-btn.is-active { background: var(--accent); border-color: var(--accent); color: #fff; }
 .game-window-btn:disabled { opacity: .45; cursor: not-allowed; }
+.icon-cell { display: inline-flex; align-items: center; gap: 8px; }
+.game-icon {
+  width: 28px; height: 28px; border-radius: 6px; flex-shrink: 0;
+  background: var(--panel-2); border: 1px solid var(--border);
+}
+.game-icon--sm { width: 24px; height: 24px; border-radius: 5px; }
+.role-icon { flex-shrink: 0; object-fit: contain; opacity: .92; }
+.role-icon--sm { width: 18px; height: 18px; }
+.role-icon--md { width: 22px; height: 22px; }
+.build-heading { display: inline-flex; align-items: center; gap: 6px; }
+.report-title { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.nav-builds { padding: 0 16px 16px; width: 100%; }
+.nav-builds .build-grid { display: grid; grid-template-columns: 1fr; gap: 8px; }
+.build-card {
+  display: flex; align-items: center; gap: 12px; padding: 10px 12px;
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px;
+  color: var(--text); text-decoration: none;
+}
+.build-card:hover { border-color: var(--accent); }
+.build-card.is-default { border-color: var(--accent); }
+.build-card .meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
 @media (max-width: 860px) {
   .layout { flex-direction: column; }
-  nav { width: 100%; height: auto; position: static; display: flex; flex-wrap: wrap; }
+  nav { width: 100%; height: auto; position: static; display: flex; flex-wrap: wrap; align-items: center; }
   nav h1 { width: 100%; }
   nav a { border-left: none; }
+  .nav-back { width: 100%; }
+  .nav-back a { border-left: 1px solid var(--border); }
   .rec-columns { grid-template-columns: 1fr; }
 }
 </style>
@@ -110,17 +164,26 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
 <body>
 <div class="layout">
 <nav>
-  <h1>{{ app_title }}</h1>
-  <a href="../index.html" style="display:block;padding:0 20px 8px;color:var(--muted);font-size:13px;">← Your champions</a>
-  <a href="../../../index.html" style="display:block;padding:0 20px 12px;color:var(--muted);font-size:13px;">← All players</a>
+  {{ app_brand(app_title, logo_href, variant='nav') }}
+  <div class="nav-back">
+    <a href="../index.html">← Your champions</a>
+    <a href="../../../index.html">← All players</a>
+  </div>
   {% if player_builds %}
-  <div style="padding:0 16px 16px;">
-    <label for="build-switcher" style="display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">Switch build</label>
-    <select id="build-switcher" onchange="window.location=this.value" style="width:100%;font:inherit;font-size:13px;background:var(--panel-2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:8px;">
+  <div class="nav-builds">
+    <div class="build-grid">
       {% for build in player_builds %}
-      <option value="{{ build.href }}"{% if build.selected %} selected{% endif %}>{{ build.label }}</option>
+      <a class="build-card{% if build.selected %} is-default{% endif %}" href="{{ build.href }}">
+        {% if build.champion_icon %}
+        <img src="{{ build.champion_icon }}" alt="" class="game-icon">
+        {% endif %}
+        <div>
+          <strong>{{ build_heading(build.champion, build.role_icon, build.role_display) }}</strong>
+          <div class="meta">{{ build.games }} games · {{ '%.0f' % (build.winrate * 100) }}% WR</div>
+        </div>
+      </a>
       {% endfor %}
-    </select>
+    </div>
   </div>
   {% endif %}
   <a href="#overview">Overview</a>
@@ -140,55 +203,56 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
 </nav>
 <main>
 
-<div class="game-window-bar" id="queue-filter-bar">
-  <span class="game-window-label">Queue</span>
-  {% for option in queue_filter_options %}
-  <button
-    type="button"
-    class="queue-filter-btn game-window-btn{% if option.key == queue_filter_default %} is-active{% endif %}"
-    data-queue="{{ option.key }}"
-    {% if not option.enabled %}disabled{% endif %}
-  >{{ option.label }}</button>
-  {% endfor %}
-</div>
-
-<div class="game-window-bar" id="game-window-bar">
-  <span class="game-window-label">Games</span>
-  {% for option in game_window_options %}
-  <button
-    type="button"
-    class="game-window-btn{% if option.key == game_window_default %} is-active{% endif %}"
-    data-window="{{ option.key }}"
-    {% if not option.enabled %}disabled{% endif %}
-  >{{ option.label }}</button>
-  {% endfor %}
+<div class="report-filter-bar" id="report-filter-bar">
+  <div class="filter-group" id="queue-filter-bar">
+    <span class="game-window-label">Queue</span>
+    {% for option in queue_filter_options %}
+    <button
+      type="button"
+      class="queue-filter-btn game-window-btn{% if option.key == queue_filter_default %} is-active{% endif %}"
+      data-queue="{{ option.key }}"
+      {% if not option.enabled %}disabled{% endif %}
+    >{{ option.label }}</button>
+    {% endfor %}
+  </div>
+  <div class="filter-group" id="game-window-bar">
+    <span class="game-window-label">Games</span>
+    {% for option in game_window_options %}
+    <button
+      type="button"
+      class="game-window-btn{% if option.key == game_window_default %} is-active{% endif %}"
+      data-window="{{ option.key }}"
+      {% if not option.enabled %}disabled{% endif %}
+    >{{ option.label }}</button>
+    {% endfor %}
+  </div>
 </div>
 
 <section id="overview">
-  <h2>Overview — {{ player_name }}</h2>
+  <h2 class="report-title">
+    {% if champion_icon %}
+    <img src="{{ champion_icon }}" alt="" class="game-icon">
+    {% endif %}
+    <span>Overview — {{ player_name }}</span>
+  </h2>
   <p class="sub" id="overview-subtitle">{{ total_games }} {{ queue_label }} {{ build_label }} games analysed · patches {{ patch_range }}</p>
   <div class="cards" id="overview-cards">
-    <div class="card"><div class="label">Win rate</div><div class="value {{ 'win' if overview.winrate >= 0.5 else 'loss' }}">{{ '%.0f' % (overview.winrate * 100) }}%</div></div>
-    <div class="card"><div class="label">KDA</div><div class="value">{{ overview.avg_kda }}</div></div>
-    <div class="card"><div class="label">DPM</div><div class="value">{{ overview.avg_dpm }}</div></div>
-    <div class="card"><div class="label">CS/min</div><div class="value">{{ overview.avg_cspm }}</div></div>
-    <div class="card"><div class="label">Damage share</div><div class="value">{{ '%.0f' % (overview.avg_damage_share * 100) }}%</div></div>
-    <div class="card"><div class="label">Deaths/game</div><div class="value">{{ overview.avg_deaths }}</div></div>
-    <div class="card"><div class="label">Vision/min</div><div class="value">{{ overview.avg_vspm }}</div></div>
-    <div class="card"><div class="label">Avg game</div><div class="value">{{ overview.avg_duration }} min</div></div>
+    {% for card in overview_cards %}
+    <div class="card"><div class="label">{{ metric_label(card.label, card.icon, card.icon_tone, icon_href=card.icon_href) }}</div><div class="value{% if card.value_class %} {{ card.value_class }}{% endif %}">{{ card.value }}</div></div>
+    {% endfor %}
   </div>
   <div class="figure" id="fig-winrate_trend">{{ figures.winrate_trend | safe }}</div>
 </section>
 
 <section id="score">
-  <h2>Improvement score</h2>
+  {{ section_title("Improvement score", "chart", "accent") }}
   <p class="sub">Composite of laning, farming, survival, damage, vision, objectives and reset quality against fixed benchmarks.</p>
   <div class="score-ring">
     <div class="score-big" id="score-value">{{ score }}<span style="font-size:24px;color:var(--muted)">/100</span></div>
     <div class="score-comps" id="score-comps">
       {% for comp in score_components %}
       <div class="comp">
-        <strong>{{ comp.name }}</strong> — {{ comp.value }}
+        <strong>{{ metric_label(comp.name, comp.icon, comp.icon_tone, icon_href=comp.icon_href) }}</strong> — {{ comp.value }}
         <div class="bar"><i style="width: {{ comp.score }}%"></i></div>
         <small style="color:var(--muted)">{{ comp.hint }}</small>
       </div>
@@ -199,12 +263,12 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
 
 {% if has_peer_comparison %}
 <section id="rank-peers">
-  <h2>Rank peer comparison</h2>
-  <p class="sub" id="peer-subtitle">Your averages vs {{ build_label }} at <strong>{{ peer_comparison.rank_label }}</strong> · {{ peer_comparison.source }} · {{ peer_comparison.peer_games }} peer games ({{ peer_comparison.peer_players }} players)</p>
+  {{ section_title("Rank peer comparison", "chart", "accent") }}
+  <p class="sub" id="peer-subtitle">Your averages vs {{ build_label }} at <strong>{{ peer_comparison.rank_label }}</strong> · {{ peer_comparison.source }} · {{ peer_comparison.peer_games }} peer games ({{ peer_comparison.peer_players }} players, {{ peer_comparison.confidence }} confidence)</p>
   <div class="cards" id="peer-highlight-cards">
-    {% for label, items in [('Strengths', peer_comparison.strengths), ('Weaknesses', peer_comparison.weaknesses)] %}
+    {% for label, items, icon, tone in [('Strengths', peer_comparison.strengths, 'trophy', 'win'), ('Weaknesses', peer_comparison.weaknesses, 'skull', 'danger')] %}
     <div class="card" style="grid-column: span 2;">
-      <div class="label">{{ label }}</div>
+      <div class="label">{{ metric_label(label, icon, tone) }}</div>
       {% if items %}
       <ul style="margin-top:8px;padding-left:18px;color:var(--muted);">
         {% for item in items %}<li>{{ item }}</li>{% endfor %}
@@ -221,7 +285,7 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
     <tbody id="peer-table-body">
     {% for row in peer_rows %}
     <tr>
-      <td>{{ row.label }}</td>
+      <td>{{ metric_label(row.label, row.icon, row.icon_tone, icon_href=row.icon_href) }}</td>
       <td>{% if row.metric == 'win' %}{{ '%.0f' % (row.yours * 100) }}%{% elif row.metric == 'kill_participation' or row.metric == 'damage_share' %}{{ '%.0f' % (row.yours * 100) }}%{% else %}{{ row.yours }}{% endif %}</td>
       <td>{% if row.metric == 'win' %}{{ '%.0f' % (row.peer_avg * 100) }}%{% elif row.metric == 'kill_participation' or row.metric == 'damage_share' %}{{ '%.0f' % (row.peer_avg * 100) }}%{% else %}{{ row.peer_avg }}{% endif %}</td>
       <td class="delta-{{ row.verdict }}">{% if row.delta_pct is not none %}{{ '%+.0f' % row.delta_pct }}%{% else %}{{ '%+.1f' % row.delta }}{% endif %}</td>
@@ -234,10 +298,10 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
 {% endif %}
 
 <section id="lane">
-  <h2>Lane</h2>
+  {{ section_title("Lane", "lane", "accent") }}
   <div class="cards" id="lane-cards">
-    {% for label, value in lane_cards %}
-    <div class="card"><div class="label">{{ label }}</div><div class="value">{{ value }}</div></div>
+    {% for card in lane_cards %}
+    <div class="card"><div class="label">{{ metric_label(card.label, card.icon, card.icon_tone, icon_href=card.icon_href) }}</div><div class="value">{{ card.value }}</div></div>
     {% endfor %}
   </div>
   <div class="figure" id="fig-gd10_histogram">{{ figures.gd10_histogram | safe }}</div>
@@ -246,37 +310,37 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
 </section>
 
 <section id="economy">
-  <h2>Economy</h2>
+  {{ section_title("Economy", "coin", "gold") }}
   <div class="cards" id="economy-cards">
-    {% for label, value in economy_cards %}
-    <div class="card"><div class="label">{{ label }}</div><div class="value">{{ value }}</div></div>
+    {% for card in economy_cards %}
+    <div class="card"><div class="label">{{ metric_label(card.label, card.icon, card.icon_tone, icon_href=card.icon_href) }}</div><div class="value">{{ card.value }}</div></div>
     {% endfor %}
   </div>
   <div class="figure" id="fig-dpm_scatter">{{ figures.dpm_scatter | safe }}</div>
 </section>
 
 <section id="vision">
-  <h2>Vision</h2>
+  {{ section_title("Vision", "eye", "blue") }}
   <div class="cards" id="vision-cards">
-    {% for label, value in vision_cards %}
-    <div class="card"><div class="label">{{ label }}</div><div class="value">{{ value }}</div></div>
+    {% for card in vision_cards %}
+    <div class="card"><div class="label">{{ metric_label(card.label, card.icon, card.icon_tone, icon_href=card.icon_href) }}</div><div class="value">{{ card.value }}</div></div>
     {% endfor %}
   </div>
   <div class="figure" id="fig-vision_trend">{{ figures.vision_trend | safe }}</div>
 </section>
 
 <section id="deaths">
-  <h2>Deaths</h2>
+  {{ section_title("Deaths", "skull", "danger") }}
   <div class="cards" id="death-cards">
-    {% for label, value in death_cards %}
-    <div class="card"><div class="label">{{ label }}</div><div class="value">{{ value }}</div></div>
+    {% for card in death_cards %}
+    <div class="card"><div class="label">{{ metric_label(card.label, card.icon, card.icon_tone, icon_href=card.icon_href) }}</div><div class="value">{{ card.value }}</div></div>
     {% endfor %}
   </div>
   <div class="figure" id="fig-death_heatmap">{{ figures.death_heatmap | safe }}</div>
   <div class="figure" id="fig-deaths_box">{{ figures.deaths_box | safe }}</div>
   <div id="blind-spots-block"{% if not blind_spots %} style="display:none"{% endif %}>
-  <h3>Most dangerous zones (solo deaths without recent team vision)</h3>
-  <table><thead><tr><th>Zone</th><th>Deaths</th></tr></thead>
+  <h3>{{ metric_label("Most dangerous zones (solo deaths without recent team vision)", "skull", "danger") }}</h3>
+  <table><thead><tr><th>Zone</th><th>{{ metric_label("Deaths", "skull", "danger") }}</th></tr></thead>
   <tbody id="blind-spots-body">
   {% for spot in blind_spots %}<tr><td>{{ spot.zone }}</td><td>{{ spot.deaths }}</td></tr>{% endfor %}
   </tbody></table>
@@ -284,23 +348,23 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
 </section>
 
 <section id="teamfights">
-  <h2>Teamfights</h2>
+  {{ section_title("Teamfights", "teamfight", "accent") }}
   <div class="cards" id="teamfight-cards">
-    {% for label, value in teamfight_cards %}
-    <div class="card"><div class="label">{{ label }}</div><div class="value">{{ value }}</div></div>
+    {% for card in teamfight_cards %}
+    <div class="card"><div class="label">{{ metric_label(card.label, card.icon, card.icon_tone, icon_href=card.icon_href) }}</div><div class="value">{{ card.value }}</div></div>
     {% endfor %}
   </div>
 </section>
 
 <section id="objectives">
-  <h2>Objectives</h2>
+  {{ section_title("Objectives", icon_href=objectives_section_icon) }}
   <table>
     <thead>
-    <tr><th>Objective</th><th>Count</th><th>Taken</th><th>Present</th><th>Arrived early</th><th>Dead before</th><th>Wards before</th></tr>
+    <tr><th>Objective</th><th>Count</th><th>Taken</th><th>Present</th><th>Arrived early</th><th>Dead before</th><th>{{ metric_label("Wards before", "ward", "blue") }}</th></tr>
     </thead>
     <tbody id="objective-table-body">
-    {% for kind, row in objective_rows %}
-    <tr><td>{{ kind }}</td><td>{{ row.count }}</td><td>{{ '%.0f' % (row.taken_rate * 100) }}%</td><td>{{ '%.0f' % (row.presence_rate * 100) }}%</td><td>{{ '%.0f' % (row.early_rate * 100) }}%</td><td>{{ '%.0f' % (row.dead_before_rate * 100) }}%</td><td>{{ row.avg_wards_before }}</td></tr>
+    {% for row in objective_rows %}
+    <tr><td>{{ icon_cell(row.kind|title, row.objective_icon) }}</td><td>{{ row.count }}</td><td>{{ '%.0f' % (row.taken_rate * 100) }}%</td><td>{{ '%.0f' % (row.presence_rate * 100) }}%</td><td>{{ '%.0f' % (row.early_rate * 100) }}%</td><td>{{ '%.0f' % (row.dead_before_rate * 100) }}%</td><td>{{ row.avg_wards_before }}</td></tr>
     {% endfor %}
     </tbody>
   </table>
@@ -308,11 +372,11 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
 </section>
 
 <section id="items">
-  <h2>Items</h2>
+  {{ section_title("Items", "items", "gold") }}
   <div class="figure" id="fig-item_winrate_bar">{{ figures.item_winrate_bar | safe }}</div>
   <h3>Two-item cores</h3>
   <table>
-    <thead><tr><th>Core</th><th>Games</th><th>Win rate</th><th>Avg DPM</th><th>Avg deaths</th></tr></thead>
+    <thead><tr><th>Core</th><th>Games</th><th>Win rate</th><th>{{ metric_label("Avg DPM", "flame", "orange") }}</th><th>{{ metric_label("Avg deaths", "skull", "danger") }}</th></tr></thead>
     <tbody id="build-paths-body">
     {% for row in build_paths %}
     <tr><td>{{ row.core }}</td><td>{{ row.games }}</td><td>{{ '%.0f' % (row.winrate * 100) }}%</td><td>{{ row.avg_dpm }}</td><td>{{ row.avg_deaths }}</td></tr>
@@ -322,33 +386,33 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
 </section>
 
 <section id="runes">
-  <h2>Runes</h2>
+  {{ section_title("Runes", "rune", "accent") }}
   <div class="figure" id="fig-rune_winrate_bar">{{ figures.rune_winrate_bar | safe }}</div>
   <table>
-    <thead><tr><th>Keystone</th><th>Games</th><th>Win rate</th><th>Avg DPM</th><th>Avg deaths</th></tr></thead>
+    <thead><tr><th>Keystone</th><th>Games</th><th>Win rate</th><th>{{ metric_label("Avg DPM", "flame", "orange") }}</th><th>{{ metric_label("Avg deaths", "skull", "danger") }}</th></tr></thead>
     <tbody id="rune-rows-body">
     {% for row in rune_rows %}
-    <tr><td>{{ row.keystone }}</td><td>{{ row.games }}</td><td>{{ '%.0f' % (row.winrate * 100) }}%</td><td>{{ row.avg_dpm }}</td><td>{{ row.avg_deaths }}</td></tr>
+    <tr><td>{% if row.keystone_icon %}<span class="icon-cell"><img src="{{ row.keystone_icon }}" alt="" class="game-icon game-icon--sm"><span>{{ row.keystone }}</span></span>{% else %}{{ row.keystone }}{% endif %}</td><td>{{ row.games }}</td><td>{{ '%.0f' % (row.winrate * 100) }}%</td><td>{{ row.avg_dpm }}</td><td>{{ row.avg_deaths }}</td></tr>
     {% endfor %}
     </tbody>
   </table>
 </section>
 
 <section id="matchups">
-  <h2>Matchups</h2>
+  {{ section_title("Matchups", "combat", "accent") }}
   <div class="figure" id="fig-matchup_bar">{{ figures.matchup_bar | safe }}</div>
   <table>
     <thead><tr><th>Opponent</th><th>Games</th><th>Win rate</th><th>GD@10</th><th>CSD@10</th><th>Deaths pre-14</th><th>Recommendation</th></tr></thead>
     <tbody id="matchup-rows-body">
     {% for row in matchup_rows %}
-    <tr><td>{{ row.opponent }}</td><td>{{ row.games }}</td><td>{{ '%.0f' % (row.winrate * 100) }}%</td><td>{{ row.avg_gd10 }}</td><td>{{ row.avg_csd10 }}</td><td>{{ row.avg_deaths_pre14 }}</td><td>{{ row.recommendation }}</td></tr>
+    <tr><td>{% if row.opponent_icon %}<span class="icon-cell"><img src="{{ row.opponent_icon }}" alt="" class="game-icon game-icon--sm"><span>{{ row.opponent }}</span></span>{% else %}{{ row.opponent }}{% endif %}</td><td>{{ row.games }}</td><td>{{ '%.0f' % (row.winrate * 100) }}%</td><td>{{ row.avg_gd10 }}</td><td>{{ row.avg_csd10 }}</td><td>{{ row.avg_deaths_pre14 }}</td><td>{{ row.recommendation }}</td></tr>
     {% endfor %}
     </tbody>
   </table>
 </section>
 
 <section id="graphs">
-  <h2>Graphs</h2>
+  {{ section_title("Graphs", "chart", "accent") }}
   <div class="figure" id="fig-correlation_heatmap">{{ figures.correlation_heatmap | safe }}</div>
   <div class="figure" id="fig-win_correlation_bar">{{ figures.win_correlation_bar | safe }}</div>
   <div class="figure" id="fig-feature_importance">{{ figures.feature_importance | safe }}</div>
@@ -377,7 +441,7 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
 </section>
 
 <section id="recommendations">
-  <h2>Recommendations</h2>
+  {{ section_title("Recommendations", "bulb", "win") }}
   <p class="sub">Strengths on the left, areas to improve on the right — top {{ recommendation_visible_count }} per side, ranked by priority.</p>
   <div class="rec-columns" id="recommendations-root">
     <div class="rec-column rec-column-positive" id="rec-positive-column">
@@ -457,18 +521,32 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
     return Math.round(Number(value) * 100) + '%';
   }
 
+  function metricLabel(label, iconify, tone, iconHref) {
+    tone = tone || 'muted';
+    if (iconHref) {
+      return '<span class="metric-label"><img src="' + iconHref + '" alt="" class="metric-icon metric-icon--asset metric-icon--' + tone + '" aria-hidden="true">' +
+        '<span>' + label + '</span></span>';
+    }
+    if (!iconify) return label;
+    return '<span class="metric-label">' +
+      '<iconify-icon icon="' + iconify + '" class="metric-icon metric-icon--' + tone + '" aria-hidden="true"></iconify-icon>' +
+      '<span>' + label + '</span></span>';
+  }
+
   function renderCards(container, cards) {
     if (!container) return;
     container.innerHTML = (cards || []).map(function (card) {
       var cls = card.value_class ? ' value ' + card.value_class : ' value';
-      return '<div class="card"><div class="label">' + card.label + '</div><div class="' + cls.trim() + '">' + card.value + '</div></div>';
+      return '<div class="card"><div class="label">' + metricLabel(card.label, card.iconify, card.icon_tone, card.icon_href) +
+        '</div><div class="' + cls.trim() + '">' + card.value + '</div></div>';
     }).join('');
   }
 
   function renderCardPairs(container, cards) {
     if (!container) return;
     container.innerHTML = (cards || []).map(function (card) {
-      return '<div class="card"><div class="label">' + card.label + '</div><div class="value">' + card.value + '</div></div>';
+      return '<div class="card"><div class="label">' + metricLabel(card.label, card.iconify, card.icon_tone, card.icon_href) +
+        '</div><div class="value">' + card.value + '</div></div>';
     }).join('');
   }
 
@@ -498,7 +576,7 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
     }
     if (!compsNode) return;
     compsNode.innerHTML = (bundle.score_components || []).map(function (comp) {
-      return '<div class="comp"><strong>' + comp.name + '</strong> — ' + comp.value +
+      return '<div class="comp"><strong>' + metricLabel(comp.name, comp.iconify, comp.icon_tone, comp.icon_href) + '</strong> — ' + comp.value +
         '<div class="bar"><i style="width:' + comp.score + '%"></i></div>' +
         '<small style="color:var(--muted)">' + comp.hint + '</small></div>';
     }).join('');
@@ -516,11 +594,11 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
     var cards = document.getElementById('peer-highlight-cards');
     if (cards) {
       cards.innerHTML =
-        '<div class="card" style="grid-column: span 2;"><div class="label">Strengths</div>' +
+        '<div class="card" style="grid-column: span 2;"><div class="label">' + metricLabel('Strengths', 'lucide:trophy', 'win') + '</div>' +
         (bundle.peer.strengths.length ? '<ul style="margin-top:8px;padding-left:18px;color:var(--muted);">' +
           bundle.peer.strengths.map(function (item) { return '<li>' + item + '</li>'; }).join('') + '</ul>' :
           '<p class="sub" style="margin:8px 0 0">—</p>') + '</div>' +
-        '<div class="card" style="grid-column: span 2;"><div class="label">Weaknesses</div>' +
+        '<div class="card" style="grid-column: span 2;"><div class="label">' + metricLabel('Weaknesses', 'lucide:skull', 'danger') + '</div>' +
         (bundle.peer.weaknesses.length ? '<ul style="margin-top:8px;padding-left:18px;color:var(--muted);">' +
           bundle.peer.weaknesses.map(function (item) { return '<li>' + item + '</li>'; }).join('') + '</ul>' :
           '<p class="sub" style="margin:8px 0 0">—</p>') + '</div>';
@@ -528,11 +606,18 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
     var body = document.getElementById('peer-table-body');
     if (body) {
       body.innerHTML = (bundle.peer.rows || []).map(function (row) {
-        return '<tr><td>' + row.label + '</td><td>' + row.yours + '</td><td>' + row.peer_avg +
+        return '<tr><td>' + metricLabel(row.label, row.iconify, row.icon_tone, row.icon_href) + '</td><td>' + row.yours + '</td><td>' + row.peer_avg +
           '</td><td class="delta-' + row.verdict + '">' + row.gap + '</td><td class="delta-' + row.verdict + '">' + row.verdict + '</td></tr>';
       }).join('');
     }
     setFigure('fig-peer_comparison', bundle.figures.peer_comparison || '');
+  }
+
+  function iconCell(name, iconHref) {
+    if (iconHref) {
+      return '<span class="icon-cell"><img src="' + iconHref + '" alt="" class="game-icon game-icon--sm"><span>' + name + '</span></span>';
+    }
+    return name;
   }
 
   function renderTableBody(id, rows, renderRow) {
@@ -554,15 +639,31 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
     var negCol = document.getElementById('rec-negative-column');
     if (!posCol || !negCol) return;
     var posVisible = positive.slice(0, visibleCount).map(renderRec).join('');
-    var posMore = positive.slice(visibleCount).map(renderRec).join('');
-    posCol.innerHTML = '<h3>Keep doing</h3>' + (positive.length ? posVisible +
-      (posMore ? '<div class="rec-more is-open">' + posMore + '</div>' : '') :
-      '<p class="rec-empty">No clear strengths surfaced yet — keep playing more games.</p>');
+    var posMore = positive.slice(visibleCount);
+    if (positive.length) {
+      var posHtml = '<h3>Keep doing</h3>' + posVisible;
+      if (posMore.length) {
+        posHtml += '<div class="rec-more" id="rec-more-positive">' + posMore.map(renderRec).join('') + '</div>';
+        posHtml += '<button type="button" class="rec-extend" data-target="rec-more-positive" aria-expanded="false" aria-controls="rec-more-positive">Show ' +
+          posMore.length + ' more strength' + (posMore.length !== 1 ? 's' : '') + '</button>';
+      }
+      posCol.innerHTML = posHtml;
+    } else {
+      posCol.innerHTML = '<h3>Keep doing</h3><p class="rec-empty">No clear strengths surfaced yet — keep playing more games.</p>';
+    }
     var negVisible = negative.slice(0, visibleCount).map(renderRec).join('');
-    var negMore = negative.slice(visibleCount).map(renderRec).join('');
-    negCol.innerHTML = '<h3>Work on</h3>' + (negative.length ? negVisible +
-      (negMore ? '<div class="rec-more is-open">' + negMore + '</div>' : '') :
-      '<p class="rec-empty">Nothing critical flagged — solid performance overall.</p>');
+    var negMore = negative.slice(visibleCount);
+    if (negative.length) {
+      var negHtml = '<h3>Work on</h3>' + negVisible;
+      if (negMore.length) {
+        negHtml += '<div class="rec-more" id="rec-more-negative">' + negMore.map(renderRec).join('') + '</div>';
+        negHtml += '<button type="button" class="rec-extend" data-target="rec-more-negative" aria-expanded="false" aria-controls="rec-more-negative">Show ' +
+          negMore.length + ' more area' + (negMore.length !== 1 ? 's' : '') + ' to improve</button>';
+      }
+      negCol.innerHTML = negHtml;
+    } else {
+      negCol.innerHTML = '<h3>Work on</h3><p class="rec-empty">Nothing critical flagged — solid performance overall.</p>';
+    }
   }
 
   function updateGameWindowButtons(queueKey) {
@@ -624,7 +725,8 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
     if (blindBlock) blindBlock.style.display = (bundle.blind_spots || []).length ? '' : 'none';
 
     renderTableBody('objective-table-body', bundle.objective_rows, function (row) {
-      return '<tr><td>' + row.kind + '</td><td>' + row.count + '</td><td>' + pct(row.taken_rate) + '</td><td>' +
+      var kindLabel = row.kind.charAt(0).toUpperCase() + row.kind.slice(1);
+      return '<tr><td>' + iconCell(kindLabel, row.objective_icon) + '</td><td>' + row.count + '</td><td>' + pct(row.taken_rate) + '</td><td>' +
         pct(row.presence_rate) + '</td><td>' + pct(row.early_rate) + '</td><td>' + pct(row.dead_before_rate) +
         '</td><td>' + row.avg_wards_before + '</td></tr>';
     });
@@ -633,11 +735,11 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
         row.avg_dpm + '</td><td>' + row.avg_deaths + '</td></tr>';
     });
     renderTableBody('rune-rows-body', bundle.rune_rows, function (row) {
-      return '<tr><td>' + row.keystone + '</td><td>' + row.games + '</td><td>' + pct(row.winrate) + '</td><td>' +
+      return '<tr><td>' + iconCell(row.keystone, row.keystone_icon) + '</td><td>' + row.games + '</td><td>' + pct(row.winrate) + '</td><td>' +
         row.avg_dpm + '</td><td>' + row.avg_deaths + '</td></tr>';
     });
     renderTableBody('matchup-rows-body', bundle.matchup_rows, function (row) {
-      return '<tr><td>' + row.opponent + '</td><td>' + row.games + '</td><td>' + pct(row.winrate) + '</td><td>' +
+      return '<tr><td>' + iconCell(row.opponent, row.opponent_icon) + '</td><td>' + row.games + '</td><td>' + pct(row.winrate) + '</td><td>' +
         row.avg_gd10 + '</td><td>' + row.avg_csd10 + '</td><td>' + row.avg_deaths_pre14 + '</td><td>' +
         row.recommendation + '</td></tr>';
     });
@@ -709,15 +811,18 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
 </script>
 <script>
 (function () {
-  document.querySelectorAll('.rec-extend').forEach(function (btn) {
-    btn.addEventListener('click', function () {
+  var recRoot = document.getElementById('recommendations-root');
+  if (recRoot) {
+    recRoot.addEventListener('click', function (e) {
+      var btn = e.target.closest('.rec-extend');
+      if (!btn) return;
       var panel = document.getElementById(btn.getAttribute('data-target'));
       if (!panel) return;
       panel.classList.add('is-open');
       btn.setAttribute('aria-expanded', 'true');
       btn.remove();
     });
-  });
+  }
 
   document.querySelectorAll('.figure-info-btn').forEach(function (btn) {
     btn.addEventListener('click', function (e) {

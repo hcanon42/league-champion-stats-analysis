@@ -19,6 +19,7 @@ from typing import Any, Final
 import requests
 from tqdm import tqdm
 
+from analysis.peer_ingest import ingest_match
 from cache import HttpCache, MatchStore
 from config import AppConfig, PLATFORM_TO_REGION, RANKED_FLEX_QUEUE_ID, RANKED_SOLO_QUEUE_ID
 from models import RankedEntry
@@ -272,7 +273,9 @@ class RiotApiClient:
                 tiers[puuid] = ranked.tier
         return tiers
 
-    def fetch_league_entries(self, tier: str, rank: str = "") -> list[dict[str, Any]]:
+    def fetch_league_entries(
+        self, tier: str, rank: str = "", *, page: int = 1
+    ) -> list[dict[str, Any]]:
         """Fetch solo queue league entries for a tier (and division when applicable).
 
         For ``MASTER``, ``GRANDMASTER`` and ``CHALLENGER`` the corresponding
@@ -282,6 +285,7 @@ class RiotApiClient:
         Args:
             tier: Riot tier string (e.g. ``"PLATINUM"``).
             rank: Division within the tier (``"I"``–``"IV"``); ignored for Master+.
+            page: Page number for paginated tier entries.
 
         Returns:
             Raw league entry dicts, each including a ``puuid`` when available.
@@ -303,8 +307,22 @@ class RiotApiClient:
 
         division = (rank or "I").upper()
         url = f"{self.platform_base}/lol/league/v4/entries/{queue}/{tier_key}/{division}"
-        payload = self._get(url, params={"page": 1}, ttl_s=15 * 60)
+        payload = self._get(url, params={"page": page}, ttl_s=15 * 60)
         return list(payload)
+
+    def fetch_league_entries_pages(
+        self, tier: str, rank: str = "", *, max_pages: int = 1
+    ) -> list[dict[str, Any]]:
+        """Fetch multiple pages of league entries for one tier + division."""
+        entries: list[dict[str, Any]] = []
+        for page in range(1, max_pages + 1):
+            page_entries = self.fetch_league_entries(tier, rank, page=page)
+            if not page_entries:
+                break
+            entries.extend(page_entries)
+            if len(page_entries) < 205:
+                break
+        return entries
 
     def fetch_match(self, match_id: str) -> dict[str, Any]:
         """Fetch a single match-v5 document (cached permanently).
@@ -396,6 +414,10 @@ class RiotApiClient:
                 claimed,
                 len(cached) - claimed,
             )
+            for match_id in cached:
+                match = self._store.load_match(match_id)
+                if match is not None:
+                    ingest_match(self._store, match_id, match, self._platform)
         self._log.info("%d matches already cached, %d to download", len(cached), len(pending))
         for match_id in tqdm(pending, desc="Downloading matches", unit="match"):
             match_url = f"{self._base}/lol/match/v5/matches/{match_id}"
@@ -408,6 +430,7 @@ class RiotApiClient:
                 continue
             self._store.save_match(match_id, puuid, match)
             self._store.save_timeline(match_id, timeline)
+            ingest_match(self._store, match_id, match, self._platform)
 
     # ----------------------------------------------------------- Static data
 

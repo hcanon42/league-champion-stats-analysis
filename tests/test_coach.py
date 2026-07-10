@@ -110,8 +110,8 @@ def test_markdown_rendering(coach: CoachEngine) -> None:
 
 
 def test_visible_recommendation_limit_constant() -> None:
-    """The report shows five recommendations before expanding."""
-    assert VISIBLE_RECOMMENDATIONS == 5
+    """The report shows three recommendations before expanding."""
+    assert VISIBLE_RECOMMENDATIONS == 3
 
 
 def test_empty_data_yields_no_recommendations(tmp_path: Path) -> None:
