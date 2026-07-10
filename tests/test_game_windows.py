@@ -8,13 +8,13 @@ from pathlib import Path
 
 import pandas as pd
 
-from analysis.peer_comparison import build_comparisons, peer_comparison_for_window
-from config import DEFAULT_GAME_WINDOW
-from main import _default_game_window_key, run_analysis
-from models import MatchRecord, PeerComparisonResult, RankedEntry
+from league_stats.analysis.peer import build_comparisons, peer_comparison_for_window
+from league_stats.core.config import DEFAULT_GAME_WINDOW
+from league_stats.cli.app import _default_game_window_key, run_analysis
+from league_stats.core.models import MatchRecord, PeerComparisonResult, RankedEntry
 from tests.fixtures import FAKE_ITEMS, MY_PUUID, make_match, make_timeline
 from tests.test_reports import _config, _peer
-from parser import ItemCatalog, MatchParser
+from league_stats.ingest.parser import ItemCatalog, MatchParser
 
 
 def _make_records(n: int, *, recent_wins: bool = False) -> list[MatchRecord]:

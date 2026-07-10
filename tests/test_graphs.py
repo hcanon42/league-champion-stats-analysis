@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pandas as pd
 
-from config import AppConfig
-from ddragon_assets import DDragonAssets
-from graphs import ChartIconResolver, GraphFactory
+from league_stats.core.config import AppConfig
+from league_stats.infra.ddragon_assets import DDragonAssets
+from league_stats.presentation.graphs import ChartIconResolver, GraphFactory
 
 
 def _config(tmp_path: Path) -> AppConfig:

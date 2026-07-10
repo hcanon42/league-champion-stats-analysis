@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from cache import MatchStore
-from analysis.peer_ingest import ingest_match
+from league_stats.infra.cache import MatchStore
+from league_stats.analysis.peer.ingest import ingest_match
 from tests.fixtures import make_match
 
 

@@ -6,10 +6,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from analysis.peer_baseline import resolve_peer_baseline
-from analysis.peer_ingest import ingest_match
-from cache import MatchStore
-from models import RankedEntry
+from league_stats.analysis.peer.baseline import resolve_peer_baseline
+from league_stats.analysis.peer.ingest import ingest_match
+from league_stats.infra.cache import MatchStore
+from league_stats.core.models import RankedEntry
 from tests.fixtures import make_match
 
 
@@ -42,7 +42,7 @@ def test_resolve_peer_baseline_uses_role_only_when_champion_missing(
     tmp_path, ranked: RankedEntry, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Role-only static benchmarks are the last fallback."""
-    import analysis.peer_baseline as peer_baseline
+    import league_stats.analysis.peer.baseline as peer_baseline
 
     monkeypatch.setattr(peer_baseline, "try_static_benchmark", lambda *args, **kwargs: None)
     store = MatchStore(tmp_path / "matches.sqlite")
@@ -65,7 +65,7 @@ def test_resolve_peer_baseline_uses_store_when_enough_games(
     tmp_path, ranked: RankedEntry, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Exact-rank store samples are preferred when the target count is met."""
-    import analysis.peer_baseline as peer_baseline
+    import league_stats.analysis.peer.baseline as peer_baseline
 
     monkeypatch.setattr(peer_baseline, "MIN_EXACT_GAMES", 2)
     store = MatchStore(tmp_path / "matches.sqlite")

@@ -1,0 +1,46 @@
+{
+  "GOLD": {
+    "winrate": 0.5,
+    "kda": 3.0,
+    "dpm": 620.0,
+    "cspm": 7.2,
+    "deaths": 4.8,
+    "vspm": 0.9,
+    "control_wards": 1.4,
+    "kill_participation": 0.55,
+    "damage_share": 0.24
+  },
+  "PLATINUM": {
+    "winrate": 0.5,
+    "kda": 3.1,
+    "dpm": 640.0,
+    "cspm": 7.4,
+    "deaths": 4.7,
+    "vspm": 0.95,
+    "control_wards": 1.5,
+    "kill_participation": 0.56,
+    "damage_share": 0.24
+  },
+  "EMERALD": {
+    "winrate": 0.5,
+    "kda": 3.2,
+    "dpm": 660.0,
+    "cspm": 7.5,
+    "deaths": 4.6,
+    "vspm": 1.0,
+    "control_wards": 1.6,
+    "kill_participation": 0.57,
+    "damage_share": 0.25
+  },
+  "DIAMOND": {
+    "winrate": 0.5,
+    "kda": 3.3,
+    "dpm": 680.0,
+    "cspm": 7.7,
+    "deaths": 4.5,
+    "vspm": 1.05,
+    "control_wards": 1.7,
+    "kill_participation": 0.58,
+    "damage_share": 0.25
+  }
+}

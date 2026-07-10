@@ -4,16 +4,19 @@ from __future__ import annotations
 
 import pytest
 
-from config import AppConfig
-from models import MatchRecord
-from parser import BaseMatchFilter, BuildMatchFilter, ItemCatalog, MatchParser
+from league_stats.core.config import AppConfig
+from league_stats.core.models import MatchRecord
+from league_stats.ingest.parser import BaseMatchFilter, BuildMatchFilter, ItemCatalog, MatchParser
 from tests.fixtures import FAKE_ITEMS, MY_PUUID, make_match, make_timeline
 
 
 @pytest.fixture()
 def config() -> AppConfig:
     """A valid configuration for tests."""
-    return AppConfig(riot_id="Test", tagline="EUW", region="euw1", api_key="RGAPI-test")
+    return AppConfig(
+        riot_id="Test", tagline="EUW", region="euw1", api_key="RGAPI-test",
+        champion="Viktor", role="MIDDLE",
+    )
 
 
 @pytest.fixture()
@@ -79,7 +82,10 @@ def test_filter_rejects_wrong_lane(config: AppConfig) -> None:
 
 def test_config_normalizes_lane_alias() -> None:
     """Lane aliases in config are normalised to Riot values."""
-    cfg = AppConfig(riot_id="Test", tagline="EUW", region="euw1", api_key="RGAPI-test", role="mid")
+    cfg = AppConfig(
+        riot_id="Test", tagline="EUW", region="euw1", api_key="RGAPI-test",
+        champion="Viktor", role="mid",
+    )
     assert cfg.role == "MIDDLE"
     assert cfg.build_label == "Viktor mid"
 

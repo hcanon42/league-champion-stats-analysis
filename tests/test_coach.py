@@ -8,13 +8,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from analysis.coach import (
+from league_stats.analysis.coach.engine import (
     CoachEngine,
     VISIBLE_RECOMMENDATIONS,
     recommendations_markdown,
 )
-from analysis.matchups import matchups_dataframe
-from analysis.statistics import StatisticsEngine
+from league_stats.analysis.matchups import matchups_dataframe
+from league_stats.analysis.statistics import StatisticsEngine
 from tests.test_statistics import _synthetic_matches
 
 

@@ -6,12 +6,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from analysis.benchmark_fetcher import (
+from league_stats.analysis.peer.benchmark_fetcher import (
     extract_champion_role_for_puuid,
     fetch_benchmark_from_api,
 )
-from cache import MatchStore
-from models import RankedEntry
+from league_stats.infra.cache import MatchStore
+from league_stats.core.models import RankedEntry
 from tests.fixtures import make_match
 
 
@@ -48,9 +48,9 @@ def test_extract_champion_role_for_puuid_filters_lane() -> None:
 
 def test_fetch_benchmark_from_api_aggregates_league_sample(tmp_path, monkeypatch) -> None:
     """League entries are scanned until enough champion games are found."""
-    monkeypatch.setattr("analysis.benchmark_fetcher.MIN_BENCHMARK_GAMES", 3)
-    monkeypatch.setattr("analysis.benchmark_fetcher.TARGET_PEER_GAMES", 3)
-    monkeypatch.setattr("analysis.benchmark_fetcher.MAX_MATCH_DOWNLOADS", 10)
+    monkeypatch.setattr("league_stats.analysis.peer.benchmark_fetcher.MIN_BENCHMARK_GAMES", 3)
+    monkeypatch.setattr("league_stats.analysis.peer.benchmark_fetcher.TARGET_PEER_GAMES", 3)
+    monkeypatch.setattr("league_stats.analysis.peer.benchmark_fetcher.MAX_MATCH_DOWNLOADS", 10)
 
     store = MatchStore(tmp_path / "matches.sqlite")
     client = MagicMock()
@@ -78,8 +78,8 @@ def test_fetch_benchmark_from_api_aggregates_league_sample(tmp_path, monkeypatch
 
 def test_fetch_benchmark_persists_downloaded_matches(tmp_path, monkeypatch) -> None:
     """Downloaded peer matches are stored for later runs."""
-    monkeypatch.setattr("analysis.benchmark_fetcher.MIN_BENCHMARK_GAMES", 1)
-    monkeypatch.setattr("analysis.benchmark_fetcher.TARGET_PEER_GAMES", 1)
+    monkeypatch.setattr("league_stats.analysis.peer.benchmark_fetcher.MIN_BENCHMARK_GAMES", 1)
+    monkeypatch.setattr("league_stats.analysis.peer.benchmark_fetcher.TARGET_PEER_GAMES", 1)
 
     store = MatchStore(tmp_path / "matches.sqlite")
     client = MagicMock()

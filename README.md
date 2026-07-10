@@ -1,8 +1,11 @@
 # Champion Stats Analyzer
 
-A production-quality coaching analyzer for ranked solo queue, built on the Riot
+A production-quality coaching analyzer for **ranked queue** (solo/duo and flex), built on the Riot
 **Match-V5** API. One run analyses **every champion + lane** you have played
-enough (default: 20+ solo/duo games).
+enough (default: 20+ ranked games).
+
+Optional **Gemini chatbot** side panel in reports (`GEMINI_API_KEY` in `.env`).
+See [AGENTS.md](AGENTS.md) for AI contributor navigation.
 
 This is not an OP.GG clone. It doesn't just describe *what* happened — it digs
 into **why you win and why you lose**: death context, objective setups, reset
@@ -71,6 +74,12 @@ uv sync
 # Download + analyse every eligible champion/lane build
 uv run python main.py analyze --riot-id "YourName" --tagline "EUW" --region europe
 
+# Single build only
+uv run python main.py analyze --riot-id "YourName" --tagline "EUW" --champion Aatrox --role top
+
+# Pool multiple players into one report group
+uv run python main.py analyze --player "Alice#EUW" --player "Bob#NA1"
+
 # Re-analyse from cached matches (no download)
 uv run python main.py report --riot-id "YourName" --tagline "EUW"
 
@@ -127,29 +136,34 @@ Open **`output/reports/{player}/index.html`** to pick a champion/lane, or use th
 
 ```mermaid
 graph TD
-    CLI[main.py - Typer CLI] --> CFG[config.py]
-    CLI --> API[riot_api.py<br/>RateLimiter + retry + progress]
-    API --> CACHE[cache.py<br/>diskcache HTTP cache + SQLite MatchStore]
-    API --> DD[Data Dragon item catalogue]
-    CLI --> PARSE[parser.py<br/>BaseMatchFilter + MatchParser]
-    PARSE --> MODELS[models.py - Pydantic domain models]
+    CLI[cli/app.py - Typer CLI] --> PIPE[pipeline/orchestrator.py]
+    PIPE --> CFG[core/config.py]
+    PIPE --> FETCH[pipeline/fetch.py]
+    FETCH --> API[infra/riot_api.py]
+    API --> CACHE[infra/cache.py]
+    API --> DD[infra/ddragon_assets.py]
+    FETCH --> PARSE[ingest/parser.py]
+    PARSE --> MODELS[core/models.py]
     PARSE --> EXTRACT[analysis/ extractors<br/>timeline, deaths, teamfights,<br/>objectives, vision, positioning]
-    EXTRACT --> AGG[analysis/ aggregators<br/>laning, economy, items, runes, matchups]
-    AGG --> STATS[analysis/statistics.py<br/>scipy + RandomForest + KMeans]
-    STATS --> COACH[analysis/coach.py<br/>significance-ranked rules]
-    AGG --> GRAPHS[graphs.py - Plotly + matplotlib]
-    COACH --> REPORT[report.py + templates/report.html]
+    PIPE --> FRAMES[pipeline/frames.py]
+    EXTRACT --> FRAMES
+    FRAMES --> AGG[analysis/ aggregators<br/>laning, economy, items, runes, matchups]
+    PIPE --> STATS[analysis/statistics.py<br/>scipy + RandomForest + KMeans]
+    STATS --> COACH[analysis/coach/engine.py]
+    PIPE --> PEER[analysis/peer/]
+    AGG --> GRAPHS[presentation/graphs.py]
+    COACH --> REPORT[presentation/report.py + templates/]
     GRAPHS --> REPORT
-    AGG --> EXPORT[export.py - CSV/JSON/MD]
+    PIPE --> EXPORT[presentation/export.py]
 ```
 
 Design principles:
 
 - **Dependency injection** everywhere: the API client receives its cache and
   store, the parser its item catalogue, the coach its dataframes and
-  statistics engine. `main.py` is the composition root.
-- **Layered**: data (fetch/store) → parsing (raw JSON → typed models) →
-  analysis (models → dataframes/summaries) → presentation (graphs/report/export).
+  statistics engine. `pipeline/services.py` builds the composition root.
+- **Layered**: `infra/` (fetch/store) → `ingest/` (raw JSON → typed models) →
+  `analysis/` (models → dataframes/summaries) → `presentation/` (graphs/report/export).
 - **Typed and documented**: every function has type hints and a docstring;
   domain objects are Pydantic models.
 - **Testable**: analysis code is pure (no I/O); the test suite runs on
@@ -183,9 +197,9 @@ uv run pytest               # run the test suite
 uv run pytest --cov=.       # with coverage
 ```
 
-Project layout follows one module per concern; new analyses slot in as a new
-`analysis/<topic>.py` with an `extract_*` (timeline-level) and/or aggregate
-function, wired in `main.py`.
+Project layout lives under `src/league_stats/` — one module per concern; new analyses
+slot in as `analysis/<topic>.py` with an `extract_*` (timeline-level) and/or aggregate
+function, wired in `pipeline/frames.py` and `pipeline/orchestrator.py`.
 
 *Champion Stats Analyzer isn't endorsed by Riot Games and doesn't reflect the views or
 opinions of Riot Games or anyone officially involved in producing or managing

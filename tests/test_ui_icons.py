@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ui_icons import (
+from league_stats.presentation.ui_icons import (
     ICONIFY_ICONS,
     icon_fields_for_label,
     icon_for_label,

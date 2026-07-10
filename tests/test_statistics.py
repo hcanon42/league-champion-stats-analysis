@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from analysis.statistics import StatisticsEngine
+from league_stats.analysis.statistics import StatisticsEngine
 
 
 def _synthetic_matches(n: int = 60, seed: int = 7) -> pd.DataFrame:

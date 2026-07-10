@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from models import MatchRecord, Zone
-from parser import ItemCatalog, MatchParser
+from league_stats.core.models import MatchRecord, Zone
+from league_stats.ingest.parser import ItemCatalog, MatchParser
 from tests.fixtures import FAKE_ITEMS, MY_PUUID, make_match, make_timeline
 
 
@@ -58,7 +58,7 @@ def test_second_death_context(record: MatchRecord) -> None:
 
 def test_deaths_dataframe_shape(record: MatchRecord) -> None:
     """The flattened death table carries match context."""
-    from analysis.deaths import deaths_dataframe
+    from league_stats.analysis.deaths import deaths_dataframe
 
     frame = deaths_dataframe([record])
     assert len(frame) == 3

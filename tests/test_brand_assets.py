@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from brand_assets import APP_TITLE, brand_context, brand_href, ensure_brand_assets, refresh_saved_report_branding
+from league_stats.presentation.brand_assets import APP_TITLE, brand_context, brand_href, ensure_brand_assets, refresh_saved_report_branding
 
 
 def test_ensure_brand_assets_copies_logo(tmp_path: Path) -> None:
