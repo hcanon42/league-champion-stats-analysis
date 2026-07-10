@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -101,3 +102,36 @@ def test_full_pipeline_generates_all_artifacts(tmp_path: Path) -> None:
     index_path = config.output_dir / "index.html"
     assert index_path.exists()
     assert "All players" in html or "Test#EUW" in html
+
+
+def test_report_embeds_chatbot_panel_and_stats(tmp_path: Path) -> None:
+    """The rendered report embeds the chat panel, stats JSON and a security TODO."""
+    config = AppConfig(
+        riot_id="Test",
+        tagline="EUW",
+        region="europe",
+        api_key="RGAPI-test",
+        output_dir=tmp_path / "output",
+        graphs_dir=tmp_path / "graphs",
+        cache_dir=tmp_path / "cache",
+        template_dir=Path(__file__).resolve().parent.parent / "templates",
+    )
+    config.ensure_directories()
+
+    report_path = run_analysis(config, _make_records())
+    html = report_path.read_text(encoding="utf-8")
+
+    assert 'id="chatbot-toggle"' in html
+    assert 'id="chatbot-panel"' in html
+    assert 'id="chatbot-consent-checkbox"' in html
+    assert 'id="chatbot-stats-data"' in html
+    assert "TODO(security)" in html
+    assert "generateContent" in html
+
+    stats_start = html.index('id="chatbot-stats-data">') + len('id="chatbot-stats-data">')
+    stats_end = html.index("</script>", stats_start)
+    embedded_stats = json.loads(html[stats_start:stats_end])
+    assert embedded_stats["build_label"] == config.build_label
+    assert embedded_stats["games"] == 15
+
+    assert "var GEMINI_API_KEY = null;" in html
