@@ -890,7 +890,12 @@ def run_analysis(
     asset_catalog = assets or DDragonAssets(config)
     asset_catalog.ensure_downloaded()
 
-    _write_full_exports(
+    # TODO(security): `summary` (embedded below as chatbot_stats) and the Gemini API
+    # key are baked directly into the generated static HTML so client-side JS can
+    # call Gemini without a backend. Anyone who opens the report gets the key and can
+    # burn its free-tier quota. Move this behind a real backend proxy before reports
+    # are ever shared publicly.
+    summary = _write_full_exports(
         config,
         records,
         run_dir,
@@ -956,6 +961,8 @@ def run_analysis(
         "game_window_options": report_views[default_queue]["window_options"],
         "queue_label": default_bundle.get("queue_label", QUEUE_SUBTITLE_LABELS[default_queue]),
         "report_views_json": _serialize_report_views_json(report_views),
+        "chatbot_stats": summary,
+        "gemini_api_key": config.gemini_api_key,
     }
     context.update(
         _bundle_to_template_context(
