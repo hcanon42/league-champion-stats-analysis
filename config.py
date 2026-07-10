@@ -98,6 +98,12 @@ class AppConfig(BaseModel):
     region: str = "europe"
     platform: str | None = None
     api_key: str
+    # TODO(security): gemini_api_key later gets embedded directly into generated
+    # static HTML (see main.py's chatbot context wiring + templates/report.html) so
+    # browser JS can call the Gemini API without a backend. That's a deliberate,
+    # temporary tradeoff — move this behind a real backend proxy before reports are
+    # ever shared publicly.
+    gemini_api_key: str | None = None
     match_count: int = Field(default=500, ge=1, le=2000)
     min_games: int = Field(default=20, ge=1)
     champion: str = "Viktor"
@@ -297,6 +303,7 @@ def load_config(config_file: Path | None = None, **overrides: Any) -> AppConfig:
         "tagline": os.environ.get("ANALYZER_TAGLINE") or os.environ.get("VIKTOR_TAGLINE"),
         "region": os.environ.get("ANALYZER_REGION") or os.environ.get("VIKTOR_REGION"),
         "platform": os.environ.get("ANALYZER_PLATFORM") or os.environ.get("VIKTOR_PLATFORM"),
+        "gemini_api_key": os.environ.get("GEMINI_API_KEY"),
     }
     data.update({k: v for k, v in env_map.items() if v})
     players_override = overrides.pop("players", None)

@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from champions import parse_riot_id, players_group_slug
-from config import load_config
+from config import AppConfig, load_config
 
 
 def test_parse_riot_id_splits_name_and_tag() -> None:
@@ -65,3 +65,22 @@ def test_load_config_cli_api_key_overrides_dotenv(
 
     config = load_config(riot_id="Test", tagline="EUW", api_key="RGAPI-from-cli")
     assert config.api_key == "RGAPI-from-cli"
+
+
+def test_gemini_api_key_defaults_to_none() -> None:
+    """gemini_api_key is optional; AppConfig doesn't require it."""
+    config = AppConfig(riot_id="Test", tagline="EUW", api_key="RGAPI-test")
+    assert config.gemini_api_key is None
+
+
+def test_load_config_reads_gemini_api_key_from_dotenv(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GEMINI_API_KEY is loaded from .env when not already in the environment."""
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    dotenv = tmp_path / ".env"
+    dotenv.write_text("GEMINI_API_KEY=AIza-from-dotenv\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    config = load_config(riot_id="Test", tagline="EUW", api_key="RGAPI-test")
+    assert config.gemini_api_key == "AIza-from-dotenv"
