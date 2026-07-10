@@ -93,7 +93,13 @@ def make_participant(pid: int, team_id: int, champion: str, position: str) -> di
     }
 
 
-def make_match(duration_s: int = 1200, queue_id: int = 420) -> dict[str, Any]:
+def make_match(
+    duration_s: int = 1200,
+    queue_id: int = 420,
+    *,
+    game_ended_in_surrender: bool = False,
+    game_ended_in_early_surrender: bool = False,
+) -> dict[str, Any]:
     """Build the synthetic match document.
 
     Args:
@@ -108,7 +114,7 @@ def make_match(duration_s: int = 1200, queue_id: int = 420) -> dict[str, Any]:
     ] + [
         make_participant(i + 6, 200, CHAMPS_RED[i], POSITIONS[i]) for i in range(5)
     ]
-    return {
+    match = {
         "metadata": {"matchId": MATCH_ID},
         "info": {
             "queueId": queue_id,
@@ -118,6 +124,10 @@ def make_match(duration_s: int = 1200, queue_id: int = 420) -> dict[str, Any]:
             "participants": participants,
         },
     }
+    for participant in participants:
+        participant["gameEndedInSurrender"] = game_ended_in_surrender
+        participant["gameEndedInEarlySurrender"] = game_ended_in_early_surrender
+    return match
 
 
 def make_player_match(

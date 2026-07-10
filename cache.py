@@ -217,6 +217,32 @@ class MatchStore:
         ).fetchone()
         return json.loads(row[0]) if row else None
 
+    def claim_ownership(self, puuid: str, match_ids: list[str]) -> int:
+        """Index already-stored matches for a player without re-downloading.
+
+        When a match was fetched for another account (e.g. rank peers), the
+        payload may already exist while this player's ownership row is missing.
+
+        Args:
+            puuid: The player's PUUID.
+            match_ids: Match ids to claim when present locally.
+
+        Returns:
+            Number of ownership rows inserted.
+        """
+        claimed = 0
+        for match_id in match_ids:
+            if not self.has_match(match_id):
+                continue
+            cursor = self._conn.execute(
+                "INSERT OR IGNORE INTO match_players (match_id, puuid) VALUES (?, ?)",
+                (match_id, puuid),
+            )
+            claimed += cursor.rowcount
+        if claimed:
+            self._conn.commit()
+        return claimed
+
     def iter_match_ids(self, puuid: str) -> Iterator[str]:
         """Iterate over every stored match id owned by a player.
 

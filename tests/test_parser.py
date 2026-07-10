@@ -42,9 +42,32 @@ def test_filter_rejects_wrong_queue(config: AppConfig) -> None:
     assert not BaseMatchFilter(config).accept(make_match(queue_id=400), MY_PUUID)
 
 
+def test_filter_accepts_flex_queue(config: AppConfig) -> None:
+    """Ranked flex queue games are accepted."""
+    assert BaseMatchFilter(config).accept(make_match(queue_id=440), MY_PUUID)
+
+
 def test_filter_rejects_remake(config: AppConfig) -> None:
     """Games at or under five minutes are remakes."""
     assert not BaseMatchFilter(config).accept(make_match(duration_s=240), MY_PUUID)
+
+
+def test_filter_rejects_remake_flag(config: AppConfig) -> None:
+    """Riot's misnamed early-surrender flag marks remakes."""
+    match = make_match(duration_s=240, game_ended_in_early_surrender=True)
+    assert not BaseMatchFilter(config).accept(match, MY_PUUID)
+
+
+def test_filter_rejects_pre15_surrender(config: AppConfig) -> None:
+    """Surrenders before the 15-minute vote are excluded."""
+    match = make_match(duration_s=828, game_ended_in_surrender=True)
+    assert not BaseMatchFilter(config).accept(match, MY_PUUID)
+
+
+def test_filter_accepts_15_min_surrender(config: AppConfig) -> None:
+    """15-minute surrender votes count as real games."""
+    match = make_match(duration_s=900, game_ended_in_surrender=True)
+    assert BaseMatchFilter(config).accept(match, MY_PUUID)
 
 
 def test_filter_rejects_wrong_lane(config: AppConfig) -> None:
@@ -72,6 +95,7 @@ def test_parse_core_fields(record: MatchRecord) -> None:
     """Identity, result and opponent are read correctly."""
     assert record.match_id == "EUW1_9999"
     assert record.patch == "14.23"
+    assert record.queue_id == 420
     assert record.champion == "Viktor"
     assert record.role == "MIDDLE"
     assert record.win is True

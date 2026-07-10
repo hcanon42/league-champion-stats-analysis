@@ -30,7 +30,7 @@ footer { color: var(--muted); font-size: 13px; margin-top: 32px; padding-top: 24
 <p class="sub">Choose a champion and lane to open its pre-generated coaching report.</p>
 
 <div class="panel">
-  <label for="build-select">Your builds (20+ solo/duo games)</label>
+  <label for="build-select">Your builds (20+ ranked games)</label>
   <select id="build-select" onchange="if (this.value) window.location = this.value">
     {% for build in builds %}
     <option value="{{ build.href }}"{% if build.href == default_href %} selected{% endif %}>

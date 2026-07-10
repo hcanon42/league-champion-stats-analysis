@@ -20,7 +20,7 @@ import requests
 from tqdm import tqdm
 
 from cache import HttpCache, MatchStore
-from config import AppConfig, PLATFORM_TO_REGION
+from config import AppConfig, PLATFORM_TO_REGION, RANKED_FLEX_QUEUE_ID, RANKED_SOLO_QUEUE_ID
 from models import RankedEntry
 from utils import get_logger
 
@@ -320,16 +320,20 @@ class RiotApiClient:
 
     # --------------------------------------------------------------- Matches
 
-    def fetch_match_ids(self, puuid: str, count: int) -> list[str]:
-        """Fetch up to ``count`` ranked solo queue match ids, paging by 100.
+    def fetch_match_ids(
+        self, puuid: str, count: int, *, queue_id: int | None = None
+    ) -> list[str]:
+        """Fetch up to ``count`` ranked match ids for one queue, paging by 100.
 
         Args:
             puuid: The player's PUUID.
             count: Maximum number of match ids to fetch.
+            queue_id: Riot queue id (defaults to ``config.queue_id``).
 
         Returns:
             Match ids ordered most-recent first (fewer if history is shorter).
         """
+        queue = queue_id if queue_id is not None else self._config.queue_id
         url = f"{self._base}/lol/match/v5/matches/by-puuid/{puuid}/ids"
         ids: list[str] = []
         start = 0
@@ -337,7 +341,7 @@ class RiotApiClient:
             page_size = min(MATCH_ID_PAGE_SIZE, count - len(ids))
             page = self._get(
                 url,
-                params={"queue": self._config.queue_id, "start": start, "count": page_size},
+                params={"queue": queue, "start": start, "count": page_size},
                 ttl_s=MATCH_IDS_TTL_S,
             )
             if not page:
@@ -346,8 +350,35 @@ class RiotApiClient:
             if len(page) < page_size:
                 break
             start += len(page)
-        self._log.info("Found %d ranked solo queue match ids", len(ids))
+        self._log.info("Found %d ranked queue %d match ids", len(ids), queue)
         return ids
+
+    def fetch_ranked_match_ids(self, puuid: str, count: int) -> list[str]:
+        """Fetch up to ``count`` solo and flex ranked match ids, merged and deduped.
+
+        Args:
+            puuid: The player's PUUID.
+            count: Maximum match ids to fetch per queue.
+
+        Returns:
+            Match ids from both ranked queues, most-recent solo first then flex.
+        """
+        solo_ids = self.fetch_match_ids(puuid, count, queue_id=RANKED_SOLO_QUEUE_ID)
+        flex_ids = self.fetch_match_ids(puuid, count, queue_id=RANKED_FLEX_QUEUE_ID)
+        seen: set[str] = set()
+        merged: list[str] = []
+        for match_id in solo_ids + flex_ids:
+            if match_id in seen:
+                continue
+            seen.add(match_id)
+            merged.append(match_id)
+        self._log.info(
+            "Found %d ranked match ids total (%d solo, %d flex)",
+            len(merged),
+            len(solo_ids),
+            len(flex_ids),
+        )
+        return merged
 
     def download_matches(self, puuid: str, match_ids: list[str]) -> None:
         """Download matches + timelines into the store, skipping stored ones.
@@ -356,8 +387,16 @@ class RiotApiClient:
             puuid: The player's PUUID (recorded alongside each match).
             match_ids: Match ids to ensure are stored locally.
         """
-        pending = [mid for mid in match_ids if not self._store.has_match(mid)]
-        self._log.info("%d matches already cached, %d to download", len(match_ids) - len(pending), len(pending))
+        cached = [mid for mid in match_ids if self._store.has_match(mid)]
+        pending = [mid for mid in match_ids if mid not in cached]
+        if cached:
+            claimed = self._store.claim_ownership(puuid, cached)
+            self._log.info(
+                "Indexed %d cached matches for player (%d already linked)",
+                claimed,
+                len(cached) - claimed,
+            )
+        self._log.info("%d matches already cached, %d to download", len(cached), len(pending))
         for match_id in tqdm(pending, desc="Downloading matches", unit="match"):
             match_url = f"{self._base}/lol/match/v5/matches/{match_id}"
             timeline_url = f"{match_url}/timeline"

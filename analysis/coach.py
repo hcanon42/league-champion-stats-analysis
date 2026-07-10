@@ -13,6 +13,11 @@ from typing import Any, Callable
 import pandas as pd
 from scipy import stats as scipy_stats
 
+from analysis.economy import (
+    RECALL_GOLD_COMPONENT_MAX,
+    RECALL_GOLD_HOARDING_WARN,
+    recall_gold_severity,
+)
 from analysis.statistics import StatisticsEngine
 from models import Recommendation, RecommendationTone
 from utils import get_logger
@@ -275,20 +280,25 @@ class CoachEngine:
         if len(series) < 5:
             return None
         avg = float(series.mean())
-        if avg < 650:
+        severity = recall_gold_severity(avg)
+        if severity is None:
             return None
         return Recommendation(
             category="Economy",
             title="Too much gold sitting unspent",
             detail=(
-                f"You average {avg:.0f} unspent gold when you recall. That's a permanent item "
-                "deficit versus your opponent — plan resets around your next item component "
-                "instead of sitting on gold."
+                f"You average {avg:.0f} gold banked before each recall — above the "
+                f"~{RECALL_GOLD_COMPONENT_MAX}g component-back norm. Coaches flag "
+                f"{RECALL_GOLD_HOARDING_WARN}g+ as hoarding: reset for a meaningful spike "
+                "instead of walking around with unconverted gold."
             ),
-            evidence=f"Mean banked gold before recall: {avg:.0f}g over {len(series)} games",
+            evidence=(
+                f"Mean banked gold before recall: {avg:.0f}g over {len(series)} games "
+                f"(healthy component backs: ~800–{RECALL_GOLD_COMPONENT_MAX}g)"
+            ),
             p_value=None,
-            effect_size=round(min(1.0, (avg - 500) / 1000), 3),
-            priority=_priority(min(1.0, (avg - 500) / 1000), None, len(series)),
+            effect_size=round(severity, 3),
+            priority=_priority(severity, None, len(series)),
             sample_size=len(series),
         )
 

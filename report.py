@@ -11,6 +11,7 @@ from typing import Any
 import pandas as pd
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
+from analysis.economy import RECALL_GOLD_HEALTHY_AVG, RECALL_GOLD_HOARDING_WARN
 from champions import build_label, champion_slug, role_display
 from models import Recommendation
 from utils import get_logger
@@ -94,8 +95,10 @@ def improvement_score(matches_df: pd.DataFrame) -> tuple[float, list[ScoreCompon
             f"{mean('objectives_present_rate') * 100:.0f}% presence", "Presence at epic monster takes",
         ),
         ScoreComponent(
-            "Resets", _clamp_score(mean("avg_unspent_gold", 800), 1300, 350),
-            f"{mean('avg_unspent_gold', 800):.0f}g banked", "Less unspent gold before recalls scores higher",
+            "Resets",
+            _clamp_score(mean("avg_unspent_gold", 800), RECALL_GOLD_HOARDING_WARN, RECALL_GOLD_HEALTHY_AVG),
+            f"{mean('avg_unspent_gold', 800):.0f}g banked",
+            f"Component backs land around 800–1300g; {RECALL_GOLD_HOARDING_WARN}g+ before resets scores lower",
         ),
     ]
     overall = round(sum(c.score for c in components) / len(components), 1)

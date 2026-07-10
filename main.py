@@ -44,7 +44,13 @@ from cache import HttpCache, MatchStore
 from champions import parse_riot_id
 from config import (
     DEFAULT_GAME_WINDOW,
+    DEFAULT_QUEUE_FILTER,
     GAME_WINDOW_OPTIONS,
+    QUEUE_FILTER_OPTIONS,
+    QUEUE_LABELS,
+    QUEUE_SUBTITLE_LABELS,
+    RANKED_FLEX_QUEUE_ID,
+    RANKED_SOLO_QUEUE_ID,
     AppConfig,
     PlayerIdentity,
     load_config,
@@ -68,7 +74,7 @@ from riot_api import RiotApiClient
 from utils import get_logger, setup_logging
 
 app = typer.Typer(
-    help="Ranked solo queue coaching analyzer for any champion + lane (Riot Match-V5 API).",
+    help="Ranked queue coaching analyzer for any champion + lane (Riot Match-V5 API).",
     no_args_is_help=True,
 )
 
@@ -176,7 +182,7 @@ def _fetch(services: Services) -> list[PlayerContext]:
     contexts: list[PlayerContext] = []
     for player in config.players:
         puuid = services.client.resolve_puuid(player.riot_id, player.tagline)
-        match_ids = services.client.fetch_match_ids(puuid, config.match_count)
+        match_ids = services.client.fetch_ranked_match_ids(puuid, config.match_count)
         services.client.download_matches(puuid, match_ids)
         contexts.append(
             PlayerContext(riot_id=player.riot_id, tagline=player.tagline, puuid=puuid)
@@ -199,7 +205,7 @@ def _resolve_player_contexts(services: Services) -> list[PlayerContext]:
 def _load_all_records(
     services: Services, puuids: str | list[str]
 ) -> list[MatchRecord]:
-    """Parse stored ranked solo games for one or more players.
+    """Parse stored ranked queue games for one or more players.
 
     Args:
         services: Wired services.
@@ -231,7 +237,7 @@ def _load_all_records(
             except Exception as exc:  # one malformed match must not kill the run
                 log.warning("Failed to parse %s: %s", match_id, exc)
     records.sort(key=lambda r: r.game_creation_ms, reverse=True)
-    log.info("Parsed %d qualifying ranked solo queue games", len(records))
+    log.info("Parsed %d qualifying ranked queue games", len(records))
     return records
 
 
@@ -284,6 +290,46 @@ def _overview_card_entries(overview: dict[str, Any]) -> list[dict[str, str]]:
     ]
 
 
+def _filter_records_by_queue(records: list[MatchRecord], key: str) -> list[MatchRecord]:
+    """Return records for one queue filter key (``solo``, ``flex``, or ``all``)."""
+    if key == "solo":
+        return [record for record in records if record.queue_id == RANKED_SOLO_QUEUE_ID]
+    if key == "flex":
+        return [record for record in records if record.queue_id == RANKED_FLEX_QUEUE_ID]
+    return records
+
+
+def _queue_filter_options(solo_count: int, flex_count: int) -> list[dict[str, Any]]:
+    """Toggle metadata for the queue filter bar."""
+    total = solo_count + flex_count
+    return [
+        {
+            "key": "solo",
+            "label": QUEUE_LABELS["solo"],
+            "enabled": solo_count > 0,
+        },
+        {
+            "key": "flex",
+            "label": QUEUE_LABELS["flex"],
+            "enabled": flex_count > 0,
+        },
+        {
+            "key": "all",
+            "label": QUEUE_LABELS["all"],
+            "enabled": total > 0,
+        },
+    ]
+
+
+def _default_queue_filter_key(solo_count: int, flex_count: int) -> str:
+    """Pick the initial queue filter, preferring solo when available."""
+    if solo_count > 0:
+        return DEFAULT_QUEUE_FILTER
+    if flex_count > 0:
+        return "flex"
+    return "all"
+
+
 def _slice_records(records: list[MatchRecord], limit: int | None) -> list[MatchRecord]:
     """Return the most recent ``limit`` games, or all when ``limit`` is ``None``."""
     if limit is None:
@@ -298,9 +344,9 @@ def _default_game_window_key(total_games: int) -> str:
     return "all"
 
 
-def _serialize_game_windows_json(game_windows: dict[str, dict[str, Any]]) -> str:
-    """JSON-encode window snapshots for safe embedding in a ``<script>`` tag."""
-    encoded = json.dumps(game_windows, default=str)
+def _serialize_report_views_json(report_views: dict[str, dict[str, Any]]) -> str:
+    """JSON-encode queue/window snapshots for safe embedding in a ``<script>`` tag."""
+    encoded = json.dumps(report_views, default=str)
     # Plotly HTML may contain ``</script>``; escape so the tag is not closed early.
     return encoded.replace("</", r"<\/")
 
@@ -351,8 +397,32 @@ def _build_window_bundle(
     graphs_dir: Path,
     *,
     peer_comparison: PeerComparisonResult | None = None,
+    queue_label: str = "ranked solo queue",
 ) -> dict[str, Any]:
     """Run the analysis pipeline for one game window and return a JSON bundle."""
+    if not records:
+        return {
+            "total_games": 0,
+            "patch_range": "—",
+            "queue_label": queue_label,
+            "overview": {},
+            "overview_cards": [],
+            "score": 0,
+            "score_components": [],
+            "lane_cards": [],
+            "economy_cards": [],
+            "vision_cards": [],
+            "death_cards": [],
+            "teamfight_cards": [],
+            "objective_rows": [],
+            "blind_spots": [],
+            "build_paths": [],
+            "rune_rows": [],
+            "matchup_rows": [],
+            "positive_recommendations": [],
+            "negative_recommendations": [],
+            "figures": {},
+        }
     matches_df = pd.DataFrame([r.to_row() for r in records])
     deaths_df = deaths_dataframe(records)
     tf_df = teamfights_dataframe(records)
@@ -439,6 +509,7 @@ def _build_window_bundle(
             if not matches_df.empty
             else "—"
         ),
+        "queue_label": queue_label,
         "overview": overview,
         "overview_cards": _overview_card_entries(overview),
         "score": score,
@@ -564,6 +635,7 @@ def _bundle_to_template_context(
     context: dict[str, Any] = {
         "total_games": bundle["total_games"],
         "patch_range": bundle["patch_range"],
+        "queue_label": bundle.get("queue_label", "ranked solo queue"),
         "overview": bundle["overview"],
         "score": bundle["score"],
         "score_components": [
@@ -745,11 +817,13 @@ def run_analysis(
     """
     log = get_logger("pipeline")
     if not records:
-        log.error("No qualifying ranked solo queue %s games found.", config.build_label)
+        log.error("No qualifying ranked %s games found.", config.build_label)
         raise typer.Exit(code=1)
 
     records = sorted(records, key=lambda record: record.game_creation_ms, reverse=True)
     total_games = len(records)
+    solo_count = sum(1 for record in records if record.queue_id == RANKED_SOLO_QUEUE_ID)
+    flex_count = sum(1 for record in records if record.queue_id == RANKED_FLEX_QUEUE_ID)
 
     run_dir = config.report_dir
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -770,20 +844,40 @@ def run_analysis(
     ]
     window_specs.append(("all", None))
 
-    game_windows: dict[str, dict[str, Any]] = {}
-    window_peers: dict[str, PeerComparisonResult | None] = {}
-    for key, limit in window_specs:
-        sliced = _slice_records(records, limit)
-        bundle = _build_window_bundle(
-            config, sliced, graphs_dir, peer_comparison=peer_comparison
-        )
-        window_peers[key] = bundle.pop("_peer_result", None)
-        serializable = {k: v for k, v in bundle.items() if not k.startswith("_")}
-        game_windows[key] = serializable
+    report_views: dict[str, dict[str, Any]] = {}
+    view_peers: dict[str, dict[str, PeerComparisonResult | None]] = {}
+    default_queue = _default_queue_filter_key(solo_count, flex_count)
+    for queue_key in QUEUE_FILTER_OPTIONS:
+        queue_records = _filter_records_by_queue(records, queue_key)
+        queue_total = len(queue_records)
+        queue_peer = peer_comparison if queue_key == "solo" else None
+        queue_label = QUEUE_SUBTITLE_LABELS[queue_key]
+        windows: dict[str, dict[str, Any]] = {}
+        window_peers: dict[str, PeerComparisonResult | None] = {}
+        for window_key, limit in window_specs:
+            sliced = _slice_records(queue_records, limit)
+            bundle = _build_window_bundle(
+                config,
+                sliced,
+                graphs_dir,
+                peer_comparison=queue_peer,
+                queue_label=queue_label,
+            )
+            window_peers[window_key] = bundle.pop("_peer_result", None)
+            serializable = {k: v for k, v in bundle.items() if not k.startswith("_")}
+            windows[window_key] = serializable
+        default_window = _default_game_window_key(queue_total)
+        report_views[queue_key] = {
+            "total_games": queue_total,
+            "default_window": default_window,
+            "window_options": _game_window_options(queue_total),
+            "windows": windows,
+        }
+        view_peers[queue_key] = window_peers
 
-    default_window = _default_game_window_key(total_games)
-    default_bundle = game_windows[default_window]
-    default_peer = window_peers.get(default_window)
+    default_window = report_views[default_queue]["default_window"]
+    default_bundle = report_views[default_queue]["windows"][default_window]
+    default_peer = view_peers.get(default_queue, {}).get(default_window)
 
     context: dict[str, Any] = {
         "app_title": "Champion Stats Analyzer",
@@ -792,10 +886,13 @@ def run_analysis(
         "role_display": config.role_display,
         "player_name": config.players_label,
         "recommendation_visible_count": VISIBLE_RECOMMENDATIONS,
+        "queue_filter_default": default_queue,
+        "queue_filter_options": _queue_filter_options(solo_count, flex_count),
         "game_window_default": default_window,
-        "game_window_total": total_games,
-        "game_window_options": _game_window_options(total_games),
-        "game_windows_json": _serialize_game_windows_json(game_windows),
+        "game_window_total": report_views[default_queue]["total_games"],
+        "game_window_options": report_views[default_queue]["window_options"],
+        "queue_label": default_bundle.get("queue_label", QUEUE_SUBTITLE_LABELS[default_queue]),
+        "report_views_json": _serialize_report_views_json(report_views),
     }
     context.update(
         _bundle_to_template_context(
@@ -909,7 +1006,7 @@ def run_all_builds(
     )
     if not pools:
         log.error(
-            "No champion+lane builds with at least %d ranked solo queue games found.",
+            "No champion+lane builds with at least %d ranked games found.",
             services.config.min_games,
         )
         raise typer.Exit(code=1)

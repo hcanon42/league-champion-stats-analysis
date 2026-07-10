@@ -21,7 +21,12 @@ from analysis.timeline import TimelineContext, build_context, extract_timeline_s
 from analysis.vision import extract_control_ward_lifetime
 from cache import MatchStore
 from champions import VALID_ROLES, build_label, role_display
-from config import AppConfig, REMAKE_MAX_DURATION_S
+from config import (
+    AppConfig,
+    RANKED_QUEUE_IDS,
+    REMAKE_MAX_DURATION_S,
+    SURRENDER_VOTE_OPENS_S,
+)
 from models import (
     BuildTimings,
     CombatStats,
@@ -166,7 +171,7 @@ class BuildPool:
 
 
 class BaseMatchFilter:
-    """Filters raw matches down to ranked solo queue games for the tracked player."""
+    """Filters raw matches down to ranked queue games for the tracked player."""
 
     def __init__(self, config: AppConfig) -> None:
         """Create the filter.
@@ -194,8 +199,8 @@ class BaseMatchFilter:
     def accept(self, match: dict[str, Any], puuid: str) -> bool:
         """Whether a match qualifies for parsing.
 
-        Requirements: ranked solo queue, the tracked player participated,
-        not a remake, no early surrender.
+        Requirements: ranked solo or flex queue, the tracked player participated,
+        not a remake, and not surrendered before the 15-minute vote.
 
         Args:
             match: Raw match document.
@@ -205,17 +210,18 @@ class BaseMatchFilter:
             ``True`` when the match should be parsed.
         """
         info = match.get("info", {})
-        if int(info.get("queueId", 0)) != self._config.queue_id:
+        if int(info.get("queueId", 0)) not in RANKED_QUEUE_IDS:
             return False
         duration_s = int(info.get("gameDuration", 0))
         if duration_s > 100_000:
             duration_s //= 1000
-        if duration_s <= REMAKE_MAX_DURATION_S:
-            return False
         me = self.find_participant(match, puuid)
         if me is None:
             return False
-        if me.get("gameEndedInEarlySurrender"):
+        # Riot misnames this flag: it marks remakes, not 15-minute surrenders.
+        if duration_s <= REMAKE_MAX_DURATION_S or me.get("gameEndedInEarlySurrender"):
+            return False
+        if duration_s < SURRENDER_VOTE_OPENS_S and me.get("gameEndedInSurrender"):
             return False
         return True
 
@@ -251,7 +257,7 @@ def discover_build_pools(
         store: SQLite match store.
         puuids: One or more tracked player PUUIDs (games are pooled).
         config: Application configuration (queue filter).
-        min_games: Minimum solo/duo games required to include a build.
+        min_games: Minimum ranked games required to include a build.
 
     Returns:
         Build pools sorted by game count (most played first).
@@ -342,6 +348,7 @@ class MatchParser:
             patch=".".join(version.split(".")[:2]),
             game_version=version,
             game_creation_ms=int(info.get("gameCreation", 0)),
+            queue_id=int(info.get("queueId", 0)),
             duration_s=ctx.duration_s,
             champion=str(me.get("championName", "")),
             role=str(me.get("teamPosition", "")),

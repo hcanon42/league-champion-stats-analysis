@@ -56,9 +56,25 @@ REGION_DEFAULT_PLATFORM: Final[dict[str, str]] = {
 }
 
 RANKED_SOLO_QUEUE_ID: Final[int] = 420
+RANKED_FLEX_QUEUE_ID: Final[int] = 440
+RANKED_QUEUE_IDS: Final[tuple[int, ...]] = (RANKED_SOLO_QUEUE_ID, RANKED_FLEX_QUEUE_ID)
 REMAKE_MAX_DURATION_S: Final[int] = 300
+# Ranked surrender vote opens at 15:00; shorter surrender endings are not real games.
+SURRENDER_VOTE_OPENS_S: Final[int] = 900
 GAME_WINDOW_OPTIONS: Final[tuple[int, ...]] = (50, 100)
 DEFAULT_GAME_WINDOW: Final[int] = 100
+QUEUE_FILTER_OPTIONS: Final[tuple[str, ...]] = ("solo", "flex", "all")
+DEFAULT_QUEUE_FILTER: Final[str] = "solo"
+QUEUE_LABELS: Final[dict[str, str]] = {
+    "solo": "Solo/Duo",
+    "flex": "Flex",
+    "all": "All ranked",
+}
+QUEUE_SUBTITLE_LABELS: Final[dict[str, str]] = {
+    "solo": "ranked solo queue",
+    "flex": "ranked flex queue",
+    "all": "ranked",
+}
 
 
 class PlayerIdentity(BaseModel):

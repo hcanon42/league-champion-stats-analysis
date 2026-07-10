@@ -65,18 +65,23 @@ def test_report_contains_game_window_toggle(tmp_path: Path) -> None:
 
     html = (config.report_dir / "report.html").read_text(encoding="utf-8")
     assert 'id="game-window-bar"' in html
-    assert 'id="game-windows-data"' in html
+    assert 'id="report-views-data"' in html
     assert "Last 50" in html
     assert "Last 100" in html
     assert 'data-window="all"' in html
 
-    match = re.search(r'<script type="application/json" id="game-windows-data">(.*?)</script>', html, re.S)
+    match = re.search(
+        r'<script type="application/json" id="report-views-data">(.*?)</script>',
+        html,
+        re.S,
+    )
     assert match is not None
-    windows = json.loads(match.group(1))
-    assert set(windows) == {"50", "100", "all"}
-    assert windows["50"]["total_games"] == 25
-    assert windows["100"]["total_games"] == 25
-    assert windows["all"]["total_games"] == 25
+    views = json.loads(match.group(1))
+    solo_windows = views["solo"]["windows"]
+    assert set(solo_windows) == {"50", "100", "all"}
+    assert solo_windows["50"]["total_games"] == 25
+    assert solo_windows["100"]["total_games"] == 25
+    assert solo_windows["all"]["total_games"] == 25
     assert re.search(
         r'class="game-window-btn is-active"[^>]*data-window="all"',
         html.replace("\n", " "),
@@ -117,7 +122,12 @@ def test_window_snapshots_change_winrate(tmp_path: Path) -> None:
     run_analysis(config, records, peer_comparison=peer, ranked=None)
 
     html = (config.report_dir / "report.html").read_text(encoding="utf-8")
-    match = re.search(r'<script type="application/json" id="game-windows-data">(.*?)</script>', html, re.S)
+    match = re.search(
+        r'<script type="application/json" id="report-views-data">(.*?)</script>',
+        html,
+        re.S,
+    )
     assert match is not None
-    windows = json.loads(match.group(1))
-    assert windows["50"]["overview"]["winrate"] > windows["all"]["overview"]["winrate"]
+    views = json.loads(match.group(1))
+    solo_windows = views["solo"]["windows"]
+    assert solo_windows["50"]["overview"]["winrate"] > solo_windows["all"]["overview"]["winrate"]

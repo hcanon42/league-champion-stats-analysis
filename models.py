@@ -264,12 +264,13 @@ class VisionStats(BaseModel):
 
 
 class MatchRecord(BaseModel):
-    """A fully parsed, analysis-ready ranked solo queue game."""
+    """A fully parsed, analysis-ready ranked queue game."""
 
     match_id: str
     patch: str
     game_version: str
     game_creation_ms: int
+    queue_id: int
     duration_s: int
     champion: str
     role: str
@@ -328,6 +329,7 @@ class MatchRecord(BaseModel):
             "match_id": self.match_id,
             "patch": self.patch,
             "game_creation_ms": self.game_creation_ms,
+            "queue_id": self.queue_id,
             "duration_min": round(self.duration_min, 2),
             "win": int(self.win),
             "side": self.side.value,

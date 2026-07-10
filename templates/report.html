@@ -140,6 +140,18 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
 </nav>
 <main>
 
+<div class="game-window-bar" id="queue-filter-bar">
+  <span class="game-window-label">Queue</span>
+  {% for option in queue_filter_options %}
+  <button
+    type="button"
+    class="queue-filter-btn game-window-btn{% if option.key == queue_filter_default %} is-active{% endif %}"
+    data-queue="{{ option.key }}"
+    {% if not option.enabled %}disabled{% endif %}
+  >{{ option.label }}</button>
+  {% endfor %}
+</div>
+
 <div class="game-window-bar" id="game-window-bar">
   <span class="game-window-label">Games</span>
   {% for option in game_window_options %}
@@ -154,7 +166,7 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
 
 <section id="overview">
   <h2>Overview — {{ player_name }}</h2>
-  <p class="sub" id="overview-subtitle">{{ total_games }} ranked solo queue {{ build_label }} games analysed · patches {{ patch_range }}</p>
+  <p class="sub" id="overview-subtitle">{{ total_games }} {{ queue_label }} {{ build_label }} games analysed · patches {{ patch_range }}</p>
   <div class="cards" id="overview-cards">
     <div class="card"><div class="label">Win rate</div><div class="value {{ 'win' if overview.winrate >= 0.5 else 'loss' }}">{{ '%.0f' % (overview.winrate * 100) }}%</div></div>
     <div class="card"><div class="label">KDA</div><div class="value">{{ overview.avg_kda }}</div></div>
@@ -426,17 +438,20 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
     </div>
   </div>
 </section>
-<script type="application/json" id="game-windows-data">{{ game_windows_json | safe }}</script>
+<script type="application/json" id="report-views-data">{{ report_views_json | safe }}</script>
 <script>
 (function () {
   var buildLabel = {{ build_label | tojson }};
   var visibleCount = {{ recommendation_visible_count }};
-  var gameWindows = {};
+  var reportViews = {};
   try {
-    gameWindows = JSON.parse(document.getElementById('game-windows-data').textContent || '{}');
+    reportViews = JSON.parse(document.getElementById('report-views-data').textContent || '{}');
   } catch (err) {
-    gameWindows = {};
+    reportViews = {};
   }
+
+  var currentQueue = {{ queue_filter_default | tojson }};
+  var currentWindow = {{ game_window_default | tojson }};
 
   function pct(value) {
     return Math.round(Number(value) * 100) + '%';
@@ -550,12 +565,44 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
       '<p class="rec-empty">Nothing critical flagged — solid performance overall.</p>');
   }
 
-  function applyWindow(key) {
-    var bundle = gameWindows[key];
+  function updateGameWindowButtons(queueKey) {
+    var view = reportViews[queueKey];
+    if (!view) return;
+    document.querySelectorAll('.game-window-btn[data-window]').forEach(function (btn) {
+      var key = btn.getAttribute('data-window');
+      var option = (view.window_options || []).find(function (opt) { return opt.key === key; });
+      var enabled = option ? option.enabled : false;
+      btn.disabled = !enabled;
+      btn.classList.toggle('is-active', enabled && key === currentWindow);
+    });
+  }
+
+  function updateQueueButtons(queueKey) {
+    document.querySelectorAll('.queue-filter-btn').forEach(function (btn) {
+      btn.classList.toggle('is-active', btn.getAttribute('data-queue') === queueKey);
+    });
+  }
+
+  function resolveWindowKey(queueKey, windowKey) {
+    var view = reportViews[queueKey];
+    if (!view) return null;
+    var options = view.window_options || [];
+    var option = options.find(function (opt) { return opt.key === windowKey && opt.enabled; });
+    if (option) return windowKey;
+    return view.default_window;
+  }
+
+  function applyView(queueKey, windowKey) {
+    var view = reportViews[queueKey];
+    if (!view) return;
+    windowKey = resolveWindowKey(queueKey, windowKey);
+    var bundle = view.windows[windowKey];
     if (!bundle) return;
+    currentQueue = queueKey;
+    currentWindow = windowKey;
     var subtitle = document.getElementById('overview-subtitle');
     if (subtitle) {
-      subtitle.textContent = bundle.total_games + ' ranked solo queue ' + buildLabel +
+      subtitle.textContent = bundle.total_games + ' ' + (bundle.queue_label || 'ranked') + ' ' + buildLabel +
         ' games analysed · patches ' + bundle.patch_range;
     }
     renderCards(document.getElementById('overview-cards'), bundle.overview_cards);
@@ -600,23 +647,41 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
     });
     renderRecommendations(bundle);
 
-    document.querySelectorAll('.game-window-btn').forEach(function (btn) {
-      btn.classList.toggle('is-active', btn.getAttribute('data-window') === key);
-    });
-    try { localStorage.setItem('reportGameWindow', key); } catch (e) {}
+    updateQueueButtons(queueKey);
+    updateGameWindowButtons(queueKey);
+    try {
+      localStorage.setItem('reportQueueFilter', queueKey);
+      localStorage.setItem('reportGameWindow', windowKey);
+    } catch (e) {}
   }
 
-  document.querySelectorAll('.game-window-btn').forEach(function (btn) {
+  document.querySelectorAll('.queue-filter-btn').forEach(function (btn) {
     btn.addEventListener('click', function () {
       if (btn.disabled) return;
-      applyWindow(btn.getAttribute('data-window'));
+      applyView(btn.getAttribute('data-queue'), currentWindow);
     });
   });
 
-  var saved = null;
-  try { saved = localStorage.getItem('reportGameWindow'); } catch (e) {}
-  var defaultKey = {{ game_window_default | tojson }};
-  var initial = saved && gameWindows[saved] ? saved : defaultKey;
+  document.querySelectorAll('.game-window-btn[data-window]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      if (btn.disabled) return;
+      applyView(currentQueue, btn.getAttribute('data-window'));
+    });
+  });
+
+  var savedQueue = null;
+  var savedWindow = null;
+  try {
+    savedQueue = localStorage.getItem('reportQueueFilter');
+    savedWindow = localStorage.getItem('reportGameWindow');
+  } catch (e) {}
+  var defaultQueue = {{ queue_filter_default | tojson }};
+  var defaultWindow = {{ game_window_default | tojson }};
+  var initialQueue = savedQueue && reportViews[savedQueue] ? savedQueue : defaultQueue;
+  var initialView = reportViews[initialQueue];
+  var initialWindow = savedWindow && initialView && initialView.windows[savedWindow]
+    ? resolveWindowKey(initialQueue, savedWindow)
+    : (initialView ? initialView.default_window : defaultWindow);
 
   function whenPlotlyReady(callback) {
     if (window.Plotly) {
@@ -635,10 +700,10 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
   }
 
   whenPlotlyReady(function () {
-    if (!gameWindows[initial]) return;
-    // Server HTML already matches the default window; only swap when restoring another slice.
-    if (!saved || initial === defaultKey) return;
-    applyWindow(initial);
+    if (!initialView || !initialView.windows[initialWindow]) return;
+    // Server HTML already matches the default view; only swap when restoring another slice.
+    if ((!savedQueue || initialQueue === defaultQueue) && (!savedWindow || initialWindow === defaultWindow)) return;
+    applyView(initialQueue, initialWindow);
   });
 })();
 </script>

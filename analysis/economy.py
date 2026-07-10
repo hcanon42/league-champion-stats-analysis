@@ -8,6 +8,30 @@ import pandas as pd
 
 from models import MatchRecord
 
+# Pre-recall banked gold thresholds (LoL coaching consensus, 2024–2026 guides).
+# Epic component backs target ~800–1300g (Dirk, Lost Chapter, BF Sword, etc.).
+# Sitting on 1500g+ before resetting is the cited hoarding habit; 50–100g short
+# of an item is acceptable to delay a back.
+RECALL_GOLD_HEALTHY_AVG: int = 700
+RECALL_GOLD_COMPONENT_MAX: int = 1300
+RECALL_GOLD_HOARDING_WARN: int = 1500
+RECALL_GOLD_HOARDING_SEVERE: int = 2000
+
+
+def recall_gold_severity(avg_unspent_gold: float) -> float | None:
+    """Map mean pre-recall banked gold to a 0–1 severity, or ``None`` if healthy.
+
+    Args:
+        avg_unspent_gold: Mean gold banked before inferred recalls.
+
+    Returns:
+        Severity in ``[0, 1]`` when above component norms, else ``None``.
+    """
+    if avg_unspent_gold < RECALL_GOLD_COMPONENT_MAX:
+        return None
+    span = RECALL_GOLD_HOARDING_SEVERE - RECALL_GOLD_COMPONENT_MAX
+    return min(1.0, (avg_unspent_gold - RECALL_GOLD_COMPONENT_MAX) / span)
+
 
 def economy_summary(matches_df: pd.DataFrame) -> dict[str, Any]:
     """Aggregate economic performance from the master match table.

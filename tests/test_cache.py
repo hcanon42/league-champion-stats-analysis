@@ -34,6 +34,19 @@ def test_duo_queue_keeps_both_player_ownership(tmp_path: Path) -> None:
     store.close()
 
 
+def test_claim_ownership_links_cached_matches(tmp_path: Path) -> None:
+    """A player can index matches downloaded for another account."""
+    store = MatchStore(tmp_path / "m.sqlite")
+    payload = {"metadata": {"matchId": "EUW1_shared"}, "info": {"gameCreation": 1}}
+    store.save_match("EUW1_shared", "puuid-peer", payload)
+    store.save_timeline("EUW1_shared", {"info": {"frames": []}})
+    assert list(store.iter_match_ids("puuid-me")) == []
+    assert store.claim_ownership("puuid-me", ["EUW1_shared", "EUW1_missing"]) == 1
+    assert list(store.iter_match_ids("puuid-me")) == ["EUW1_shared"]
+    assert store.claim_ownership("puuid-me", ["EUW1_shared"]) == 0
+    store.close()
+
+
 def test_legacy_schema_migrates_puuid_to_match_players(tmp_path: Path) -> None:
     """Existing databases with matches.puuid are migrated on open."""
     import sqlite3
