@@ -7,11 +7,11 @@ from pathlib import Path
 
 import pandas as pd
 
-from analysis.peer_comparison import build_comparisons
-from config import AppConfig
-from main import run_analysis
-from models import MatchRecord, PeerComparisonResult, RankedEntry
-from parser import ItemCatalog, MatchParser
+from league_stats.analysis.peer import build_comparisons
+from league_stats.core.config import AppConfig
+from league_stats.cli.app import run_analysis
+from league_stats.core.models import MatchRecord, PeerComparisonResult, RankedEntry
+from league_stats.ingest.parser import ItemCatalog, MatchParser
 from tests.fixtures import FAKE_ITEMS, MY_PUUID, make_match, make_timeline
 
 OPPONENTS = ["Syndra", "Orianna", "Akali", "Ahri", "Zed"]
@@ -53,7 +53,7 @@ def test_full_pipeline_generates_all_artifacts(tmp_path: Path) -> None:
         output_dir=tmp_path / "output",
         graphs_dir=tmp_path / "graphs",
         cache_dir=tmp_path / "cache",
-        template_dir=Path(__file__).resolve().parent.parent / "templates",
+        template_dir=Path(__file__).resolve().parent.parent / "src/league_stats/presentation/templates",
     )
     config.ensure_directories()
     ranked = RankedEntry(tier="GOLD", rank="II", league_points=45, wins=80, losses=75)
@@ -114,7 +114,7 @@ def test_report_embeds_chatbot_panel_and_stats(tmp_path: Path) -> None:
         output_dir=tmp_path / "output",
         graphs_dir=tmp_path / "graphs",
         cache_dir=tmp_path / "cache",
-        template_dir=Path(__file__).resolve().parent.parent / "templates",
+        template_dir=Path(__file__).resolve().parent.parent / "src/league_stats/presentation/templates",
     )
     config.ensure_directories()
 

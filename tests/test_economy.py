@@ -7,9 +7,9 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from analysis.coach import CoachEngine
-from analysis.economy import recall_gold_severity
-from analysis.statistics import StatisticsEngine
+from league_stats.analysis.coach.engine import CoachEngine
+from league_stats.analysis.economy import recall_gold_severity
+from league_stats.analysis.statistics import StatisticsEngine
 
 
 @pytest.mark.parametrize(

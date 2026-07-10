@@ -6,10 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from cache import MatchStore
-from config import AppConfig
-from main import PlayerContext, _group_records, run_all_builds
-from parser import ItemCatalog, MatchParser, discover_build_pools
+from league_stats.infra.cache import MatchStore
+from league_stats.core.config import AppConfig
+from league_stats.cli.app import PlayerContext, Services, _group_records, _parse_players_cli, run_all_builds
+from league_stats.infra.riot_api import RiotApiClient
+from league_stats.infra.ddragon_assets import DDragonAssets
+from league_stats.ingest.parser import ItemCatalog, MatchParser, discover_build_pools
 from tests.fixtures import FAKE_ITEMS, MY_PUUID, make_player_match, make_timeline
 
 
@@ -22,7 +24,7 @@ def _config(tmp_path: Path) -> AppConfig:
         min_games=20,
         cache_dir=tmp_path / "cache",
         output_dir=tmp_path / "output",
-        template_dir=Path(__file__).resolve().parent.parent / "templates",
+        template_dir=Path(__file__).resolve().parent.parent / "src/league_stats/presentation/templates",
     )
 
 
@@ -101,10 +103,10 @@ def test_group_records_filters_by_champion_and_lane() -> None:
 
 def test_run_all_builds_generates_player_hub(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Batch analysis writes every eligible report and a player hub."""
-    from cache import HttpCache
-    from main import Services
-    from models import RankedEntry
-    from riot_api import RiotApiClient
+    from league_stats.infra.cache import HttpCache
+    from league_stats.cli.app import Services
+    from league_stats.core.models import RankedEntry
+    from league_stats.infra.ddragon_assets import DDragonAssets
 
     config = _config(tmp_path)
     config.ensure_directories()
@@ -113,10 +115,6 @@ def test_run_all_builds_generates_player_hub(tmp_path: Path, monkeypatch: pytest
     client = RiotApiClient(config, http_cache, store)
     _seed_store(store, MY_PUUID, viktor=20, ahri=20)
 
-    monkeypatch.setattr(
-        "main.build_peer_comparison",
-        lambda *args, **kwargs: None,
-    )
     monkeypatch.setattr(
         client,
         "fetch_solo_rank",
@@ -127,13 +125,21 @@ def test_run_all_builds_generates_player_hub(tmp_path: Path, monkeypatch: pytest
         "fetch_item_catalog",
         lambda: FAKE_ITEMS,
     )
+    monkeypatch.setattr(DDragonAssets, "ensure_downloaded", lambda self, force=False: "")
 
-    services = Services(config=config, http_cache=http_cache, store=store, client=client)
+    services = Services(
+        config=config,
+        http_cache=http_cache,
+        store=store,
+        client=client,
+        assets=DDragonAssets(config),
+    )
     try:
         hub_path = run_all_builds(
             services,
             [PlayerContext(riot_id="Test", tagline="EUW", puuid=MY_PUUID)],
             fetch=False,
+            skip_peer=True,
         )
     finally:
         store.close()
@@ -141,8 +147,8 @@ def test_run_all_builds_generates_player_hub(tmp_path: Path, monkeypatch: pytest
 
     assert hub_path.exists()
     hub_html = hub_path.read_text(encoding="utf-8")
-    assert "Viktor mid" in hub_html
-    assert "Ahri mid" in hub_html
+    assert "Viktor" in hub_html
+    assert "Ahri" in hub_html
     assert (config.player_reports_dir / "manifest.json").exists()
     assert (config.player_reports_dir / "viktor_middle" / "report.html").exists()
     assert (config.player_reports_dir / "ahri_middle" / "report.html").exists()

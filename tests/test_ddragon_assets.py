@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from config import AppConfig
-from ddragon_assets import DDragonAssets, _relative_href, path_to_data_uri
+from league_stats.core.config import AppConfig
+from league_stats.infra.ddragon_assets import DDragonAssets, _relative_href, path_to_data_uri
 
 
 def _config(tmp_path: Path) -> AppConfig:
@@ -71,7 +71,7 @@ def test_crop_minion_icon(tmp_path: Path) -> None:
     import matplotlib.pyplot as plt
     import numpy as np
 
-    from ddragon_assets import _crop_top_half_png, _needs_minion_crop, _png_dimensions
+    from league_stats.infra.ddragon_assets import _crop_top_half_png, _needs_minion_crop, _png_dimensions
 
     source = tmp_path / "source.png"
     destination = tmp_path / "minions.png"

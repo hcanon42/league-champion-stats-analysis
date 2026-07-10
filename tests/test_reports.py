@@ -6,14 +6,14 @@ from pathlib import Path
 
 import pandas as pd
 
-from analysis.peer_comparison import build_comparisons
-from champions import player_slug
-from config import AppConfig
-from main import run_analysis
-from models import MatchRecord, PeerComparisonResult, RankedEntry
-from report import discover_reports, group_reports_by_player, refresh_report_indexes
+from league_stats.analysis.peer import build_comparisons
+from league_stats.core.champions import player_slug
+from league_stats.core.config import AppConfig
+from league_stats.cli.app import run_analysis
+from league_stats.core.models import MatchRecord, PeerComparisonResult, RankedEntry
+from league_stats.presentation.report import discover_reports, group_reports_by_player, refresh_report_indexes
 from tests.fixtures import FAKE_ITEMS, MY_PUUID, make_match, make_timeline
-from parser import ItemCatalog, MatchParser
+from league_stats.ingest.parser import ItemCatalog, MatchParser
 
 
 def _make_records(n: int = 12) -> list[MatchRecord]:
@@ -66,7 +66,7 @@ def _config(tmp_path: Path, *, champion: str = "Viktor", role: str = "MIDDLE") -
         role=role,
         output_dir=tmp_path / "output",
         cache_dir=tmp_path / "cache",
-        template_dir=Path(__file__).resolve().parent.parent / "templates",
+        template_dir=Path(__file__).resolve().parent.parent / "src/league_stats/presentation/templates",
     )
     config.ensure_directories()
     return config

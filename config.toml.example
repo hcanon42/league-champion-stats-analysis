@@ -1,0 +1,11 @@
+# Optional defaults for league-champion-stats-analysis
+# Copy to config.toml in the project root.
+
+riot_id = "YourName"
+tagline = "EUW"
+region = "europe"
+# platform = "euw1"
+match_count = 500
+min_games = 20
+
+# Repeat --player on the CLI to pool multiple accounts into one report group.

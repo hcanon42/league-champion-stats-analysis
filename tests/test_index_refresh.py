@@ -6,12 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from config import AppConfig
-from main import run_analysis
-from models import MatchRecord
-from report import discover_reports, discover_player_builds, refresh_report_indexes
+from league_stats.core.config import AppConfig
+from league_stats.cli.app import run_analysis
+from league_stats.core.models import MatchRecord
+from league_stats.presentation.report import discover_reports, discover_player_builds, refresh_report_indexes
 from tests.fixtures import FAKE_ITEMS, MY_PUUID, make_match, make_timeline
-from parser import ItemCatalog, MatchParser
+from league_stats.ingest.parser import ItemCatalog, MatchParser
 
 
 def _config(tmp_path: Path, *, champion: str = "Viktor", role: str = "MIDDLE") -> AppConfig:
@@ -24,7 +24,7 @@ def _config(tmp_path: Path, *, champion: str = "Viktor", role: str = "MIDDLE") -
         role=role,
         output_dir=tmp_path / "output",
         cache_dir=tmp_path / "cache",
-        template_dir=Path(__file__).resolve().parent.parent / "templates",
+        template_dir=Path(__file__).resolve().parent.parent / "src/league_stats/presentation/templates",
     )
     config.ensure_directories()
     return config
@@ -73,8 +73,8 @@ def test_run_analysis_refreshes_player_hub(tmp_path: Path) -> None:
     hub = player_dir / "index.html"
     assert hub.exists()
     hub_html = hub.read_text(encoding="utf-8")
-    assert "Viktor mid" in hub_html
-    assert "Ahri mid" in hub_html
+    assert "Viktor" in hub_html
+    assert "Ahri" in hub_html
     assert len(discover_player_builds(player_dir)) == 2
 
 

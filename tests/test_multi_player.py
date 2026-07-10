@@ -6,10 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from cache import MatchStore
-from config import AppConfig, PlayerIdentity, load_config
-from main import PlayerContext, _group_records, _parse_players_cli, run_all_builds
-from parser import ItemCatalog, MatchParser, discover_build_pools
+from league_stats.infra.cache import MatchStore
+from league_stats.core.config import AppConfig, PlayerIdentity, load_config
+from league_stats.cli.app import PlayerContext, Services, _group_records, _parse_players_cli, run_all_builds
+from league_stats.infra.ddragon_assets import DDragonAssets
+from league_stats.ingest.parser import ItemCatalog, MatchParser, discover_build_pools
 from tests.fixtures import FAKE_ITEMS, MY_PUUID, make_player_match, make_timeline
 from tests.test_build_pools import _config, _seed_store
 
@@ -91,10 +92,9 @@ def test_run_all_builds_pools_multi_player_reports(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Batch analysis pools qualifying games from multiple players."""
-    from cache import HttpCache
-    from main import Services
-    from models import RankedEntry
-    from riot_api import RiotApiClient
+    from league_stats.infra.cache import HttpCache
+    from league_stats.core.models import RankedEntry
+    from league_stats.infra.riot_api import RiotApiClient
 
     config = load_config(
         api_key="RGAPI-test",
@@ -107,7 +107,7 @@ def test_run_all_builds_pools_multi_player_reports(
         min_games=20,
         cache_dir=tmp_path / "cache",
         output_dir=tmp_path / "output",
-        template_dir=Path(__file__).resolve().parent.parent / "templates",
+        template_dir=Path(__file__).resolve().parent.parent / "src/league_stats/presentation/templates",
     )
     config.ensure_directories()
     store = MatchStore(config.db_path)
@@ -125,7 +125,6 @@ def test_run_all_builds_pools_multi_player_reports(
         )
         store.save_timeline(match_id, make_timeline())
 
-    monkeypatch.setattr("main.build_peer_comparison", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         client,
         "fetch_solo_rank",
@@ -133,13 +132,19 @@ def test_run_all_builds_pools_multi_player_reports(
     )
     monkeypatch.setattr(client, "fetch_item_catalog", lambda: FAKE_ITEMS)
 
-    services = Services(config=config, http_cache=http_cache, store=store, client=client)
+    services = Services(
+        config=config,
+        http_cache=http_cache,
+        store=store,
+        client=client,
+        assets=DDragonAssets(config),
+    )
     contexts = [
         PlayerContext(riot_id="Alice", tagline="EUW", puuid=MY_PUUID),
         PlayerContext(riot_id="Bob", tagline="NA1", puuid=ALT_PUUID),
     ]
     try:
-        hub_path = run_all_builds(services, contexts, fetch=False)
+        hub_path = run_all_builds(services, contexts, fetch=False, skip_peer=True)
     finally:
         store.close()
         http_cache.close()

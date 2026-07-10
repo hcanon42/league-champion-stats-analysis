@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from models import Position, Zone
-from utils import (
+from league_stats.core.models import Position, Zone
+from league_stats.utils import (
     classify_zone,
     distance,
     push_progress,

@@ -15,4 +15,6 @@ config.toml
 dist/
 build/
 *.egg-info/
-data/
+data/*
+!data/benchmarks/
+!data/benchmarks/**
