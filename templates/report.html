@@ -786,6 +786,38 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
 })();
 </script>
 
+<footer>Generated {{ generated_at }} by {{ app_title }}. Data from the Riot Games API. Not endorsed by Riot Games.</footer>
+</main>
+</div>
+<button id="chatbot-toggle" class="chatbot-toggle" aria-label="Ask about your stats">💬</button>
+<aside id="chatbot-panel" class="chatbot-panel" aria-hidden="true">
+  <div class="chatbot-header">
+    <h2>Ask about your stats</h2>
+    <button id="chatbot-close" class="chatbot-close" aria-label="Close">✕</button>
+  </div>
+  <div id="chatbot-consent" class="chatbot-consent">
+    <p>This chat is powered by <strong>Google Gemini</strong> (free tier). Google may
+    use the messages you send here to improve their models. Don't paste anything you
+    wouldn't want used that way.</p>
+    <label>
+      <input type="checkbox" id="chatbot-consent-checkbox">
+      I understand and want to continue.
+    </label>
+    <button id="chatbot-start-btn" class="chatbot-start-btn" disabled>Start chatting</button>
+  </div>
+  <div id="chatbot-no-key" class="chatbot-no-key" hidden>
+    <p>This report was generated without a Gemini API key configured, so the chatbot
+    isn't available. Set <code>GEMINI_API_KEY</code> and regenerate the report to
+    enable it.</p>
+  </div>
+  <div id="chatbot-chat" class="chatbot-chat" hidden>
+    <div id="chatbot-messages" class="chatbot-messages"></div>
+    <form id="chatbot-form" class="chatbot-form">
+      <input id="chatbot-input" type="text" placeholder="Ask about your stats…" autocomplete="off">
+      <button id="chatbot-send" type="submit">Send</button>
+    </form>
+  </div>
+</aside>
 <!--
   TODO(security): GEMINI_API_KEY below is embedded directly in this static HTML file
   so the chatbot can call the Gemini API from the browser. Anyone who opens this
@@ -800,7 +832,14 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
   var GEMINI_API_KEY = {{ gemini_api_key | tojson }};
   var BUILD_LABEL = {{ build_label | tojson }};
   var PLAYER_NAME = {{ player_name | tojson }};
-  var GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+  var GEMINI_MODEL = 'gemini-3.5-flash';
+  // Lighter/cheaper model with a separate quota pool -- used as an automatic
+  // fallback when the primary model is rate-limited, overloaded or unavailable.
+  var GEMINI_FALLBACK_MODEL = 'gemini-3.1-flash-lite';
+
+  function geminiUrl(model) {
+    return 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent';
+  }
 
   var statsNode = document.getElementById('chatbot-stats-data');
   var stats = {};
@@ -882,14 +921,8 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
     );
   }
 
-  function sendMessage(text) {
-    history.push({ role: 'user', parts: [{ text: text }] });
-    appendMessage('user', text);
-    input.value = '';
-    input.disabled = true;
-    sendBtn.disabled = true;
-
-    fetch(GEMINI_URL, {
+  function callGemini(model) {
+    return fetch(geminiUrl(model), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -900,20 +933,35 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
         contents: history,
         generationConfig: { temperature: 0.4, maxOutputTokens: 800 },
       }),
-    })
-      .then(function (response) {
-        if (!response.ok) {
-          if (response.status === 429) {
-            throw new Error("Rate limited by Gemini's free tier — wait a bit and try again.");
-          }
-          throw new Error('Gemini request failed (HTTP ' + response.status + ').');
-        }
-        return response.json();
+    }).then(function (response) {
+      if (response.ok) { return response.json(); }
+      return response.json().catch(function () { return {}; }).then(function (errBody) {
+        var message = (errBody.error && errBody.error.message) || ('HTTP ' + response.status);
+        throw new Error(message);
+      });
+    });
+  }
+
+  function extractText(data) {
+    var candidate = data.candidates && data.candidates[0];
+    var parts = candidate && candidate.content && candidate.content.parts;
+    return (parts || []).map(function (part) { return part.text || ''; }).join('');
+  }
+
+  function sendMessage(text) {
+    history.push({ role: 'user', parts: [{ text: text }] });
+    appendMessage('user', text);
+    input.value = '';
+    input.disabled = true;
+    sendBtn.disabled = true;
+
+    callGemini(GEMINI_MODEL)
+      .catch(function () {
+        // Primary model rate-limited/overloaded/unavailable -- retry once on the fallback.
+        return callGemini(GEMINI_FALLBACK_MODEL);
       })
       .then(function (data) {
-        var candidate = data.candidates && data.candidates[0];
-        var parts = candidate && candidate.content && candidate.content.parts;
-        var text = (parts || []).map(function (part) { return part.text || ''; }).join('');
+        var text = extractText(data);
         if (!text) { throw new Error('Gemini returned an empty response.'); }
         history.push({ role: 'model', parts: [{ text: text }] });
         appendMessage('model', text);
@@ -936,38 +984,5 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
   });
 })();
 </script>
-
-<footer>Generated {{ generated_at }} by {{ app_title }}. Data from the Riot Games API. Not endorsed by Riot Games.</footer>
-</main>
-</div>
-<button id="chatbot-toggle" class="chatbot-toggle" aria-label="Ask about your stats">💬</button>
-<aside id="chatbot-panel" class="chatbot-panel" aria-hidden="true">
-  <div class="chatbot-header">
-    <h2>Ask about your stats</h2>
-    <button id="chatbot-close" class="chatbot-close" aria-label="Close">✕</button>
-  </div>
-  <div id="chatbot-consent" class="chatbot-consent">
-    <p>This chat is powered by <strong>Google Gemini</strong> (free tier). Google may
-    use the messages you send here to improve their models. Don't paste anything you
-    wouldn't want used that way.</p>
-    <label>
-      <input type="checkbox" id="chatbot-consent-checkbox">
-      I understand and want to continue.
-    </label>
-    <button id="chatbot-start-btn" class="chatbot-start-btn" disabled>Start chatting</button>
-  </div>
-  <div id="chatbot-no-key" class="chatbot-no-key" hidden>
-    <p>This report was generated without a Gemini API key configured, so the chatbot
-    isn't available. Set <code>GEMINI_API_KEY</code> and regenerate the report to
-    enable it.</p>
-  </div>
-  <div id="chatbot-chat" class="chatbot-chat" hidden>
-    <div id="chatbot-messages" class="chatbot-messages"></div>
-    <form id="chatbot-form" class="chatbot-form">
-      <input id="chatbot-input" type="text" placeholder="Ask about your stats…" autocomplete="off">
-      <button id="chatbot-send" type="submit">Send</button>
-    </form>
-  </div>
-</aside>
 </body>
 </html>
