@@ -54,7 +54,8 @@ PERK_NAMES: Final[dict[int, str]] = {
     8005: "Press the Attack", 8008: "Lethal Tempo", 8021: "Fleet Footwork",
     8010: "Conqueror", 8112: "Electrocute", 8128: "Dark Harvest",
     9923: "Hail of Blades", 8214: "Summon Aery", 8229: "Arcane Comet",
-    8230: "Phase Rush", 8437: "Grasp of the Undying", 8439: "Aftershock",
+    8230: "Stormraider's Surge", 8992: "Deathfire Touch",
+    8437: "Grasp of the Undying", 8439: "Aftershock",
     8465: "Guardian", 8351: "Glacial Augment", 8360: "Unsealed Spellbook",
     8369: "First Strike",
     # Common minor runes
@@ -64,7 +65,7 @@ PERK_NAMES: Final[dict[int, str]] = {
     8126: "Cheap Shot", 8139: "Taste of Blood", 8143: "Sudden Impact",
     8137: "Sixth Sense", 8140: "Grisly Mementos", 8141: "Deep Ward",
     8135: "Treasure Hunter", 8105: "Relentless Hunter", 8106: "Ultimate Hunter",
-    8224: "Nullifying Orb", 8226: "Manaflow Band", 8275: "Nimbus Cloak",
+    8224: "Axiom Arcanist", 8226: "Manaflow Band", 8275: "Nimbus Cloak",
     8210: "Transcendence", 8234: "Celerity", 8233: "Absolute Focus",
     8237: "Scorch", 8232: "Waterwalking", 8236: "Gathering Storm",
     8306: "Hextech Flashtraption", 8304: "Magical Footwear", 8321: "Cash Back",
@@ -335,6 +336,8 @@ class MatchParser:
         timeline_stats.solo_share = positioning["solo_share"]
         timeline_stats.side_lane_share = positioning["side_lane_share"]
         timeline_stats.avg_allies_nearby = positioning["avg_allies_nearby"]
+        timeline_stats.avg_teammate_distance = positioning["avg_teammate_distance"]
+        timeline_stats.role_distances = positioning["role_distances"]
         deaths = extract_deaths(ctx, timeline_stats.recalls, ult_learned_min)
         shutdown_collected = sum(
             int(e.get("shutdownBounty", 0))

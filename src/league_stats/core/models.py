@@ -141,6 +141,8 @@ class TimelineStats(BaseModel):
     solo_share: float | None = None
     side_lane_share: float | None = None
     avg_allies_nearby: float | None = None
+    avg_teammate_distance: float | None = None
+    role_distances: dict[str, float] = Field(default_factory=dict)
 
 
 class DeathEvent(BaseModel):
@@ -171,11 +173,14 @@ class DeathEvent(BaseModel):
     side_lane_push: bool = False
     before_dragon: bool = False
     before_baron: bool = False
+    before_neutral_objective: bool = False
     after_recall: bool = False
     to_gank: bool = False  # laning-phase lane death with a roaming enemy involved
     under_own_tower_laning: bool = False
     under_enemy_tower_laning: bool = False
     killer_champion: str | None = None
+    current_gold: int | None = None
+    avg_teammate_distance: float | None = None
 
 
 class TeamfightRecord(BaseModel):
@@ -201,6 +206,11 @@ class TeamfightRecord(BaseModel):
     ally_kills: int = 0
     enemy_kills: int = 0
     won: bool | None = None
+    unspent_gold: int | None = None
+    allies_present: int | None = None
+    enemies_present: int | None = None
+    manpower_advantage: int | None = None
+    avg_teammate_distance: float | None = None
 
 
 class ObjectiveRecord(BaseModel):
@@ -391,9 +401,21 @@ class MatchRecord(BaseModel):
             "grouped_share": self.timeline.grouped_share,
             "solo_share": self.timeline.solo_share,
             "side_lane_share": self.timeline.side_lane_share,
+            "avg_teammate_distance": self.timeline.avg_teammate_distance,
+            "dist_top": self.timeline.role_distances.get("TOP"),
+            "dist_jungle": self.timeline.role_distances.get("JUNGLE"),
+            "dist_middle": self.timeline.role_distances.get("MIDDLE"),
+            "dist_bottom": self.timeline.role_distances.get("BOTTOM"),
+            "dist_support": self.timeline.role_distances.get("UTILITY"),
+            "avg_gold_at_death": (
+                round(sum(d.current_gold for d in self.deaths if d.current_gold is not None) / len(self.deaths), 0)
+                if self.deaths and any(d.current_gold is not None for d in self.deaths)
+                else None
+            ),
             "deaths_pre14": self.deaths_before(14),
             "deaths_pre20": self.deaths_before(20),
             "solo_deaths": sum(1 for d in self.deaths if d.alone),
+            "outnumbered_deaths": sum(1 for d in self.deaths if d.outnumbered),
             "greed_deaths": sum(1 for d in self.deaths if d.after_greed),
             "gank_deaths_laning": sum(1 for d in self.deaths if d.to_gank),
             "under_own_tower_laning_deaths": sum(
@@ -403,14 +425,38 @@ class MatchRecord(BaseModel):
                 1 for d in self.deaths if d.under_enemy_tower_laning
             ),
             "side_lane_deaths": sum(1 for d in self.deaths if d.side_lane_push),
-            "deaths_before_dragon": sum(1 for d in self.deaths if d.before_dragon),
-            "deaths_before_baron": sum(1 for d in self.deaths if d.before_baron),
+            "deaths_before_neutral_objective": sum(
+                1 for d in self.deaths if d.before_neutral_objective
+            ),
             "teamfights": len(self.teamfights),
             "tf_participation": (
                 round(len(fights) / len(self.teamfights), 3) if self.teamfights else None
             ),
             "tf_won_share": (
                 round(sum(1 for f in fights if f.won) / len(fights), 3) if fights else None
+            ),
+            "avg_unspent_gold_per_fight": (
+                round(
+                    sum(f.unspent_gold for f in fights if f.unspent_gold is not None) / len(fights),
+                    0,
+                )
+                if fights and any(f.unspent_gold is not None for f in fights)
+                else None
+            ),
+            "fights_advantaged": sum(
+                1 for f in fights if f.manpower_advantage is not None and f.manpower_advantage > 0
+            ),
+            "fights_disadvantaged": sum(
+                1 for f in fights if f.manpower_advantage is not None and f.manpower_advantage < 0
+            ),
+            "pct_advantaged_fights": (
+                round(
+                    sum(1 for f in fights if f.manpower_advantage is not None and f.manpower_advantage > 0)
+                    / len(fights),
+                    3,
+                )
+                if fights
+                else None
             ),
             "objectives_present_rate": (
                 round(

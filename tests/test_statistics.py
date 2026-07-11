@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from league_stats.analysis.statistics import StatisticsEngine
+from league_stats.analysis.statistics import StatisticsEngine, feature_label
 
 
 def _synthetic_matches(n: int = 60, seed: int = 7) -> pd.DataFrame:
@@ -56,6 +56,13 @@ def _synthetic_matches(n: int = 60, seed: int = 7) -> pd.DataFrame:
 def engine(tmp_path: Path) -> StatisticsEngine:
     """A statistics engine over the synthetic table."""
     return StatisticsEngine(_synthetic_matches(), tmp_path)
+
+
+def test_feature_label_maps_internal_keys() -> None:
+    """Chart labels are readable while internal column keys stay unchanged."""
+    assert feature_label("deaths_pre20") == "Deaths before 20"
+    assert feature_label("gd10") == "Gold diff @10"
+    assert feature_label("unknown_metric") == "unknown metric"
 
 
 def test_correlation_matrix_contains_win(engine: StatisticsEngine) -> None:

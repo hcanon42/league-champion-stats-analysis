@@ -17,6 +17,7 @@ STARTING_SHOP_CUTOFF_MS: int = 45_000
 SHOPPING_WINDOW_MS: int = 30_000
 ROAM_DISTANCE_FROM_MID: float = 2_500.0
 LANE_PHASE_END_MIN: int = 14
+NEARBY_RADIUS: float = 2_200.0
 
 
 @dataclass(frozen=True)
@@ -32,6 +33,7 @@ class TimelineContext:
     frames: list[dict[str, Any]]
     events: list[dict[str, Any]]
     id_to_champion: dict[int, str]
+    id_to_role: dict[int, str]
 
     def events_of(self, *types: str) -> list[dict[str, Any]]:
         """Return all timeline events of the given types, in time order.
@@ -92,6 +94,61 @@ class TimelineContext:
         return Position(**pframe["position"])
 
 
+def current_gold_at_ms(ctx: TimelineContext, timestamp_ms: int) -> int | None:
+    """Return the player's banked gold at a timestamp from the nearest frame."""
+    if not ctx.frames:
+        return None
+    index = min(int(round(timestamp_ms / 60_000)), len(ctx.frames) - 1)
+    pframe = ctx.participant_frame(ctx.frames[index], ctx.participant_id)
+    if not pframe:
+        return None
+    return max(0, int(pframe.get("currentGold", 0)))
+
+
+def headcount_near(
+    ctx: TimelineContext,
+    pos: Position,
+    timestamp_ms: int,
+    *,
+    radius: float = NEARBY_RADIUS,
+) -> tuple[int, int]:
+    """Count allies (excluding the player) and enemies near a position."""
+    from league_stats.utils import distance
+
+    allies = 0
+    enemies = 0
+    for pid in ctx.team_ids | ctx.enemy_ids:
+        if pid == ctx.participant_id:
+            continue
+        other = ctx.position_at_ms(pid, timestamp_ms)
+        if other is None or distance(pos, other) > radius:
+            continue
+        if pid in ctx.team_ids:
+            allies += 1
+        else:
+            enemies += 1
+    return allies, enemies
+
+
+def avg_teammate_distance_at_ms(ctx: TimelineContext, timestamp_ms: int) -> float | None:
+    """Mean distance from the player to every living teammate at a timestamp."""
+    from league_stats.utils import distance
+
+    my_pos = ctx.position_at_ms(ctx.participant_id, timestamp_ms)
+    if my_pos is None:
+        return None
+    distances: list[float] = []
+    for pid in ctx.team_ids:
+        if pid == ctx.participant_id:
+            continue
+        other = ctx.position_at_ms(pid, timestamp_ms)
+        if other is not None:
+            distances.append(distance(my_pos, other))
+    if not distances:
+        return None
+    return sum(distances) / len(distances)
+
+
 def build_context(match: dict[str, Any], timeline: dict[str, Any], puuid: str) -> TimelineContext:
     """Build a :class:`TimelineContext` for the tracked player.
 
@@ -141,6 +198,7 @@ def build_context(match: dict[str, Any], timeline: dict[str, Any], puuid: str) -
         frames=frames,
         events=events,
         id_to_champion={int(p["participantId"]): str(p["championName"]) for p in participants},
+        id_to_role={int(p["participantId"]): str(p.get("teamPosition", "")) for p in participants},
     )
 
 

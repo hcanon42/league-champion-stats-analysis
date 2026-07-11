@@ -63,6 +63,8 @@ def build_path_stats(matches_df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
     subset["core"] = subset["first_item"] + " -> " + subset["second_item"]
     grouped = subset.groupby("core").agg(
+        first_item=("first_item", "first"),
+        second_item=("second_item", "first"),
         games=("win", "size"),
         winrate=("win", "mean"),
         avg_dpm=("dpm", "mean"),

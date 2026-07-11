@@ -19,6 +19,7 @@ ICONIFY_ICONS: dict[str, str] = {
     "dragon": "game-icons:dragon-head",
     "teamfight": "lucide:users",
     "tower": "lucide:castle",
+    "target": "lucide:target",
     "roam": "lucide:footprints",
     "recall": "lucide:home",
     "level": "lucide:trending-up",
@@ -34,6 +35,7 @@ ICONIFY_ICONS: dict[str, str] = {
 # Internal keys backed by local PNG assets instead of Iconify.
 ICON_ASSET_FILES: dict[str, str] = {
     "cs": "minions.png",
+    "tower": "tower.png",
 }
 
 METRIC_ICONS: dict[str, str] = {
@@ -58,6 +60,17 @@ METRIC_ICONS: dict[str, str] = {
     "Under own tower (lane)": "tower",
     "Under enemy tower (lane)": "tower",
     "Roams pre-15": "roam",
+    # Positioning
+    "Grouped with team": "teamfight",
+    "Solo on map": "roam",
+    "Side-lane time": "lane",
+    "Allies nearby": "teamfight",
+    "Avg teammate dist": "roam",
+    "Dist to top": "lane",
+    "Dist to jungle": "roam",
+    "Dist to mid": "lane",
+    "Dist to bot": "lane",
+    "Dist to support": "teamfight",
     # Economy
     "GPM": "coin",
     "Gold share": "coin",
@@ -77,7 +90,9 @@ METRIC_ICONS: dict[str, str] = {
     "Solo deaths": "skull",
     "Greed deaths": "skull",
     "Side-lane deaths": "skull",
-    "Before dragon": "dragon",
+    "Before neutral obj.": "target",
+    "Gold at death": "coin",
+    "Outnumbered deaths": "skull",
     "Avg death minute": "clock",
     "Top killer": "combat",
     # Teamfights
@@ -87,18 +102,102 @@ METRIC_ICONS: dict[str, str] = {
     "Damage/fight": "flame",
     "Death rate in fights": "skull",
     "Front-to-back": "teamfight",
+    "Unspent gold/fight": "coin",
+    "Advantaged fights": "kp",
+    "Disadvantaged fights": "skull",
+    "WR advantaged fights": "trophy",
+    "WR disadvantaged fights": "trophy",
     # Peer / score dimensions
     "Laning": "coin",
     "Farming": "cs",
     "Survival": "skull",
     "Damage": "flame",
     "Vision": "eye",
-    "Objectives": "dragon",
+    "Objectives": "target",
     "Resets": "recall",
     "Strengths": "trophy",
     "Weaknesses": "skull",
     "Kill participation": "kp",
 }
+
+METRIC_TOOLTIPS: dict[str, str] = {
+    # Overview
+    "Win rate": "Wins divided by total games in the selected window.",
+    "KDA": "Average (kills + assists) ÷ deaths per game. Deaths are floored at 1.",
+    "DPM": "Average damage to champions per minute: total champ damage ÷ game length.",
+    "CS/min": "Average creep score per minute (lane + jungle minions from the match summary).",
+    "Damage share": "Average share of your team's total damage to champions each game.",
+    "Deaths/game": "Average deaths per game in the window.",
+    "Vision/min": "Average vision score per minute (Riot vision score ÷ game length).",
+    "Avg game": "Average match duration in minutes.",
+    # Lane
+    "Gold diff @10": "Your total gold minus your lane opponent's at the 10-minute timeline frame, averaged across games.",
+    "CS diff @10": "Your CS minus your lane opponent's at minute 10 (lane + jungle minions).",
+    "XP diff @10": "Your XP minus your lane opponent's at the 10-minute timeline frame.",
+    "Lane win rate": "Share of games where gold diff @10 is positive.",
+    "WR when ahead @10": "Win rate in games where you were ahead in gold at 10 minutes.",
+    "WR when behind @10": "Win rate in games where gold diff @10 was negative at 10 minutes.",
+    "Deaths pre-14": "Average deaths before minute 14 (end of the laning phase).",
+    "Gank deaths (lane)": "Deaths before 14 min in a lane where the killer or an assist was not your lane opponent (e.g. jungler gank).",
+    "Under own tower (lane)": "Deaths during the laning phase while near your lane tower.",
+    "Under enemy tower (lane)": "Deaths during the laning phase while near the enemy lane tower.",
+    "Roams pre-15": "Average roams detected before minute 15 (timeline position shifts away from your lane).",
+    # Positioning
+    "Grouped with team": "Share of mid/late frames (after 14 min, excluding base) where at least two allies are within 3000 map units.",
+    "Solo on map": "Share of those frames with no allies within 3000 map units.",
+    "Side-lane time": "Share of mid/late frames spent in a side lane (top or bot, not mid).",
+    "Allies nearby": "Average number of allies within 3000 map units per mid/late frame.",
+    "Avg teammate dist": "Mean distance to all teammates per frame during mid/late game, in map units. Lower means closer.",
+    # Economy
+    "GPM": "Gold per minute: total gold earned ÷ game length.",
+    "Gold share": "Your gold as a share of team total gold each game.",
+    "Damage per gold": "Damage to champions divided by gold earned, averaged per game.",
+    "Unspent gold/recall": "Average gold banked on the timeline frame before each inferred recall (burst of item purchases).",
+    "First recall": "Average game minute of your first inferred recall.",
+    "Time dead/game": "Average seconds spent on death timers per game.",
+    # Vision
+    "Vision score": "Average Riot vision score per game.",
+    "VS/min": "Vision score per minute.",
+    "Control wards": "Average control wards bought per game.",
+    "CW lifetime": "Average seconds each control ward stayed alive until cleared or game end.",
+    "VS/min in wins": "Vision score per minute averaged over wins only.",
+    "VS/min in losses": "Vision score per minute averaged over losses only.",
+    # Deaths
+    "Total deaths": "Total death count across all games in the window (not an average).",
+    "Solo deaths": "Share of deaths with no allies within 2200 map units.",
+    "Greed deaths": "Share of deaths shortly after deep side-lane pushing without nearby allies.",
+    "Side-lane deaths": "Share of deaths while isolated in a side lane after minute 14.",
+    "Before dragon": "Share of deaths within 60 seconds before a dragon take.",
+    "Gold at death": "Average gold in your inventory at the moment of death.",
+    "Outnumbered deaths": "Share of deaths where nearby enemies outnumbered nearby allies.",
+    "Avg death minute": "Mean game minute when you died.",
+    "Top killer": "Champion that secured the most kills on you in this window.",
+    # Teamfights
+    "Fights detected": "Clusters of at least three kills within 25 seconds and 4000 map units of each other.",
+    "Participation": "Share of detected fights where you killed, assisted, died, or were within 3000 units of the fight.",
+    "Fight win rate": "Share of joined fights your team won (more ally than enemy kills in the cluster).",
+    "Damage/fight": "Average damage to champions you dealt in fights you joined.",
+    "Death rate in fights": "Share of joined fights where you died.",
+    "Front-to-back": "Your map push depth minus allies' average at fight start; positive means you were further forward.",
+    "Unspent gold/fight": "Average gold in your inventory when a joined fight started.",
+    "Advantaged fights": "Joined fights where your team had more nearby champions than the enemy.",
+    "Disadvantaged fights": "Joined fights where the enemy had more nearby champions.",
+    "WR advantaged fights": "Win rate in joined fights where you had a manpower advantage nearby.",
+    "WR disadvantaged fights": "Win rate in joined fights where you were outnumbered nearby.",
+    # Improvement score dimensions
+    "Laning": "0–100 score from average gold diff @10, mapped between −800g and +800g vs your lane opponent.",
+    "Farming": "0–100 score from CS @10 against a role-specific benchmark band.",
+    "Survival": "0–100 score from deaths per game; fewer deaths score higher.",
+    "Damage": "0–100 score from your average share of team damage to champions.",
+    "Vision": "0–100 score from vision score per minute against role benchmarks.",
+    "Objectives": "0–100 score from your presence rate at epic monster takes.",
+    "Resets": "0–100 score from gold banked before recalls; hoarding 1500g+ before backing scores lower.",
+}
+
+DIST_TO_TOOLTIP = (
+    "Average distance to your {role} teammate during mid/late game (after 14 min), "
+    "from 60-second timeline frames. Lower means you stay closer."
+)
 
 SECTION_ICONS: dict[str, str] = {
     "overview": "chart",
@@ -108,8 +207,9 @@ SECTION_ICONS: dict[str, str] = {
     "economy": "coin",
     "vision": "eye",
     "deaths": "skull",
+    "positioning": "roam",
     "teamfights": "teamfight",
-    "objectives": "dragon",
+    "objectives": "target",
     "items": "wand",
     "runes": "rune",
     "matchups": "combat",
@@ -131,6 +231,7 @@ ICON_TONES: dict[str, str] = {
     "dragon": "gold",
     "teamfight": "accent",
     "tower": "muted",
+    "target": "gold",
     "roam": "accent",
     "recall": "gold",
     "level": "green",
@@ -147,6 +248,16 @@ ICON_TONES: dict[str, str] = {
 def icon_for_label(label: str) -> str | None:
     """Return an internal icon key for a metric card label, if mapped."""
     return METRIC_ICONS.get(label)
+
+
+def tooltip_for_label(label: str) -> str | None:
+    """Return a short calculation note for a metric card label, if defined."""
+    if label in METRIC_TOOLTIPS:
+        return METRIC_TOOLTIPS[label]
+    if label.startswith("Dist to "):
+        role = label.removeprefix("Dist to ")
+        return DIST_TO_TOOLTIP.format(role=role)
+    return None
 
 
 def icon_for_objective(kind: str) -> str | None:
@@ -213,9 +324,13 @@ def icon_tone(icon_key: str | None) -> str:
 
 
 def with_icon(card: dict[str, Any]) -> dict[str, Any]:
-    """Attach ``icon``, ``iconify`` and ``icon_tone`` to a card dict when mapped."""
+    """Attach icon metadata and an optional calculation tooltip to a card dict."""
     enriched = dict(card)
-    enriched.update(icon_fields_for_label(str(enriched.get("label", ""))))
+    label = str(enriched.get("label", ""))
+    enriched.update(icon_fields_for_label(label))
+    tooltip = tooltip_for_label(label)
+    if tooltip:
+        enriched["tooltip"] = tooltip
     return enriched
 
 

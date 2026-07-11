@@ -37,6 +37,7 @@ def test_first_death_context(record: MatchRecord) -> None:
     assert death.alone is True
     assert death.to_gank is False
     assert death.before_dragon is True
+    assert death.before_neutral_objective is True
     assert death.before_baron is False
     assert death.killer_champion == "Vi"
     assert death.ult_available is True  # R skilled at 11 min
@@ -64,5 +65,15 @@ def test_deaths_dataframe_shape(record: MatchRecord) -> None:
     assert len(frame) == 3
     assert set(
         ["match_id", "win", "zone", "minute", "alone", "ult_available", "to_gank",
-         "under_own_tower_laning", "under_enemy_tower_laning"]
+         "under_own_tower_laning", "under_enemy_tower_laning", "current_gold",
+         "avg_teammate_distance"]
     ).issubset(frame.columns)
+
+
+def test_death_gold_and_teammate_distance(record: MatchRecord) -> None:
+    """Death events capture banked gold and average teammate distance."""
+    death = next(d for d in record.deaths if d.minute == pytest.approx(8.0, abs=0.1))
+    assert death.current_gold == 600
+    assert death.avg_teammate_distance == pytest.approx(9106, rel=0.01)
+    assert "JUNGLE" in record.timeline.role_distances
+    assert record.to_row()["avg_gold_at_death"] == 600.0

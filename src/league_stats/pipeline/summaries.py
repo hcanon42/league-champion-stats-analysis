@@ -15,7 +15,7 @@ from league_stats.analysis.laning import laning_summary
 from league_stats.analysis.matchups import matchup_summary
 from league_stats.analysis.objectives import objective_summary
 from league_stats.analysis.peer import peer_recommendations
-from league_stats.analysis.positioning import macro_summary
+from league_stats.analysis.positioning import macro_summary, positioning_summary
 from league_stats.analysis.runes import rune_summary
 from league_stats.analysis.statistics import ModelResult, StatisticsEngine, WinCorrelation
 from league_stats.analysis.teamfights import teamfight_summary
@@ -50,6 +50,7 @@ def compute_report_stats(frames: AnalysisFrames, output_dir) -> ReportStats:
 
 def build_domain_summaries(frames: AnalysisFrames, records: list[MatchRecord]) -> dict[str, Any]:
     """Aggregate summaries used by exports and window bundles."""
+    player_role = records[0].role if records else "MIDDLE"
     return {
         "overview": build_overview(frames.matches_df),
         "laning": laning_summary(frames.matches_df),
@@ -58,6 +59,7 @@ def build_domain_summaries(frames: AnalysisFrames, records: list[MatchRecord]) -
         "vision": vision_summary(frames.vision_df),
         "deaths": death_summary(frames.deaths_df),
         "teamfights": teamfight_summary(frames.teamfights_df),
+        "positioning": positioning_summary(frames.matches_df, player_role),
         "objectives": objective_summary(frames.objectives_df),
         "macro": macro_summary(records, frames.matches_df),
         "matchups": matchup_summary(frames.matchups_df),
@@ -82,6 +84,7 @@ def generate_recommendations(
         frames.objectives_df,
         stats,
         build_label=config.build_label,
+        role=config.role,
     )
     recommendations = coach.generate()
     if peer_comparison is not None:
@@ -120,6 +123,7 @@ def build_export_summary(
         "vision": summaries["vision"],
         "deaths": summaries["deaths"],
         "teamfights": summaries["teamfights"],
+        "positioning": summaries["positioning"],
         "objectives": summaries["objectives"],
         "macro": summaries["macro"],
         "matchups": summaries["matchups"],

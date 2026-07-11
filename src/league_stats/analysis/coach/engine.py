@@ -18,7 +18,9 @@ from league_stats.analysis.economy import (
     RECALL_GOLD_HOARDING_WARN,
     recall_gold_severity,
 )
+from league_stats.analysis.positioning import ROLE_COLUMNS
 from league_stats.analysis.statistics import StatisticsEngine
+from league_stats.core.champions import role_display
 from league_stats.core.models import Recommendation, RecommendationTone
 from league_stats.utils import get_logger
 
@@ -42,6 +44,9 @@ MAX_AHEAD_WR_AT_15: float = 0.58
 MIN_CS10_FOR_REC: float = 74
 MIN_FIRST_ITEM_GAP_MIN: float = 0.6
 MIN_DEAD_BEFORE_OBJECTIVE_SAMPLE: int = 14
+MIN_GOLD_AT_DEATH: int = 800
+MIN_GROUPED_SHARE: float = 0.55
+MIN_SOLO_SHARE: float = 0.35
 
 # Human labels and coaching tips for the personal win-condition rule.
 WIN_FEATURE_HINTS: dict[str, tuple[str, str]] = {
@@ -166,6 +171,7 @@ class CoachEngine:
         stats_engine: StatisticsEngine,
         *,
         build_label: str = "Viktor mid",
+        role: str = "MIDDLE",
     ) -> None:
         self._matches = matches_df
         self._deaths = deaths_df
@@ -173,6 +179,7 @@ class CoachEngine:
         self._objectives = objectives_df
         self._stats = stats_engine
         self._build_label = build_label
+        self._role = role.upper()
         self._champion = build_label.split(" ", 1)[0]
         self._log = get_logger("coach")
 
@@ -184,6 +191,8 @@ class CoachEngine:
             self._rule_personal_win_condition,
             self._rule_early_deaths,
             self._rule_unspent_gold,
+            self._rule_unspent_gold_fights,
+            self._rule_gold_at_death,
             self._rule_first_item_timing,
             self._rule_control_wards,
             self._rule_side_lane_deaths,
@@ -192,6 +201,7 @@ class CoachEngine:
             self._rule_deaths_before_objectives,
             self._rule_objective_presence,
             self._rule_solo_deaths,
+            self._rule_outnumbered_deaths,
             self._rule_greed_deaths,
             self._rule_gank_deaths_laning,
             self._rule_under_own_tower_laning_deaths,
@@ -199,6 +209,10 @@ class CoachEngine:
             self._rule_shutdown_bounties,
             self._rule_throw_leads,
             self._rule_teamfight_participation,
+            self._rule_disadvantaged_fights,
+            self._rule_over_grouping,
+            self._rule_splitting_for_farm,
+            self._rule_ally_proximity,
             self._rule_dead_before_objectives,
             self._rule_cs10,
             self._rule_lane_priority,
@@ -316,6 +330,92 @@ class CoachEngine:
             effect_size=round(severity, 3),
             priority=_priority(severity, None, len(series)),
             sample_size=len(series),
+        )
+
+    def _rule_unspent_gold_fights(self) -> Recommendation | None:
+        column = "avg_unspent_gold_per_fight"
+        if column not in self._matches.columns:
+            return None
+        series = pd.to_numeric(self._matches[column], errors="coerce").dropna()
+        if len(series) < MIN_GAMES:
+            return None
+        avg = float(series.mean())
+        threshold = max(float(series.median()), RECALL_GOLD_COMPONENT_MAX)
+        split = self._stats.winrate_split_test(column, threshold)
+        if split is not None and split["n_high"] >= 3:
+            delta = split["winrate_low"] - split["winrate_high"]
+            if delta >= MIN_WINRATE_DELTA:
+                return Recommendation(
+                    category="Teamfights",
+                    title="Too much gold unspent when fights start",
+                    detail=(
+                        f"When you enter fights with {threshold:.0f}g+ banked your win rate is "
+                        f"{split['winrate_high']:.0%} versus {split['winrate_low']:.0%} otherwise "
+                        f"(you average {avg:.0f}g). Spend before you scrim — buy components on "
+                        "your reset instead of walking into fights with unconverted gold."
+                    ),
+                    evidence=(
+                        f"WR {split['winrate_high']:.0%} ({split['n_high']} high-bank games) vs "
+                        f"{split['winrate_low']:.0%} ({split['n_low']} games), p={split['p_value']:.3f}"
+                    ),
+                    p_value=split["p_value"],
+                    effect_size=round(delta, 3),
+                    priority=_priority(delta, split["p_value"], split["n_high"] + split["n_low"]),
+                    sample_size=split["n_high"] + split["n_low"],
+                )
+        severity = recall_gold_severity(avg)
+        if severity is None:
+            return None
+        return Recommendation(
+            category="Teamfights",
+            title="You walk into fights with too much gold unspent",
+            detail=(
+                f"You average {avg:.0f}g banked at fight start — above the "
+                f"~{RECALL_GOLD_COMPONENT_MAX}g component norm. Reset for a spike before "
+                "objective fights instead of brawling with unconverted gold."
+            ),
+            evidence=(
+                f"Mean unspent gold per fight: {avg:.0f}g over {len(series)} games "
+                f"(healthy backs: ~800–{RECALL_GOLD_COMPONENT_MAX}g)"
+            ),
+            p_value=None,
+            effect_size=round(severity, 3),
+            priority=_priority(severity, None, len(series)),
+            sample_size=len(series),
+        )
+
+    def _rule_gold_at_death(self) -> Recommendation | None:
+        column = "avg_gold_at_death"
+        if column not in self._matches.columns:
+            return None
+        series = pd.to_numeric(self._matches[column], errors="coerce").dropna()
+        if len(series) < MIN_GAMES:
+            return None
+        threshold = max(MIN_GOLD_AT_DEATH, float(series.median()))
+        split = self._stats.winrate_split_test(column, threshold)
+        if split is None or split["n_high"] < 3:
+            return None
+        delta = split["winrate_low"] - split["winrate_high"]
+        if delta < MIN_WINRATE_DELTA:
+            return None
+        avg_high = float(series[series >= threshold].mean())
+        return Recommendation(
+            category="Deaths",
+            title="Dying with unspent gold is costing you games",
+            detail=(
+                f"When you die with {threshold:.0f}g+ banked on average your win rate drops to "
+                f"{split['winrate_high']:.0%} versus {split['winrate_low']:.0%} otherwise "
+                f"({avg_high:.0f}g avg at death in those games). Shop before you die — reset "
+                "for components instead of donating unconverted gold."
+            ),
+            evidence=(
+                f"WR {split['winrate_high']:.0%} ({split['n_high']} games) vs "
+                f"{split['winrate_low']:.0%} ({split['n_low']} games), p={split['p_value']:.3f}"
+            ),
+            p_value=split["p_value"],
+            effect_size=round(delta, 3),
+            priority=_priority(delta, split["p_value"], split["n_high"] + split["n_low"]),
+            sample_size=split["n_high"] + split["n_low"],
         )
 
     def _rule_first_item_timing(self) -> Recommendation | None:
@@ -461,29 +561,27 @@ class CoachEngine:
         )
 
     def _rule_deaths_before_objectives(self) -> Recommendation | None:
-        dragon = pd.to_numeric(self._matches.get("deaths_before_dragon"), errors="coerce").fillna(0)
-        baron = pd.to_numeric(self._matches.get("deaths_before_baron"), errors="coerce").fillna(0)
-        combined = dragon + baron
-        split = _winrate_split_on_series(self._matches, combined, 1)
+        pre_objective = pd.to_numeric(
+            self._matches.get("deaths_before_neutral_objective"), errors="coerce"
+        ).fillna(0)
+        split = _winrate_split_on_series(self._matches, pre_objective, 1)
         if split is None or split["n_high"] < 3:
             return None
         delta = split["winrate_low"] - split["winrate_high"]
         if delta < MIN_WINRATE_DELTA:
             return None
-        pre_dragon = int((dragon >= 1).sum())
-        pre_baron = int((baron >= 1).sum())
         return Recommendation(
             category="Objectives",
             title="Deaths right before epic monsters are throwing objectives",
             detail=(
                 f"You win only {split['winrate_high']:.0%} of games where you die within 60 "
-                f"seconds before a dragon or baron is taken, versus {split['winrate_low']:.0%} "
-                "otherwise. Reset 90 seconds before spawns, then move with your team."
+                f"seconds before a dragon, elder, or baron is taken, versus "
+                f"{split['winrate_low']:.0%} otherwise. Reset 90 seconds before spawns, then "
+                "move with your team."
             ),
             evidence=(
                 f"WR {split['winrate_high']:.0%} ({split['n_high']} games) vs "
-                f"{split['winrate_low']:.0%} ({split['n_low']} games), "
-                f"{pre_dragon} pre-dragon / {pre_baron} pre-baron games, p={split['p_value']:.3f}"
+                f"{split['winrate_low']:.0%} ({split['n_low']} games), p={split['p_value']:.3f}"
             ),
             p_value=split["p_value"],
             effect_size=round(delta, 3),
@@ -526,6 +624,33 @@ class CoachEngine:
                 f"With 2+ solo deaths your win rate drops to {split['winrate_high']:.0%} "
                 f"(vs {split['winrate_low']:.0%}). Most were with little recent team vision — "
                 "don't cross the river without a ward and a reason."
+            ),
+            evidence=(
+                f"WR {split['winrate_high']:.0%} ({split['n_high']} games) vs "
+                f"{split['winrate_low']:.0%} ({split['n_low']} games), p={split['p_value']:.3f}"
+            ),
+            p_value=split["p_value"],
+            effect_size=round(delta, 3),
+            priority=_priority(delta, split["p_value"], split["n_high"] + split["n_low"]),
+            sample_size=split["n_high"] + split["n_low"],
+        )
+
+    def _rule_outnumbered_deaths(self) -> Recommendation | None:
+        if "outnumbered_deaths" not in self._matches.columns:
+            return None
+        split = self._stats.winrate_split_test("outnumbered_deaths", 2)
+        if split is None or split["n_high"] < 3:
+            return None
+        delta = split["winrate_low"] - split["winrate_high"]
+        if delta < MIN_WINRATE_DELTA:
+            return None
+        return Recommendation(
+            category="Deaths",
+            title="Outnumbered deaths are throwing fights",
+            detail=(
+                f"With 2+ outnumbered deaths your win rate falls to {split['winrate_high']:.0%} "
+                f"(vs {split['winrate_low']:.0%}). Track enemy numbers before committing — "
+                "don't start skirmishes when you're down a body."
             ),
             evidence=(
                 f"WR {split['winrate_high']:.0%} ({split['n_high']} games) vs "
@@ -748,6 +873,158 @@ class CoachEngine:
             priority=_priority(delta, split["p_value"], split["n_high"] + split["n_low"]),
             sample_size=split["n_high"] + split["n_low"],
         )
+
+    def _rule_disadvantaged_fights(self) -> Recommendation | None:
+        if "fights_disadvantaged" not in self._matches.columns:
+            return None
+        split = self._stats.winrate_split_test("fights_disadvantaged", 2)
+        if split is None or split["n_high"] < 3:
+            return None
+        delta = split["winrate_low"] - split["winrate_high"]
+        if delta < MIN_WINRATE_DELTA:
+            return None
+        return Recommendation(
+            category="Teamfights",
+            title="Too many fights started at a numbers disadvantage",
+            detail=(
+                f"In games where you take 2+ disadvantaged fights your win rate drops to "
+                f"{split['winrate_high']:.0%} versus {split['winrate_low']:.0%} otherwise. "
+                "Track enemy respawns and only commit when your team has equal or better "
+                "numbers on the map."
+            ),
+            evidence=(
+                f"WR {split['winrate_high']:.0%} ({split['n_high']} games with 2+ disadvantaged "
+                f"fights) vs {split['winrate_low']:.0%} ({split['n_low']} games), "
+                f"p={split['p_value']:.3f}"
+            ),
+            p_value=split["p_value"],
+            effect_size=round(delta, 3),
+            priority=_priority(delta, split["p_value"], split["n_high"] + split["n_low"]),
+            sample_size=split["n_high"] + split["n_low"],
+        )
+
+    def _rule_over_grouping(self) -> Recommendation | None:
+        if "grouped_share" not in self._matches.columns:
+            return None
+        threshold = max(MIN_GROUPED_SHARE, float(
+            pd.to_numeric(self._matches["grouped_share"], errors="coerce").dropna().median()
+        ))
+        split = self._stats.winrate_split_test("grouped_share", threshold)
+        if split is None or split["n_high"] < 3:
+            return None
+        delta = split["winrate_low"] - split["winrate_high"]
+        if delta < MIN_WINRATE_DELTA:
+            return None
+        return Recommendation(
+            category="Positioning",
+            title="Over-grouping is hurting your win rate",
+            detail=(
+                f"When you're grouped with teammates {threshold:.0%}+ of the mid/late game "
+                f"your win rate is {split['winrate_high']:.0%} versus {split['winrate_low']:.0%} "
+                "otherwise. Catch side waves and jungle camps between fights — don't bleed "
+                "income sitting on your team all map."
+            ),
+            evidence=(
+                f"WR {split['winrate_high']:.0%} ({split['n_high']} high-group games) vs "
+                f"{split['winrate_low']:.0%} ({split['n_low']} games), p={split['p_value']:.3f}"
+            ),
+            p_value=split["p_value"],
+            effect_size=round(delta, 3),
+            priority=_priority(delta, split["p_value"], split["n_high"] + split["n_low"]),
+            sample_size=split["n_high"] + split["n_low"],
+        )
+
+    def _rule_splitting_for_farm(self) -> Recommendation | None:
+        if "solo_share" not in self._matches.columns:
+            return None
+        threshold = max(MIN_SOLO_SHARE, float(
+            pd.to_numeric(self._matches["solo_share"], errors="coerce").dropna().median()
+        ))
+        split = self._stats.winrate_split_test("solo_share", threshold)
+        if split is None or split["n_high"] < 3:
+            return None
+        delta = split["winrate_high"] - split["winrate_low"]
+        if delta < MIN_WINRATE_DELTA:
+            return None
+        return Recommendation(
+            category="Positioning",
+            title="Splitting for farm wins you more games",
+            detail=(
+                f"When you spend {threshold:.0%}+ of the mid/late game alone on the map "
+                f"you win {split['winrate_high']:.0%} versus {split['winrate_low']:.0%} "
+                "otherwise. Keep collecting side resources when the team doesn't need "
+                "you grouped."
+            ),
+            evidence=(
+                f"WR {split['winrate_high']:.0%} ({split['n_high']} high-solo games) vs "
+                f"{split['winrate_low']:.0%} ({split['n_low']} games), p={split['p_value']:.3f}"
+            ),
+            tone=RecommendationTone.POSITIVE,
+            p_value=split["p_value"],
+            effect_size=round(delta, 3),
+            priority=_priority(delta, split["p_value"], split["n_high"] + split["n_low"]),
+            sample_size=split["n_high"] + split["n_low"],
+        )
+
+    def _rule_ally_proximity(self) -> Recommendation | None:
+        best: tuple[float, Recommendation | None] = (0.0, None)
+        for ally_role, column in ROLE_COLUMNS.items():
+            if ally_role == self._role or column not in self._matches.columns:
+                continue
+            values = pd.to_numeric(self._matches[column], errors="coerce")
+            if values.dropna().empty or values.nunique() < 2:
+                continue
+            median = float(values.dropna().median())
+            split = _winrate_split_on_series(self._matches, values, median)
+            if split is None or split["n_high"] < 3 or split["n_low"] < 3:
+                continue
+            wr_close = split["winrate_low"]
+            wr_far = split["winrate_high"]
+            label = role_display(ally_role)
+            if wr_close - wr_far >= MIN_WINRATE_DELTA:
+                delta = wr_close - wr_far
+                rec = Recommendation(
+                    category="Positioning",
+                    title=f"Stay closer to your {label}",
+                    detail=(
+                        f"You win {wr_close:.0%} of games when you play closer to your {label} "
+                        f"versus {wr_far:.0%} when farther away. Path near them before objectives "
+                        "and skirmishes so you can collapse together."
+                    ),
+                    evidence=(
+                        f"WR {wr_close:.0%} ({split['n_low']} close games) vs "
+                        f"{wr_far:.0%} ({split['n_high']} far games), p={split['p_value']:.3f}"
+                    ),
+                    tone=RecommendationTone.POSITIVE,
+                    p_value=split["p_value"],
+                    effect_size=round(delta, 3),
+                    priority=_priority(delta, split["p_value"], split["n_high"] + split["n_low"]),
+                    sample_size=split["n_high"] + split["n_low"],
+                )
+            elif wr_far - wr_close >= MIN_WINRATE_DELTA:
+                delta = wr_far - wr_close
+                rec = Recommendation(
+                    category="Positioning",
+                    title=f"Don't over-group on your {label}",
+                    detail=(
+                        f"You win {wr_far:.0%} of games when you play farther from your {label} "
+                        f"versus {wr_close:.0%} when glued to that lane. Take nearby farm and "
+                        "waves without shadowing them every rotation."
+                    ),
+                    evidence=(
+                        f"WR {wr_far:.0%} ({split['n_high']} far games) vs "
+                        f"{wr_close:.0%} ({split['n_low']} close games), p={split['p_value']:.3f}"
+                    ),
+                    p_value=split["p_value"],
+                    effect_size=round(delta, 3),
+                    priority=_priority(delta, split["p_value"], split["n_high"] + split["n_low"]),
+                    sample_size=split["n_high"] + split["n_low"],
+                )
+            else:
+                continue
+            if delta > best[0]:
+                best = (delta, rec)
+        return best[1]
 
     def _rule_dead_before_objectives(self) -> Recommendation | None:
         if self._objectives.empty or "dead_before" not in self._objectives.columns:

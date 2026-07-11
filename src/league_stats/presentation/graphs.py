@@ -20,7 +20,7 @@ import plotly.graph_objects as go
 matplotlib.use("Agg")  # headless rendering; must precede pyplot import
 import matplotlib.pyplot as plt
 
-from league_stats.analysis.statistics import ModelResult
+from league_stats.analysis.statistics import ModelResult, feature_label
 from league_stats.utils import MAP_SIZE, get_logger
 
 PLOTLY_TEMPLATE = "plotly_dark"
@@ -309,8 +309,11 @@ class GraphFactory:
         """Correlation matrix heatmap."""
         if corr.empty:
             return _div(go.Figure().update_layout(title="Correlation matrix (no data)"))
+        labeled = corr.copy()
+        labeled.index = [feature_label(str(i)) for i in labeled.index]
+        labeled.columns = [feature_label(str(c)) for c in labeled.columns]
         fig = px.imshow(
-            corr, color_continuous_scale="RdBu", zmin=-1, zmax=1, aspect="auto",
+            labeled, color_continuous_scale="RdBu", zmin=-1, zmax=1, aspect="auto",
             text_auto=".2f",
         )
         fig.update_layout(title="Feature correlation matrix", height=620)
@@ -320,7 +323,7 @@ class GraphFactory:
         """Bar chart of feature correlations with winning."""
         if not correlations:
             return _div(go.Figure().update_layout(title="Win correlations (no data)"))
-        features = [c.feature for c in correlations]
+        features = [feature_label(c.feature) for c in correlations]
         values = [c.correlation for c in correlations]
         colors = [WIN_COLOR if v > 0 else LOSS_COLOR for v in values]
         fig = go.Figure(go.Bar(x=values, y=features, orientation="h", marker_color=colors))
@@ -339,7 +342,8 @@ class GraphFactory:
             if model.cv_auc_mean is not None
             else f"{model.n_games} games"
         )
-        fig = go.Figure(go.Bar(x=frame["importance"], y=frame["feature"], orientation="h",
+        labels = [feature_label(f) for f in frame["feature"]]
+        fig = go.Figure(go.Bar(x=frame["importance"], y=labels, orientation="h",
                                marker_color=ACCENT))
         fig.update_layout(title=f"Early-game win predictor - feature importance ({subtitle})",
                           xaxis_title="Importance")

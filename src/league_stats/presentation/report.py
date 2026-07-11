@@ -201,6 +201,7 @@ class ReportBuilder:
             "player": manifest.get("player", ""),
             "builds": manifest.get("builds", []),
             "default_href": manifest.get("default_href", ""),
+            "default_report_href": manifest.get("default_href", ""),
             "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         }
         output_path.write_text(template.render(**context), encoding="utf-8")

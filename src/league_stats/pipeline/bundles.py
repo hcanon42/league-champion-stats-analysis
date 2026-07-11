@@ -15,7 +15,9 @@ from league_stats.analysis.items import build_path_stats
 from league_stats.analysis.matchups import matchup_recommendation
 from league_stats.analysis.peer import peer_comparison_for_window
 from league_stats.analysis.runes import rune_setup_stats
-from league_stats.analysis.statistics import StatisticsEngine
+from league_stats.analysis.positioning import ROLE_COLUMNS
+from league_stats.analysis.statistics import StatisticsEngine, feature_label
+from league_stats.core.champions import role_display
 from league_stats.core.config import (
     DEFAULT_GAME_WINDOW,
     DEFAULT_QUEUE_FILTER,
@@ -40,7 +42,7 @@ from league_stats.pipeline.view_models import (
 )
 from league_stats.presentation.graphs import ChartIconResolver, GraphFactory
 from league_stats.presentation.report import improvement_score, score_badge
-from league_stats.presentation.ui_icons import attach_metric_icon_hrefs, icon_fields_for_label
+from league_stats.presentation.ui_icons import attach_metric_icon_hrefs, icon_fields_for_label, tooltip_for_label
 
 
 def filter_records_by_queue(records: list[MatchRecord], key: str) -> list[MatchRecord]:
@@ -101,6 +103,68 @@ def game_window_options(total_games: int) -> list[dict[str, Any]]:
     return options
 
 
+def _build_top_tips(bundle: dict[str, Any], *, limit: int = 3) -> list[dict[str, Any]]:
+    """Return the highest-priority recommendations for the overview callout."""
+    recs = [
+        *bundle.get("positive_recommendations", []),
+        *bundle.get("negative_recommendations", []),
+    ]
+    return sorted(recs, key=lambda rec: rec.get("priority", 0), reverse=True)[:limit]
+
+
+def _build_figure_hints(
+    win_corrs: list[Any],
+    model: Any,
+) -> dict[str, str]:
+    """Short chart takeaways for the statistical deep-dive section."""
+    hints: dict[str, str] = {}
+    if win_corrs:
+        top = win_corrs[0]
+        hints["win_correlation_bar"] = (
+            f"Strongest link with wins: {feature_label(top.feature)} (r = {top.correlation:+.2f})"
+        )
+    if getattr(model, "trained", False) and not model.feature_importance.empty:
+        top_row = model.feature_importance.iloc[0]
+        hints["feature_importance"] = f"Top early-game predictor: {feature_label(top_row['feature'])}"
+    return hints
+
+
+def _build_positioning_cards(
+    positioning: dict[str, Any],
+    player_role: str,
+    *,
+    assets: DDragonAssets | None = None,
+    from_dir: Path | None = None,
+) -> list[dict[str, Any]]:
+    """Build positioning section cards with optional role icons on ally rows."""
+    pairs: list[tuple[str, str]] = [
+        ("Grouped with team", card(pct(positioning.get("avg_grouped_share")))),
+        ("Solo on map", card(pct(positioning.get("avg_solo_share")))),
+        ("Side-lane time", card(pct(positioning.get("avg_side_lane_share")))),
+        ("Allies nearby", card(positioning.get("avg_allies_nearby"))),
+        ("Avg teammate dist", card(positioning.get("avg_teammate_distance"))),
+    ]
+    for role, column in ROLE_COLUMNS.items():
+        if role == player_role:
+            continue
+        pairs.append((f"Dist to {role_display(role)}", card(positioning.get(column))))
+    entries = card_entries(pairs)
+    if assets is not None and from_dir is not None:
+        role_by_label = {
+            f"Dist to {role_display(role)}": role
+            for role in ROLE_COLUMNS
+            if role != player_role
+        }
+        for entry in entries:
+            role = role_by_label.get(entry["label"])
+            if not role:
+                continue
+            href = assets.role_href(role, from_dir=from_dir)
+            if href:
+                entry["role_icon_href"] = href
+    return entries
+
+
 def bundle_to_template_context(
     bundle: dict[str, Any],
     *,
@@ -120,6 +184,8 @@ def bundle_to_template_context(
         "economy_cards": bundle["economy_cards"],
         "vision_cards": bundle["vision_cards"],
         "death_cards": bundle["death_cards"],
+        "positioning_cards": bundle.get("positioning_cards", []),
+        "positioning_hints": bundle.get("positioning_hints", []),
         "teamfight_cards": bundle["teamfight_cards"],
         "objective_rows": bundle["objective_rows"],
         "objectives_section_icon": bundle.get("objectives_section_icon"),
@@ -129,6 +195,8 @@ def bundle_to_template_context(
         "matchup_rows": bundle["matchup_rows"],
         "positive_recommendations": bundle["positive_recommendations"],
         "negative_recommendations": bundle["negative_recommendations"],
+        "top_tips": bundle.get("top_tips", []),
+        "figure_hints": bundle.get("figure_hints", {}),
         "has_peer_comparison": peer_comparison is not None,
     }
     if peer_comparison is not None:
@@ -160,6 +228,8 @@ def build_window_bundle(
         "economy_cards": [],
         "vision_cards": [],
         "death_cards": [],
+        "positioning_cards": [],
+        "positioning_hints": [],
         "teamfight_cards": [],
         "objective_rows": [],
         "blind_spots": [],
@@ -168,6 +238,8 @@ def build_window_bundle(
         "matchup_rows": [],
         "positive_recommendations": [],
         "negative_recommendations": [],
+        "top_tips": [],
+        "figure_hints": {},
         "figures": {},
     }
     if not records:
@@ -181,6 +253,7 @@ def build_window_bundle(
     resets = summaries["resets"]
     vision = summaries["vision"]
     deaths_agg = summaries["deaths"]
+    positioning_agg = summaries["positioning"]
     fights = summaries["teamfights"]
     objectives_agg = summaries["objectives"]
 
@@ -249,7 +322,11 @@ def build_window_bundle(
         "overview_cards": overview_card_entries(overview),
         "score": score,
         "score_components": [
-            {**asdict(component), **icon_fields_for_label(component.name)}
+            {
+                **asdict(component),
+                **icon_fields_for_label(component.name),
+                **({"tooltip": tooltip} if (tooltip := tooltip_for_label(component.name)) else {}),
+            }
             for component in components
         ],
         "lane_cards": card_entries(
@@ -267,6 +344,13 @@ def build_window_bundle(
                 ("Roams pre-15", card(lane.get("avg_roams_pre15"))),
             ]
         ),
+        "positioning_cards": _build_positioning_cards(
+            positioning_agg,
+            config.role,
+            assets=assets,
+            from_dir=graphs_dir.parent if assets is not None else None,
+        ),
+        "positioning_hints": positioning_agg.get("hints", []),
         "economy_cards": card_entries(
             [
                 ("GPM", card(economy.get("avg_gpm"))),
@@ -297,7 +381,9 @@ def build_window_bundle(
                 ("Under enemy tower (lane)", card(pct(deaths_agg.get("under_enemy_tower_laning_death_rate")))),
                 ("Greed deaths", card(pct(deaths_agg.get("greed_death_rate")))),
                 ("Side-lane deaths", card(pct(deaths_agg.get("side_lane_death_rate")))),
-                ("Before dragon", card(pct(deaths_agg.get("death_before_dragon_rate")))),
+                ("Before neutral obj.", card(pct(deaths_agg.get("death_before_neutral_objective_rate")))),
+                ("Gold at death", card(deaths_agg.get("avg_gold_at_death"), "g")),
+                ("Outnumbered deaths", card(pct(deaths_agg.get("outnumbered_death_rate")))),
                 ("Avg death minute", card(deaths_agg.get("avg_death_minute"))),
                 ("Top killer", card(deaths_agg.get("most_common_killer"))),
             ]
@@ -310,6 +396,11 @@ def build_window_bundle(
                 ("Damage/fight", card(fights.get("avg_damage_per_fight"))),
                 ("Death rate in fights", card(pct(fights.get("death_rate_in_fights")))),
                 ("Front-to-back", card(fights.get("avg_front_to_back"))),
+                ("Unspent gold/fight", card(fights.get("avg_unspent_gold_per_fight"), "g")),
+                ("Advantaged fights", card(fights.get("fights_advantaged"))),
+                ("Disadvantaged fights", card(fights.get("fights_disadvantaged"))),
+                ("WR advantaged fights", card(pct(fights.get("fight_win_rate_when_advantaged")))),
+                ("WR disadvantaged fights", card(pct(fights.get("fight_win_rate_when_disadvantaged")))),
             ]
         ),
         "objective_rows": [
@@ -329,17 +420,19 @@ def build_window_bundle(
         "rune_rows": rune_setup_stats(frames.runes_df).to_dict("records"),
         "matchup_rows": matchup_rows,
         "positive_recommendations": [
-            {**rec.model_dump(), "badge": score_badge(rec)}
+            {**rec.model_dump(), "badge": score_badge(rec), "tone": rec.tone.value}
             for rec in recommendations
             if rec.tone.value == "positive"
         ],
         "negative_recommendations": [
-            {**rec.model_dump(), "badge": score_badge(rec)}
+            {**rec.model_dump(), "badge": score_badge(rec), "tone": rec.tone.value}
             for rec in recommendations
             if rec.tone.value == "negative"
         ],
         "figures": figures,
     }
+    bundle["top_tips"] = _build_top_tips(bundle)
+    bundle["figure_hints"] = _build_figure_hints(win_corrs, model)
 
     if window_peer is not None:
         figures["peer_comparison"] = graphs.peer_comparison_chart(
@@ -361,13 +454,14 @@ def build_window_bundle(
         bundle["rune_rows"] = assets.enrich_rune_rows(bundle["rune_rows"], from_dir=from_dir)
         bundle["matchup_rows"] = assets.enrich_matchup_rows(bundle["matchup_rows"], from_dir=from_dir)
         bundle["objective_rows"] = assets.enrich_objective_rows(bundle["objective_rows"], from_dir=from_dir)
-        bundle["objectives_section_icon"] = assets.objective_href("dragon", from_dir=from_dir)
+        bundle["build_paths"] = assets.enrich_build_path_rows(bundle["build_paths"], from_dir=from_dir)
         metric_lists = [
             bundle["overview_cards"],
             bundle["lane_cards"],
             bundle["economy_cards"],
             bundle["vision_cards"],
             bundle["death_cards"],
+            bundle["positioning_cards"],
             bundle["teamfight_cards"],
             bundle["score_components"],
         ]

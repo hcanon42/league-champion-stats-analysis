@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from league_stats.core.config import AppConfig
-from league_stats.infra.ddragon_assets import DDragonAssets, _relative_href, path_to_data_uri
+from league_stats.infra.ddragon_assets import DDragonAssets, _needs_grub_refresh, _relative_href, path_to_data_uri
 
 
 def _config(tmp_path: Path) -> AppConfig:
@@ -42,7 +42,19 @@ def test_champion_and_keystone_hrefs(tmp_path: Path) -> None:
 
     assert assets.champion_href("Ahri", from_dir=report_dir) == "../../../assets/champions/Ahri.png"
     assert assets.keystone_href("Electrocute", from_dir=report_dir) == "../../../assets/runes/8112.png"
+    (assets._runes_dir / "8992.png").write_bytes(b"png")
+    assert assets.keystone_href("Deathfire Touch", from_dir=report_dir) == "../../../assets/runes/8992.png"
     assert assets.champion_href("Missing", from_dir=report_dir) is None
+
+
+def test_needs_grub_refresh_detects_legacy_sprite(tmp_path: Path) -> None:
+    objectives_dir = tmp_path / "objectives"
+    objectives_dir.mkdir()
+    grub = objectives_dir / "grubs.png"
+    grub.write_bytes(b"x" * 12_000)
+    assert _needs_grub_refresh(objectives_dir) is True
+    grub.write_bytes(b"png")
+    assert _needs_grub_refresh(objectives_dir) is False
 
 
 def test_ui_icon_href(tmp_path: Path) -> None:
@@ -50,9 +62,11 @@ def test_ui_icon_href(tmp_path: Path) -> None:
     assets = DDragonAssets(config)
     assets._ui_dir.mkdir(parents=True)
     (assets._ui_dir / "minions.png").write_bytes(b"png")
+    (assets._ui_dir / "tower.png").write_bytes(b"png")
     report_dir = config.output_dir / "reports" / "player" / "ahri_middle"
     report_dir.mkdir(parents=True)
     assert assets.ui_icon_href("minions.png", from_dir=report_dir) == "../../../assets/ui/minions.png"
+    assert assets.ui_icon_href("tower.png", from_dir=report_dir) == "../../../assets/ui/tower.png"
 
 
 def test_objective_href(tmp_path: Path) -> None:
@@ -104,16 +118,26 @@ def test_enrich_rows_adds_icon_fields(tmp_path: Path) -> None:
     assets = DDragonAssets(config)
     assets._champions_dir.mkdir(parents=True)
     assets._runes_dir.mkdir(parents=True)
+    assets._items_dir.mkdir(parents=True)
     (assets._champions_dir / "Darius.png").write_bytes(b"png")
     (assets._runes_dir / "8010.png").write_bytes(b"png")
+    (assets._items_dir / "3100.png").write_bytes(b"png")
+    (assets._items_dir / "3157.png").write_bytes(b"png")
+    assets._item_name_to_id = {"Luden's Companion": 3100, "Zhonya's Hourglass": 3157}
     from_dir = config.output_dir / "reports" / "player" / "aatrox_top"
     from_dir.mkdir(parents=True)
 
     rune_rows = assets.enrich_rune_rows([{"keystone": "Conqueror"}], from_dir=from_dir)
     matchup_rows = assets.enrich_matchup_rows([{"opponent": "Darius"}], from_dir=from_dir)
+    build_rows = assets.enrich_build_path_rows(
+        [{"first_item": "Luden's Companion", "second_item": "Zhonya's Hourglass"}],
+        from_dir=from_dir,
+    )
 
     assert rune_rows[0]["keystone_icon"].endswith("assets/runes/8010.png")
     assert matchup_rows[0]["opponent_icon"].endswith("assets/champions/Darius.png")
+    assert build_rows[0]["first_item_icon"].endswith("assets/items/3100.png")
+    assert build_rows[0]["second_item_icon"].endswith("assets/items/3157.png")
 
 
 def test_path_to_data_uri(tmp_path: Path) -> None:

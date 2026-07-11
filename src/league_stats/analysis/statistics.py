@@ -32,6 +32,14 @@ FEATURE_COLUMNS: tuple[str, ...] = (
     "dpm",
     "vspm",
     "avg_unspent_gold",
+    "avg_unspent_gold_per_fight",
+    "avg_gold_at_death",
+    "avg_teammate_distance",
+    "grouped_share",
+    "solo_share",
+    "dist_jungle",
+    "pct_advantaged_fights",
+    "fights_disadvantaged",
     "roams_pre15",
     "lane_priority",
     "solo_deaths",
@@ -49,8 +57,45 @@ EARLY_FEATURES: tuple[str, ...] = (
     "lane_priority",
     "gd15",
 )
+FEATURE_LABELS: dict[str, str] = {
+    "win": "Win",
+    "deaths_pre20": "Deaths before 20",
+    "deaths_pre14": "Deaths before 14",
+    "control_wards": "Control wards",
+    "first_item_min": "First item (min)",
+    "cs10": "CS @10",
+    "csd10": "CS diff @10",
+    "gd10": "Gold diff @10",
+    "gd15": "Gold diff @15",
+    "xpd10": "XP diff @10",
+    "dpm": "DPM",
+    "vspm": "VS/min",
+    "avg_unspent_gold": "Unspent gold/recall",
+    "avg_unspent_gold_per_fight": "Unspent gold/fight",
+    "avg_gold_at_death": "Gold at death",
+    "avg_teammate_distance": "Avg teammate dist",
+    "grouped_share": "Grouped with team",
+    "solo_share": "Solo on map",
+    "dist_jungle": "Dist to jungle",
+    "pct_advantaged_fights": "Advantaged fights %",
+    "fights_disadvantaged": "Disadvantaged fights",
+    "roams_pre15": "Roams before 15",
+    "lane_priority": "Lane priority",
+    "solo_deaths": "Solo deaths",
+    "kill_participation": "Kill participation",
+    "damage_share": "Damage share",
+    "deaths": "Deaths/game",
+    "duration_min": "Game length (min)",
+}
 MIN_GAMES_FOR_ML: int = 20
 MIN_GAMES_FOR_CLUSTERS: int = 12
+
+
+def feature_label(key: str) -> str:
+    """Human-readable chart label for an internal feature column key."""
+    if key in FEATURE_LABELS:
+        return FEATURE_LABELS[key]
+    return key.replace("_", " ")
 
 
 @dataclass

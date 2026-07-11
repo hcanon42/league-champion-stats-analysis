@@ -12,7 +12,12 @@ from typing import Any
 
 import pandas as pd
 
-from league_stats.analysis.timeline import TimelineContext
+from league_stats.analysis.timeline import (
+    TimelineContext,
+    avg_teammate_distance_at_ms,
+    current_gold_at_ms,
+    headcount_near,
+)
 from league_stats.core.models import MatchRecord, Position, TeamfightRecord
 from league_stats.utils import distance, ms_to_min, push_progress
 
@@ -157,6 +162,14 @@ def detect_teamfights(ctx: TimelineContext) -> list[TeamfightRecord]:
                     sum(ally_progress) / len(ally_progress)
                 )
 
+        fight_pos = my_pos or centroid
+        allies_near, enemies_near = headcount_near(ctx, fight_pos, start_ts)
+        allies_present = allies_near + 1
+        enemies_present = enemies_near
+        manpower_advantage = allies_present - enemies_present
+        unspent_gold = current_gold_at_ms(ctx, start_ts)
+        teammate_distance = avg_teammate_distance_at_ms(ctx, start_ts)
+
         fights.append(
             TeamfightRecord(
                 start_minute=ms_to_min(start_ts),
@@ -174,6 +187,11 @@ def detect_teamfights(ctx: TimelineContext) -> list[TeamfightRecord]:
                 ally_kills=ally_kills,
                 enemy_kills=enemy_kills,
                 won=(ally_kills > enemy_kills) if ally_kills != enemy_kills else None,
+                unspent_gold=unspent_gold,
+                allies_present=allies_present,
+                enemies_present=enemies_present,
+                manpower_advantage=manpower_advantage,
+                avg_teammate_distance=teammate_distance,
             )
         )
     return fights
@@ -209,6 +227,15 @@ def teamfights_dataframe(records: list[MatchRecord]) -> pd.DataFrame:
                     "ally_kills": fight.ally_kills,
                     "enemy_kills": fight.enemy_kills,
                     "fight_won": fight.won,
+                    "unspent_gold": fight.unspent_gold,
+                    "allies_present": fight.allies_present,
+                    "enemies_present": fight.enemies_present,
+                    "manpower_advantage": fight.manpower_advantage,
+                    "avg_teammate_distance": (
+                        round(fight.avg_teammate_distance, 0)
+                        if fight.avg_teammate_distance is not None
+                        else None
+                    ),
                 }
             )
     return pd.DataFrame(rows)
@@ -227,6 +254,10 @@ def teamfight_summary(tf_df: pd.DataFrame) -> dict[str, Any]:
         return {"total_fights": 0}
     joined = tf_df[tf_df["participated"]]
     decided = joined[joined["fight_won"].notna()]
+    advantaged = joined[joined["manpower_advantage"] > 0] if "manpower_advantage" in joined else joined.iloc[0:0]
+    disadvantaged = joined[joined["manpower_advantage"] < 0] if "manpower_advantage" in joined else joined.iloc[0:0]
+    adv_decided = advantaged[advantaged["fight_won"].notna()] if not advantaged.empty else advantaged
+    dis_decided = disadvantaged[disadvantaged["fight_won"].notna()] if not disadvantaged.empty else disadvantaged
     return {
         "total_fights": int(len(tf_df)),
         "participation_rate": round(float(tf_df["participated"].mean()), 3),
@@ -238,6 +269,34 @@ def teamfight_summary(tf_df: pd.DataFrame) -> dict[str, Any]:
         "avg_front_to_back": (
             round(float(joined["front_to_back"].dropna().mean()), 1)
             if not joined.empty and joined["front_to_back"].notna().any()
+            else None
+        ),
+        "avg_unspent_gold_per_fight": (
+            round(float(joined["unspent_gold"].dropna().mean()), 0)
+            if not joined.empty and joined["unspent_gold"].notna().any()
+            else None
+        ),
+        "avg_teammate_distance_in_fights": (
+            round(float(joined["avg_teammate_distance"].dropna().mean()), 0)
+            if not joined.empty and joined["avg_teammate_distance"].notna().any()
+            else None
+        ),
+        "fights_advantaged": int(len(advantaged)),
+        "fights_disadvantaged": int(len(disadvantaged)),
+        "advantaged_fight_rate": (
+            round(float(len(advantaged) / len(joined)), 3) if not joined.empty else None
+        ),
+        "disadvantaged_fight_rate": (
+            round(float(len(disadvantaged) / len(joined)), 3) if not joined.empty else None
+        ),
+        "fight_win_rate_when_advantaged": (
+            round(float(adv_decided["fight_won"].astype(float).mean()), 3)
+            if not adv_decided.empty
+            else None
+        ),
+        "fight_win_rate_when_disadvantaged": (
+            round(float(dis_decided["fight_won"].astype(float).mean()), 3)
+            if not dis_decided.empty
             else None
         ),
     }

@@ -24,6 +24,24 @@
 {%- endif -%}
 {%- endmacro %}
 
+{% macro metric_card_label(label, icon=none, tone='muted', iconify_id=none, icon_href=none, role_icon_href=none, tooltip=none) -%}
+<div class="metric-card-label">
+  <span class="metric-label">
+    {%- if role_icon_href -%}
+    <img src="{{ role_icon_href }}" alt="" class="role-icon role-icon--sm">
+    {%- endif -%}
+    {{ metric_icon(icon, tone, iconify_id, icon_href) }}
+    <span>{{ label }}</span>
+  </span>
+  {%- if tooltip -%}
+  <span class="metric-tooltip-wrap">
+    <button type="button" class="metric-tooltip-btn" aria-label="How {{ label }} is calculated" aria-expanded="false">?</button>
+    <span class="metric-tooltip-panel" role="tooltip">{{ tooltip }}</span>
+  </span>
+  {%- endif -%}
+</div>
+{%- endmacro %}
+
 {% macro metric_label(label, icon=none, tone='muted', iconify_id=none, icon_href=none) -%}
 <span class="metric-label">
   {{ metric_icon(icon, tone, iconify_id, icon_href) }}
@@ -31,11 +49,24 @@
 </span>
 {%- endmacro %}
 
-{% macro section_title(label, icon=none, tone='accent', iconify_id=none, icon_href=none) -%}
-<h2 class="section-title">
+{% macro section_title(label, icon=none, tone='accent', iconify_id=none, icon_href=none, category=none) -%}
+<h2 class="section-title{% if category %} section-title--{{ category }}{% endif %}">
   {{ metric_icon(icon, tone, iconify_id, icon_href) }}
   <span>{{ label }}</span>
 </h2>
+{%- endmacro %}
+
+{% macro category_divider(label, category) -%}
+<div class="category-divider category-divider--{{ category }}" role="presentation">
+  <span class="category-divider-label">{{ label }}</span>
+</div>
+{%- endmacro %}
+
+{% macro nav_link(href, label, icon, section_id) -%}
+<a href="{{ href }}" class="nav-link" data-section="{{ section_id }}">
+  <iconify-icon icon="{{ icon }}" class="nav-link-icon" aria-hidden="true"></iconify-icon>
+  <span>{{ label }}</span>
+</a>
 {%- endmacro %}
 
 {% macro icon_cell(name, icon_href=none) -%}
@@ -43,6 +74,18 @@
 <span class="icon-cell"><img src="{{ icon_href }}" alt="" class="game-icon game-icon--sm"><span>{{ name }}</span></span>
 {%- else -%}
 {{ name }}
+{%- endif -%}
+{%- endmacro %}
+
+{% macro core_cell(first_item, second_item, first_icon=none, second_icon=none, fallback=none) -%}
+{%- if first_icon or second_icon -%}
+<span class="core-cell">
+  {{ icon_cell(first_item, first_icon) }}
+  <span class="core-arrow" aria-hidden="true">→</span>
+  {{ icon_cell(second_item, second_icon) }}
+</span>
+{%- else -%}
+{{ fallback or (first_item ~ ' -> ' ~ second_item) }}
 {%- endif -%}
 {%- endmacro %}
 

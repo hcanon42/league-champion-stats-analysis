@@ -28,8 +28,14 @@ def coach(tmp_path: Path) -> CoachEngine:
     matches.loc[matches["opponent"] == "Orianna", "win"] = 1
     matches["gd10"] = np.where(matches["win"] == 1, 650, -450)
     matches["kill_participation"] = np.where(matches["win"] == 1, 0.78, 0.32)
-    matches["deaths_before_dragon"] = np.where(matches["win"] == 0, 2, 0)
-    matches["deaths_before_baron"] = np.where(matches["win"] == 0, 1, 0)
+    matches["deaths_before_neutral_objective"] = np.where(matches["win"] == 0, 2, 0)
+    matches["fights_disadvantaged"] = np.where(matches["win"] == 0, 3, 0)
+    matches["avg_gold_at_death"] = np.where(matches["win"] == 0, 1600, 450)
+    matches["avg_unspent_gold_per_fight"] = np.where(matches["win"] == 0, 1800, 650)
+    matches["grouped_share"] = np.where(matches["win"] == 0, 0.72, 0.38)
+    matches["solo_share"] = np.where(matches["win"] == 1, 0.55, 0.18)
+    matches["dist_jungle"] = np.where(matches["win"] == 1, 2200, 6200)
+    matches["outnumbered_deaths"] = np.where(matches["win"] == 0, 3, 0)
     matches["greed_deaths"] = np.where(matches["win"] == 0, 3, 0)
     matches["shutdown_given"] = np.where(matches["win"] == 0, 400, 50)
     matches["tf_participation"] = np.where(matches["win"] == 1, 0.8, 0.4)
@@ -63,6 +69,7 @@ def coach(tmp_path: Path) -> CoachEngine:
         matchups_df=matchups_dataframe(matches),
         objectives_df=objectives,
         stats_engine=stats,
+        role="MIDDLE",
     )
 
 
@@ -94,11 +101,21 @@ def test_new_rules_fire(coach: CoachEngine) -> None:
 
 
 def test_merged_objective_death_rule_not_dragon_only(coach: CoachEngine) -> None:
-    """Pre-objective deaths cover dragon and baron together."""
+    """Pre-objective deaths cover dragon, elder, and baron together."""
     rec = next(r for r in coach.generate() if "epic monsters" in r.title)
-    assert "dragon or baron" in rec.detail
-    assert "pre-dragon" in rec.evidence
-    assert "pre-baron" in rec.evidence
+    assert "dragon, elder, or baron" in rec.detail
+
+
+def test_new_metric_rules_fire(coach: CoachEngine) -> None:
+    """Coach rules for newer death, fight, and positioning metrics surface."""
+    titles = " | ".join(r.title for r in coach.generate())
+    assert "Dying with unspent gold is costing you games" in titles
+    assert "Too much gold unspent when fights start" in titles
+    assert "Too many fights started at a numbers disadvantage" in titles
+    assert "Over-grouping is hurting your win rate" in titles
+    assert "Splitting for farm wins you more games" in titles
+    assert "Stay closer to your jungle" in titles
+    assert "Outnumbered deaths are throwing fights" in titles
 
 
 def test_markdown_rendering(coach: CoachEngine) -> None:

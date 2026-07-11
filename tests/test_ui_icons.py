@@ -9,6 +9,7 @@ from league_stats.presentation.ui_icons import (
     icon_for_objective,
     icon_tone,
     iconify_for_key,
+    tooltip_for_label,
     with_icon,
     with_icons,
 )
@@ -38,6 +39,18 @@ def test_icon_for_objectives() -> None:
     assert icon_for_objective("tower") is None
 
 
+def test_tower_metrics_use_local_asset() -> None:
+    fields = icon_fields_for_label("Under own tower (lane)")
+    assert fields["icon"] == "tower"
+    assert fields["icon_asset"] == "tower.png"
+    assert fields["iconify"] is None
+
+
+def test_objectives_use_target_icon() -> None:
+    assert icon_for_label("Objectives") == "target"
+    assert iconify_for_key("target") == "lucide:target"
+
+
 def test_cs_min_uses_local_asset() -> None:
     fields = icon_fields_for_label("CS/min")
     assert fields["icon"] == "cs"
@@ -51,6 +64,17 @@ def test_with_icon_enriches_card() -> None:
     assert card["icon"] == "coin"
     assert card["iconify"] == "lucide:coins"
     assert card["icon_tone"] == "gold"
+    assert card["tooltip"] == "Gold per minute: total gold earned ÷ game length."
+
+
+def test_tooltip_for_dist_to_role() -> None:
+    tooltip = tooltip_for_label("Dist to jungle")
+    assert tooltip is not None
+    assert "jungle" in tooltip
+
+
+def test_tooltip_missing_for_unknown_label() -> None:
+    assert tooltip_for_label("Unknown metric") is None
 
 
 def test_kill_participation_icon() -> None:

@@ -10,12 +10,11 @@ from typing import Any
 
 import pandas as pd
 
-from league_stats.analysis.timeline import TimelineContext
+from league_stats.analysis.timeline import TimelineContext, avg_teammate_distance_at_ms, current_gold_at_ms, headcount_near
 from league_stats.core.models import DeathEvent, MatchRecord, Position, RecallEvent, Zone
 from league_stats.utils import (
     LANING_PHASE_END_MIN,
     classify_zone,
-    distance,
     is_side_lane,
     ms_to_min,
     near_enemy_lane_tower,
@@ -93,32 +92,8 @@ def _is_gank_death(
 
 
 def _headcount_near(ctx: TimelineContext, pos: Position, timestamp_ms: int) -> tuple[int, int]:
-    """Count allies (excluding the player) and enemies near a position.
-
-    Positions come from the nearest 60-second frame, so counts are a coarse
-    approximation.
-
-    Args:
-        ctx: Timeline context.
-        pos: Reference position.
-        timestamp_ms: Time of the event.
-
-    Returns:
-        ``(allies_nearby, enemies_nearby)``.
-    """
-    allies = 0
-    enemies = 0
-    for pid in ctx.team_ids | ctx.enemy_ids:
-        if pid == ctx.participant_id:
-            continue
-        other = ctx.position_at_ms(pid, timestamp_ms)
-        if other is None or distance(pos, other) > NEARBY_RADIUS:
-            continue
-        if pid in ctx.team_ids:
-            allies += 1
-        else:
-            enemies += 1
-    return allies, enemies
+    """Count allies (excluding the player) and enemies near a position."""
+    return headcount_near(ctx, pos, timestamp_ms, radius=NEARBY_RADIUS)
 
 
 def extract_deaths(
@@ -150,6 +125,8 @@ def extract_deaths(
     ]
     dragon_ts = [int(e["timestamp"]) for e in monsters if e.get("monsterType") == "DRAGON"]
     baron_ts = [int(e["timestamp"]) for e in monsters if e.get("monsterType") == "BARON_NASHOR"]
+    # Dragon timestamps include elder (monsterType DRAGON, subType ELDER_DRAGON).
+    neutral_objective_ts = dragon_ts + baron_ts
     ward_events = ctx.events_of("WARD_PLACED")
 
     deaths: list[DeathEvent] = []
@@ -195,6 +172,9 @@ def extract_deaths(
                 side_lane_push=is_side_lane(zone) and minute > SIDE_LANE_MIN,
                 before_dragon=any(0 <= t - ts <= BEFORE_OBJECTIVE_WINDOW_MS for t in dragon_ts),
                 before_baron=any(0 <= t - ts <= BEFORE_OBJECTIVE_WINDOW_MS for t in baron_ts),
+                before_neutral_objective=any(
+                    0 <= t - ts <= BEFORE_OBJECTIVE_WINDOW_MS for t in neutral_objective_ts
+                ),
                 after_recall=any(
                     0 <= ts - int(r.minute * 60_000) <= AFTER_RECALL_WINDOW_MS for r in recalls
                 ),
@@ -202,6 +182,8 @@ def extract_deaths(
                 under_own_tower_laning=under_own_tower_laning,
                 under_enemy_tower_laning=under_enemy_tower_laning,
                 killer_champion=ctx.id_to_champion.get(int(event.get("killerId", 0))),
+                current_gold=current_gold_at_ms(ctx, ts),
+                avg_teammate_distance=avg_teammate_distance_at_ms(ctx, ts),
             )
         )
     return deaths
@@ -243,11 +225,18 @@ def deaths_dataframe(records: list[MatchRecord]) -> pd.DataFrame:
                     "side_lane_push": death.side_lane_push,
                     "before_dragon": death.before_dragon,
                     "before_baron": death.before_baron,
+                    "before_neutral_objective": death.before_neutral_objective,
                     "after_recall": death.after_recall,
                     "to_gank": death.to_gank,
                     "under_own_tower_laning": death.under_own_tower_laning,
                     "under_enemy_tower_laning": death.under_enemy_tower_laning,
                     "killer": death.killer_champion or "Unknown",
+                    "current_gold": death.current_gold,
+                    "avg_teammate_distance": (
+                        round(death.avg_teammate_distance, 0)
+                        if death.avg_teammate_distance is not None
+                        else None
+                    ),
                 }
             )
     return pd.DataFrame(rows)
@@ -277,10 +266,26 @@ def death_summary(deaths_df: pd.DataFrame) -> dict[str, Any]:
             float(deaths_df["under_enemy_tower_laning"].mean()), 3
         ),
         "side_lane_death_rate": round(float(deaths_df["side_lane_push"].mean()), 3),
-        "death_before_dragon_rate": round(float(deaths_df["before_dragon"].mean()), 3),
-        "death_before_baron_rate": round(float(deaths_df["before_baron"].mean()), 3),
+        "death_before_neutral_objective_rate": round(
+            float(deaths_df["before_neutral_objective"].mean()), 3
+        ),
         "shutdowns_given": int((deaths_df["shutdown_given"] > 0).sum()),
         "avg_death_minute": round(float(deaths_df["minute"].mean()), 1),
+        "avg_gold_at_death": (
+            round(float(deaths_df["current_gold"].dropna().mean()), 0)
+            if "current_gold" in deaths_df and deaths_df["current_gold"].notna().any()
+            else None
+        ),
+        "avg_teammate_distance_at_death": (
+            round(float(deaths_df["avg_teammate_distance"].dropna().mean()), 0)
+            if "avg_teammate_distance" in deaths_df and deaths_df["avg_teammate_distance"].notna().any()
+            else None
+        ),
+        "outnumbered_death_rate": (
+            round(float(deaths_df["outnumbered"].mean()), 3)
+            if "outnumbered" in deaths_df.columns
+            else None
+        ),
         "most_common_zone": str(deaths_df["zone"].mode().iat[0]),
         "deaths_by_zone": deaths_df["zone"].value_counts().to_dict(),
         "most_common_killer": str(deaths_df["killer"].mode().iat[0]),

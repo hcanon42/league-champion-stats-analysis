@@ -6,7 +6,7 @@ import pytest
 
 from league_stats.core.config import AppConfig
 from league_stats.core.models import MatchRecord
-from league_stats.ingest.parser import BaseMatchFilter, BuildMatchFilter, ItemCatalog, MatchParser
+from league_stats.ingest.parser import BaseMatchFilter, BuildMatchFilter, ItemCatalog, MatchParser, perk_name
 from tests.fixtures import FAKE_ITEMS, MY_PUUID, make_match, make_timeline
 
 
@@ -152,6 +152,12 @@ def test_parse_vision_lifetime(record: MatchRecord) -> None:
 def test_shutdown_gold(record: MatchRecord) -> None:
     """Shutdown gold collected is summed from kill events."""
     assert record.shutdown_gold_collected == 150
+
+
+def test_perk_name_maps_season_two_keystones() -> None:
+    """New Sorcery keystones resolve to human-readable names."""
+    assert perk_name(8992) == "Deathfire Touch"
+    assert perk_name(8230) == "Stormraider's Surge"
 
 
 def test_to_row_is_flat(record: MatchRecord) -> None:

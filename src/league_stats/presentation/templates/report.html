@@ -6,17 +6,17 @@
 <title>{{ app_title }} — {{ player_name }}</title>
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
 <script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
-{% from '_macros.html' import metric_label, metric_icon, section_title, role_icon, build_heading, favicon_links, app_brand, icon_cell %}
+{% from '_macros.html' import metric_label, metric_card_label, metric_icon, section_title, role_icon, build_heading, favicon_links, app_brand, icon_cell, core_cell, category_divider, nav_link %}
 {{ favicon_links(favicon_href) }}
 <link rel="stylesheet" href="static/report.css">
 <link rel="stylesheet" href="static/chatbot.css">
 </head>
 <body>
 <div class="layout">
-<nav>
+<nav class="report-nav">
   {{ app_brand(app_title, logo_href, variant='nav') }}
   <div class="nav-back">
-    <a href="../index.html">← Your champions</a>
+    <a href="../index.html">← Reports</a>
     <a href="../../../index.html">← All players</a>
   </div>
   {% if player_builds %}
@@ -29,27 +29,47 @@
         {% endif %}
         <div>
           <strong>{{ build_heading(build.champion, build.role_icon, build.role_display) }}</strong>
-          <div class="meta">{{ build.games }} games · {{ '%.0f' % (build.winrate * 100) }}% WR</div>
+          <div class="meta">{{ build.games }}g · {{ '%.0f' % (build.winrate * 100) }}%</div>
         </div>
       </a>
       {% endfor %}
     </div>
   </div>
   {% endif %}
-  <a href="#overview">Overview</a>
-  <a href="#score">Improvement score</a>
-  <a href="#rank-peers">Rank peers</a>
-  <a href="#lane">Lane</a>
-  <a href="#economy">Economy</a>
-  <a href="#vision">Vision</a>
-  <a href="#deaths">Deaths</a>
-  <a href="#teamfights">Teamfights</a>
-  <a href="#objectives">Objectives</a>
-  <a href="#items">Items</a>
-  <a href="#runes">Runes</a>
-  <a href="#matchups">Matchups</a>
-  <a href="#graphs">Graphs</a>
-  <a href="#recommendations">Recommendations</a>
+  <div class="nav-sections">
+    <div class="nav-group nav-group--performance">
+      <div class="nav-group-label">Performance</div>
+      {{ nav_link('#overview', 'Overview', 'lucide:layout-dashboard', 'overview') }}
+      {{ nav_link('#score', 'Score', 'lucide:gauge', 'score') }}
+      {{ nav_link('#recommendations', 'Tips', 'lucide:lightbulb', 'recommendations') }}
+    </div>
+    <div class="nav-group nav-group--laning">
+      <div class="nav-group-label">Laning</div>
+      {{ nav_link('#lane', 'Lane', 'lucide:map', 'lane') }}
+      {{ nav_link('#economy', 'Economy', 'lucide:coins', 'economy') }}
+    </div>
+    <div class="nav-group nav-group--impact">
+      <div class="nav-group-label">Game impact</div>
+      {{ nav_link('#vision', 'Vision', 'lucide:eye', 'vision') }}
+      {{ nav_link('#deaths', 'Deaths', 'lucide:skull', 'deaths') }}
+      {{ nav_link('#positioning', 'Positioning', 'lucide:footprints', 'positioning') }}
+      {{ nav_link('#teamfights', 'Fights', 'lucide:users', 'teamfights') }}
+      {{ nav_link('#objectives', 'Objectives', 'lucide:target', 'objectives') }}
+    </div>
+    <div class="nav-group nav-group--champion">
+      <div class="nav-group-label">Champion</div>
+      {{ nav_link('#items', 'Items', 'lucide:wand-sparkles', 'items') }}
+      {{ nav_link('#runes', 'Runes', 'lucide:sparkles', 'runes') }}
+      {{ nav_link('#matchups', 'Matchups', 'lucide:swords', 'matchups') }}
+    </div>
+    <div class="nav-group nav-group--analysis">
+      <div class="nav-group-label">Analysis</div>
+      {% if has_peer_comparison %}
+      {{ nav_link('#rank-peers', 'Peers', 'lucide:bar-chart-2', 'rank-peers') }}
+      {% endif %}
+      {{ nav_link('#graphs', 'Deep dive', 'lucide:line-chart', 'graphs') }}
+    </div>
+  </div>
 </nav>
 <main>
 
@@ -78,31 +98,49 @@
   </div>
 </div>
 
-<section id="overview">
-  <h2 class="report-title">
+{{ category_divider('Performance', 'performance') }}
+
+<section id="overview" class="report-section report-section--performance">
+  <h2 class="report-title section-title--performance">
     {% if champion_icon %}
     <img src="{{ champion_icon }}" alt="" class="game-icon">
     {% endif %}
     <span>Overview — {{ player_name }}</span>
   </h2>
   <p class="sub" id="overview-subtitle">{{ total_games }} {{ queue_label }} {{ build_label }} games analysed · patches {{ patch_range }}</p>
-  <div class="cards" id="overview-cards">
-    {% for card in overview_cards %}
-    <div class="card"><div class="label">{{ metric_label(card.label, card.icon, card.icon_tone, icon_href=card.icon_href) }}</div><div class="value{% if card.value_class %} {{ card.value_class }}{% endif %}">{{ card.value }}</div></div>
+  {% if top_tips %}
+  <div class="top-tips" id="top-tips-callout">
+    <span class="top-tips-label">Top coaching tips</span>
+    {% for tip in top_tips %}
+    <span class="top-tip top-tip--{{ tip.tone }}">
+      <span class="badge">{{ tip.category }}</span>
+      <span>{{ tip.title }}</span>
+    </span>
     {% endfor %}
   </div>
-  <div class="figure" id="fig-winrate_trend">{{ figures.winrate_trend | safe }}</div>
+  {% else %}
+  <div class="top-tips" id="top-tips-callout" style="display:none"></div>
+  {% endif %}
+  <div class="cards" id="overview-cards">
+    {% for card in overview_cards %}
+    <div class="card"><div class="label">{{ metric_card_label(card.label, card.icon, card.icon_tone, iconify_id=card.iconify, icon_href=card.icon_href, tooltip=card.tooltip) }}</div><div class="value{% if card.value_class %} {{ card.value_class }}{% endif %}">{{ card.value }}</div></div>
+    {% endfor %}
+  </div>
+  <div class="figure-block">
+    <div class="figure" id="fig-winrate_trend">{{ figures.winrate_trend | safe }}</div>
+    <p class="figure-caption">Rolling win rate over your last games — look for upward trends after patch changes or build adjustments.</p>
+  </div>
 </section>
 
-<section id="score">
-  {{ section_title("Improvement score", "chart", "accent") }}
+<section id="score" class="report-section report-section--performance">
+  {{ section_title("Improvement score", "chart", "accent", category='performance') }}
   <p class="sub">Composite of laning, farming, survival, damage, vision, objectives and reset quality against fixed benchmarks.</p>
   <div class="score-ring">
     <div class="score-big" id="score-value">{{ score }}<span style="font-size:24px;color:var(--muted)">/100</span></div>
     <div class="score-comps" id="score-comps">
       {% for comp in score_components %}
       <div class="comp">
-        <strong>{{ metric_label(comp.name, comp.icon, comp.icon_tone, icon_href=comp.icon_href) }}</strong> — {{ comp.value }}
+        <strong>{{ metric_card_label(comp.name, comp.icon, comp.icon_tone, iconify_id=comp.iconify, icon_href=comp.icon_href, tooltip=comp.tooltip) }}</strong> — {{ comp.value }}
         <div class="bar"><i style="width: {{ comp.score }}%"></i></div>
         <small style="color:var(--muted)">{{ comp.hint }}</small>
       </div>
@@ -111,187 +149,8 @@
   </div>
 </section>
 
-{% if has_peer_comparison %}
-<section id="rank-peers">
-  {{ section_title("Rank peer comparison", "chart", "accent") }}
-  <p class="sub" id="peer-subtitle">Your averages vs {{ build_label }} at <strong>{{ peer_comparison.rank_label }}</strong> · {{ peer_comparison.source }} · {{ peer_comparison.peer_games }} peer games ({{ peer_comparison.peer_players }} players, {{ peer_comparison.confidence }} confidence)</p>
-  <div class="cards" id="peer-highlight-cards">
-    {% for label, items, icon, tone in [('Strengths', peer_comparison.strengths, 'trophy', 'win'), ('Weaknesses', peer_comparison.weaknesses, 'skull', 'danger')] %}
-    <div class="card" style="grid-column: span 2;">
-      <div class="label">{{ metric_label(label, icon, tone) }}</div>
-      {% if items %}
-      <ul style="margin-top:8px;padding-left:18px;color:var(--muted);">
-        {% for item in items %}<li>{{ item }}</li>{% endfor %}
-      </ul>
-      {% else %}<p class="sub" style="margin:8px 0 0">—</p>{% endif %}
-    </div>
-    {% endfor %}
-  </div>
-  <div class="figure" id="fig-peer_comparison">{{ figures.peer_comparison | safe }}</div>
-  <table>
-    <thead>
-    <tr><th>Metric</th><th>You</th><th>{{ peer_comparison.tier|title }} {{ build_label }} avg</th><th>Gap</th><th>Verdict</th></tr>
-    </thead>
-    <tbody id="peer-table-body">
-    {% for row in peer_rows %}
-    <tr>
-      <td>{{ metric_label(row.label, row.icon, row.icon_tone, icon_href=row.icon_href) }}</td>
-      <td>{% if row.metric == 'win' %}{{ '%.0f' % (row.yours * 100) }}%{% elif row.metric == 'kill_participation' or row.metric == 'damage_share' %}{{ '%.0f' % (row.yours * 100) }}%{% else %}{{ row.yours }}{% endif %}</td>
-      <td>{% if row.metric == 'win' %}{{ '%.0f' % (row.peer_avg * 100) }}%{% elif row.metric == 'kill_participation' or row.metric == 'damage_share' %}{{ '%.0f' % (row.peer_avg * 100) }}%{% else %}{{ row.peer_avg }}{% endif %}</td>
-      <td class="delta-{{ row.verdict }}">{% if row.delta_pct is not none %}{{ '%+.0f' % row.delta_pct }}%{% else %}{{ '%+.1f' % row.delta }}{% endif %}</td>
-      <td class="delta-{{ row.verdict }}">{{ row.verdict }}</td>
-    </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-</section>
-{% endif %}
-
-<section id="lane">
-  {{ section_title("Lane", "lane", "accent") }}
-  <div class="cards" id="lane-cards">
-    {% for card in lane_cards %}
-    <div class="card"><div class="label">{{ metric_label(card.label, card.icon, card.icon_tone, icon_href=card.icon_href) }}</div><div class="value">{{ card.value }}</div></div>
-    {% endfor %}
-  </div>
-  <div class="figure" id="fig-gd10_histogram">{{ figures.gd10_histogram | safe }}</div>
-  <div class="figure" id="fig-gold_diff_timeline">{{ figures.gold_diff_timeline | safe }}</div>
-  <div class="figure" id="fig-cs10_violin">{{ figures.cs10_violin | safe }}</div>
-</section>
-
-<section id="economy">
-  {{ section_title("Economy", "coin", "gold") }}
-  <div class="cards" id="economy-cards">
-    {% for card in economy_cards %}
-    <div class="card"><div class="label">{{ metric_label(card.label, card.icon, card.icon_tone, icon_href=card.icon_href) }}</div><div class="value">{{ card.value }}</div></div>
-    {% endfor %}
-  </div>
-  <div class="figure" id="fig-dpm_scatter">{{ figures.dpm_scatter | safe }}</div>
-</section>
-
-<section id="vision">
-  {{ section_title("Vision", "eye", "blue") }}
-  <div class="cards" id="vision-cards">
-    {% for card in vision_cards %}
-    <div class="card"><div class="label">{{ metric_label(card.label, card.icon, card.icon_tone, icon_href=card.icon_href) }}</div><div class="value">{{ card.value }}</div></div>
-    {% endfor %}
-  </div>
-  <div class="figure" id="fig-vision_trend">{{ figures.vision_trend | safe }}</div>
-</section>
-
-<section id="deaths">
-  {{ section_title("Deaths", "skull", "danger") }}
-  <div class="cards" id="death-cards">
-    {% for card in death_cards %}
-    <div class="card"><div class="label">{{ metric_label(card.label, card.icon, card.icon_tone, icon_href=card.icon_href) }}</div><div class="value">{{ card.value }}</div></div>
-    {% endfor %}
-  </div>
-  <div class="figure" id="fig-death_heatmap">{{ figures.death_heatmap | safe }}</div>
-  <div class="figure" id="fig-deaths_box">{{ figures.deaths_box | safe }}</div>
-  <div id="blind-spots-block"{% if not blind_spots %} style="display:none"{% endif %}>
-  <h3>{{ metric_label("Most dangerous zones (solo deaths without recent team vision)", "skull", "danger") }}</h3>
-  <table><thead><tr><th>Zone</th><th>{{ metric_label("Deaths", "skull", "danger") }}</th></tr></thead>
-  <tbody id="blind-spots-body">
-  {% for spot in blind_spots %}<tr><td>{{ spot.zone }}</td><td>{{ spot.deaths }}</td></tr>{% endfor %}
-  </tbody></table>
-  </div>
-</section>
-
-<section id="teamfights">
-  {{ section_title("Teamfights", "teamfight", "accent") }}
-  <div class="cards" id="teamfight-cards">
-    {% for card in teamfight_cards %}
-    <div class="card"><div class="label">{{ metric_label(card.label, card.icon, card.icon_tone, icon_href=card.icon_href) }}</div><div class="value">{{ card.value }}</div></div>
-    {% endfor %}
-  </div>
-</section>
-
-<section id="objectives">
-  {{ section_title("Objectives", icon_href=objectives_section_icon) }}
-  <table>
-    <thead>
-    <tr><th>Objective</th><th>Count</th><th>Taken</th><th>Present</th><th>Arrived early</th><th>Dead before</th><th>{{ metric_label("Wards before", "ward", "blue") }}</th></tr>
-    </thead>
-    <tbody id="objective-table-body">
-    {% for row in objective_rows %}
-    <tr><td>{{ icon_cell(row.kind|title, row.objective_icon) }}</td><td>{{ row.count }}</td><td>{{ '%.0f' % (row.taken_rate * 100) }}%</td><td>{{ '%.0f' % (row.presence_rate * 100) }}%</td><td>{{ '%.0f' % (row.early_rate * 100) }}%</td><td>{{ '%.0f' % (row.dead_before_rate * 100) }}%</td><td>{{ row.avg_wards_before }}</td></tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  <div class="figure" id="fig-objective_timing">{{ figures.objective_timing | safe }}</div>
-</section>
-
-<section id="items">
-  {{ section_title("Items", "items", "gold") }}
-  <div class="figure" id="fig-item_winrate_bar">{{ figures.item_winrate_bar | safe }}</div>
-  <h3>Two-item cores</h3>
-  <table>
-    <thead><tr><th>Core</th><th>Games</th><th>Win rate</th><th>{{ metric_label("Avg DPM", "flame", "orange") }}</th><th>{{ metric_label("Avg deaths", "skull", "danger") }}</th></tr></thead>
-    <tbody id="build-paths-body">
-    {% for row in build_paths %}
-    <tr><td>{{ row.core }}</td><td>{{ row.games }}</td><td>{{ '%.0f' % (row.winrate * 100) }}%</td><td>{{ row.avg_dpm }}</td><td>{{ row.avg_deaths }}</td></tr>
-    {% endfor %}
-    </tbody>
-  </table>
-</section>
-
-<section id="runes">
-  {{ section_title("Runes", "rune", "accent") }}
-  <div class="figure" id="fig-rune_winrate_bar">{{ figures.rune_winrate_bar | safe }}</div>
-  <table>
-    <thead><tr><th>Keystone</th><th>Games</th><th>Win rate</th><th>{{ metric_label("Avg DPM", "flame", "orange") }}</th><th>{{ metric_label("Avg deaths", "skull", "danger") }}</th></tr></thead>
-    <tbody id="rune-rows-body">
-    {% for row in rune_rows %}
-    <tr><td>{% if row.keystone_icon %}<span class="icon-cell"><img src="{{ row.keystone_icon }}" alt="" class="game-icon game-icon--sm"><span>{{ row.keystone }}</span></span>{% else %}{{ row.keystone }}{% endif %}</td><td>{{ row.games }}</td><td>{{ '%.0f' % (row.winrate * 100) }}%</td><td>{{ row.avg_dpm }}</td><td>{{ row.avg_deaths }}</td></tr>
-    {% endfor %}
-    </tbody>
-  </table>
-</section>
-
-<section id="matchups">
-  {{ section_title("Matchups", "combat", "accent") }}
-  <div class="figure" id="fig-matchup_bar">{{ figures.matchup_bar | safe }}</div>
-  <table>
-    <thead><tr><th>Opponent</th><th>Games</th><th>Win rate</th><th>GD@10</th><th>CSD@10</th><th>Deaths pre-14</th><th>Recommendation</th></tr></thead>
-    <tbody id="matchup-rows-body">
-    {% for row in matchup_rows %}
-    <tr><td>{% if row.opponent_icon %}<span class="icon-cell"><img src="{{ row.opponent_icon }}" alt="" class="game-icon game-icon--sm"><span>{{ row.opponent }}</span></span>{% else %}{{ row.opponent }}{% endif %}</td><td>{{ row.games }}</td><td>{{ '%.0f' % (row.winrate * 100) }}%</td><td>{{ row.avg_gd10 }}</td><td>{{ row.avg_csd10 }}</td><td>{{ row.avg_deaths_pre14 }}</td><td>{{ row.recommendation }}</td></tr>
-    {% endfor %}
-    </tbody>
-  </table>
-</section>
-
-<section id="graphs">
-  {{ section_title("Graphs", "chart", "accent") }}
-  <div class="figure" id="fig-correlation_heatmap">{{ figures.correlation_heatmap | safe }}</div>
-  <div class="figure" id="fig-win_correlation_bar">{{ figures.win_correlation_bar | safe }}</div>
-  <div class="figure" id="fig-feature_importance">{{ figures.feature_importance | safe }}</div>
-  <div class="figure figure--with-help">
-    <button type="button" class="figure-info-btn" aria-expanded="false" aria-controls="archetype-help" title="How to read this chart">?</button>
-    <div class="figure-info-panel" id="archetype-help" role="region" aria-label="Game archetypes guide">
-      <strong>How to read this chart</strong>
-      <ul>
-        <li>Each dot is one game. <em>Color</em> = archetype. <em>Shape</em> = win or loss.</li>
-        <li>Games with similar stats (gold @10/@15, deaths, damage, vision, length) sit near each other.</li>
-        <li>The axes are a compressed view — they don't map to a single stat. Focus on color, shape, and clusters.</li>
-      </ul>
-      <strong style="display:block;margin-top:10px;">Archetype labels</strong>
-      <ul>
-        <li><em>Lane stomp win</em> — ahead ≥1k gold @15</li>
-        <li><em>Comeback win</em> — behind ≥750 @15, still won</li>
-        <li><em>Scaling win</em> — 32+ minutes</li>
-        <li><em>Clean win</em> — other wins</li>
-        <li><em>Throw</em> — ahead ≥750 @15, lost</li>
-        <li><em>One-sided loss</em> — behind ≥1k @15</li>
-        <li><em>Close loss</em> — other losses</li>
-      </ul>
-    </div>
-    <div id="fig-cluster_scatter">{{ figures.cluster_scatter | safe }}</div>
-  </div>
-</section>
-
-<section id="recommendations">
-  {{ section_title("Recommendations", "bulb", "win") }}
+<section id="recommendations" class="report-section report-section--performance">
+  {{ section_title("Recommendations", "bulb", "win", category='performance') }}
   <p class="sub">Strengths on the left, areas to improve on the right — top {{ recommendation_visible_count }} per side, ranked by priority.</p>
   <div class="rec-columns" id="recommendations-root">
     <div class="rec-column rec-column-positive" id="rec-positive-column">
@@ -352,6 +211,271 @@
     </div>
   </div>
 </section>
+
+{{ category_divider('Laning', 'laning') }}
+
+<section id="lane" class="report-section report-section--laning">
+  {{ section_title("Lane", "lane", "accent", category='laning') }}
+  <div class="cards" id="lane-cards">
+    {% for card in lane_cards %}
+    <div class="card"><div class="label">{{ metric_card_label(card.label, card.icon, card.icon_tone, iconify_id=card.iconify, icon_href=card.icon_href, tooltip=card.tooltip) }}</div><div class="value">{{ card.value }}</div></div>
+    {% endfor %}
+  </div>
+  <div class="figure-block">
+    <div class="figure" id="fig-gd10_histogram">{{ figures.gd10_histogram | safe }}</div>
+    <p class="figure-caption">Gold diff @10 distribution — a right-skewed shape means you often win lane; left-skewed means you fall behind early.</p>
+  </div>
+  <div class="figure-block">
+    <div class="figure" id="fig-gold_diff_timeline">{{ figures.gold_diff_timeline | safe }}</div>
+    <p class="figure-caption">Average gold lead over time in wins vs losses — check where your leads convert or collapse.</p>
+  </div>
+  <div class="figure-block">
+    <div class="figure" id="fig-cs10_violin">{{ figures.cs10_violin | safe }}</div>
+    <p class="figure-caption">CS @10 spread across games — tighter clusters mean more consistent farming.</p>
+  </div>
+</section>
+
+<section id="economy" class="report-section report-section--laning">
+  {{ section_title("Economy", "coin", "gold", category='laning') }}
+  <div class="cards" id="economy-cards">
+    {% for card in economy_cards %}
+    <div class="card"><div class="label">{{ metric_card_label(card.label, card.icon, card.icon_tone, iconify_id=card.iconify, icon_href=card.icon_href, tooltip=card.tooltip) }}</div><div class="value">{{ card.value }}</div></div>
+    {% endfor %}
+  </div>
+  <div class="figure-block">
+    <div class="figure" id="fig-dpm_scatter">{{ figures.dpm_scatter | safe }}</div>
+    <p class="figure-caption">Damage vs gold income per game — dots above the trend line punch above their gold weight.</p>
+  </div>
+</section>
+
+{{ category_divider('Game impact', 'impact') }}
+
+<section id="vision" class="report-section report-section--impact">
+  {{ section_title("Vision", "eye", "blue", category='impact') }}
+  <div class="cards" id="vision-cards">
+    {% for card in vision_cards %}
+    <div class="card"><div class="label">{{ metric_card_label(card.label, card.icon, card.icon_tone, iconify_id=card.iconify, icon_href=card.icon_href, tooltip=card.tooltip) }}</div><div class="value">{{ card.value }}</div></div>
+    {% endfor %}
+  </div>
+  <div class="figure-block">
+    <div class="figure" id="fig-vision_trend">{{ figures.vision_trend | safe }}</div>
+    <p class="figure-caption">Vision score per minute over time — compare win and loss trajectories to spot when vision drops off.</p>
+  </div>
+</section>
+
+<section id="deaths" class="report-section report-section--impact">
+  {{ section_title("Deaths", "skull", "danger", category='impact') }}
+  <div class="cards" id="death-cards">
+    {% for card in death_cards %}
+    <div class="card"><div class="label">{{ metric_card_label(card.label, card.icon, card.icon_tone, iconify_id=card.iconify, icon_href=card.icon_href, tooltip=card.tooltip) }}</div><div class="value">{{ card.value }}</div></div>
+    {% endfor %}
+  </div>
+  <div class="figure-block">
+    <div class="figure" id="fig-death_heatmap">{{ figures.death_heatmap | safe }}</div>
+    <p class="figure-caption">Where you die on the map — hot zones without nearby team vision are prime gank or face-check risks.</p>
+  </div>
+  <div class="figure-block">
+    <div class="figure" id="fig-deaths_box">{{ figures.deaths_box | safe }}</div>
+    <p class="figure-caption">Deaths per game spread — a high median with a long upper tail means volatile survival.</p>
+  </div>
+  <div id="blind-spots-block"{% if not blind_spots %} style="display:none"{% endif %}>
+  <h3>{{ metric_label("Most dangerous zones (solo deaths without recent team vision)", "skull", "danger") }}</h3>
+  <table><thead><tr><th>Zone</th><th>{{ metric_label("Deaths", "skull", "danger") }}</th></tr></thead>
+  <tbody id="blind-spots-body">
+  {% for spot in blind_spots %}<tr><td>{{ spot.zone }}</td><td>{{ spot.deaths }}</td></tr>{% endfor %}
+  </tbody></table>
+  </div>
+</section>
+
+<section id="positioning" class="report-section report-section--impact">
+  {{ section_title("Positioning", "roam", "accent", category='impact') }}
+  <p class="sub">Mid/late game map habits from timeline frames (post 14 min). Distances are map units — lower means closer.</p>
+  {% if positioning_hints %}
+  <div class="positioning-hints" id="positioning-hints">
+    {% for hint in positioning_hints %}
+    <p class="positioning-hint positioning-hint--{{ hint.tone }}">{{ hint.text }}</p>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="positioning-hints" id="positioning-hints" style="display:none"></div>
+  {% endif %}
+  <div class="cards" id="positioning-cards">
+    {% for card in positioning_cards %}
+    <div class="card">
+      <div class="label">{{ metric_card_label(card.label, card.icon, card.icon_tone, iconify_id=card.iconify, icon_href=card.icon_href, role_icon_href=card.role_icon_href, tooltip=card.tooltip) }}</div>
+      <div class="value">{{ card.value }}</div>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+
+<section id="teamfights" class="report-section report-section--impact">
+  {{ section_title("Teamfights", "teamfight", "accent", category='impact') }}
+  <div class="cards" id="teamfight-cards">
+    {% for card in teamfight_cards %}
+    <div class="card"><div class="label">{{ metric_card_label(card.label, card.icon, card.icon_tone, iconify_id=card.iconify, icon_href=card.icon_href, tooltip=card.tooltip) }}</div><div class="value">{{ card.value }}</div></div>
+    {% endfor %}
+  </div>
+</section>
+
+<section id="objectives" class="report-section report-section--impact">
+  {{ section_title("Objectives", "target", "gold", category='impact') }}
+  <table>
+    <thead>
+    <tr><th>Objective</th><th>Count</th><th>Taken</th><th>Present</th><th>Arrived early</th><th>Dead before</th><th>{{ metric_label("Wards before", "ward", "blue") }}</th></tr>
+    </thead>
+    <tbody id="objective-table-body">
+    {% for row in objective_rows %}
+    <tr><td>{{ icon_cell(row.kind|title, row.objective_icon) }}</td><td>{{ row.count }}</td><td>{{ '%.0f' % (row.taken_rate * 100) }}%</td><td>{{ '%.0f' % (row.presence_rate * 100) }}%</td><td>{{ '%.0f' % (row.early_rate * 100) }}%</td><td>{{ '%.0f' % (row.dead_before_rate * 100) }}%</td><td>{{ row.avg_wards_before }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <div class="figure-block">
+    <div class="figure" id="fig-objective_timing">{{ figures.objective_timing | safe }}</div>
+    <p class="figure-caption">When objectives are taken — early arrivals and ward placement before spawn improve take rates.</p>
+  </div>
+</section>
+
+{{ category_divider('Champion', 'champion') }}
+
+<section id="items" class="report-section report-section--champion">
+  {{ section_title("Items", "items", "gold", category='champion') }}
+  <div class="figure-block">
+    <div class="figure" id="fig-item_winrate_bar">{{ figures.item_winrate_bar | safe }}</div>
+    <p class="figure-caption">Win rate by completed item — favor items with enough sample size and a clear WR edge.</p>
+  </div>
+  <h3>Two-item cores</h3>
+  <table>
+    <thead><tr><th>Core</th><th>Games</th><th>Win rate</th><th>{{ metric_label("Avg DPM", "flame", "orange") }}</th><th>{{ metric_label("Avg deaths", "skull", "danger") }}</th></tr></thead>
+    <tbody id="build-paths-body">
+    {% for row in build_paths %}
+    <tr><td>{{ core_cell(row.first_item, row.second_item, row.first_item_icon, row.second_item_icon, row.core) }}</td><td>{{ row.games }}</td><td>{{ '%.0f' % (row.winrate * 100) }}%</td><td>{{ row.avg_dpm }}</td><td>{{ row.avg_deaths }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section id="runes" class="report-section report-section--champion">
+  {{ section_title("Runes", "rune", "accent", category='champion') }}
+  <div class="figure-block">
+    <div class="figure" id="fig-rune_winrate_bar">{{ figures.rune_winrate_bar | safe }}</div>
+    <p class="figure-caption">Win rate by keystone — compare rune setups with similar game counts before switching.</p>
+  </div>
+  <table>
+    <thead><tr><th>Keystone</th><th>Games</th><th>Win rate</th><th>{{ metric_label("Avg DPM", "flame", "orange") }}</th><th>{{ metric_label("Avg deaths", "skull", "danger") }}</th></tr></thead>
+    <tbody id="rune-rows-body">
+    {% for row in rune_rows %}
+    <tr><td>{% if row.keystone_icon %}<span class="icon-cell"><img src="{{ row.keystone_icon }}" alt="" class="game-icon game-icon--sm"><span>{{ row.keystone }}</span></span>{% else %}{{ row.keystone }}{% endif %}</td><td>{{ row.games }}</td><td>{{ '%.0f' % (row.winrate * 100) }}%</td><td>{{ row.avg_dpm }}</td><td>{{ row.avg_deaths }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section id="matchups" class="report-section report-section--champion">
+  {{ section_title("Matchups", "combat", "accent", category='champion') }}
+  <div class="figure-block">
+    <div class="figure" id="fig-matchup_bar">{{ figures.matchup_bar | safe }}</div>
+    <p class="figure-caption">Win rate vs lane opponents — bar length shows sample size; color shows above/below 50% WR.</p>
+  </div>
+  <table>
+    <thead><tr><th>Opponent</th><th>Games</th><th>Win rate</th><th>GD@10</th><th>CSD@10</th><th>Deaths pre-14</th><th>Recommendation</th></tr></thead>
+    <tbody id="matchup-rows-body">
+    {% for row in matchup_rows %}
+    <tr><td>{% if row.opponent_icon %}<span class="icon-cell"><img src="{{ row.opponent_icon }}" alt="" class="game-icon game-icon--sm"><span>{{ row.opponent }}</span></span>{% else %}{{ row.opponent }}{% endif %}</td><td>{{ row.games }}</td><td>{{ '%.0f' % (row.winrate * 100) }}%</td><td>{{ row.avg_gd10 }}</td><td>{{ row.avg_csd10 }}</td><td>{{ row.avg_deaths_pre14 }}</td><td>{{ row.recommendation }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+{{ category_divider('Analysis', 'analysis') }}
+
+{% if has_peer_comparison %}
+<section id="rank-peers" class="report-section report-section--analysis">
+  {{ section_title("Rank peer comparison", "chart", "accent", category='analysis') }}
+  <p class="sub" id="peer-subtitle">Your averages vs {{ build_label }} at <strong>{{ peer_comparison.rank_label }}</strong> · {{ peer_comparison.source }} · {{ peer_comparison.peer_games }} peer games ({{ peer_comparison.peer_players }} players, {{ peer_comparison.confidence }} confidence)</p>
+  <div class="cards" id="peer-highlight-cards">
+    {% for label, items, icon, tone in [('Strengths', peer_comparison.strengths, 'trophy', 'win'), ('Weaknesses', peer_comparison.weaknesses, 'skull', 'danger')] %}
+    <div class="card" style="grid-column: span 2;">
+      <div class="label">{{ metric_label(label, icon, tone) }}</div>
+      {% if items %}
+      <ul style="margin-top:8px;padding-left:18px;color:var(--muted);">
+        {% for item in items %}<li>{{ item }}</li>{% endfor %}
+      </ul>
+      {% else %}<p class="sub" style="margin:8px 0 0">—</p>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  <div class="figure-block">
+    <div class="figure" id="fig-peer_comparison">{{ figures.peer_comparison | safe }}</div>
+    <p class="figure-caption">Gap vs same-rank peers — green bars are strengths, red bars are areas trailing the benchmark.</p>
+  </div>
+  <table>
+    <thead>
+    <tr><th>Metric</th><th>You</th><th>{{ peer_comparison.tier|title }} {{ build_label }} avg</th><th>Gap</th><th>Verdict</th></tr>
+    </thead>
+    <tbody id="peer-table-body">
+    {% for row in peer_rows %}
+    <tr>
+      <td>{{ metric_label(row.label, row.icon, row.icon_tone, icon_href=row.icon_href) }}</td>
+      <td>{% if row.metric == 'win' %}{{ '%.0f' % (row.yours * 100) }}%{% elif row.metric == 'kill_participation' or row.metric == 'damage_share' %}{{ '%.0f' % (row.yours * 100) }}%{% else %}{{ row.yours }}{% endif %}</td>
+      <td>{% if row.metric == 'win' %}{{ '%.0f' % (row.peer_avg * 100) }}%{% elif row.metric == 'kill_participation' or row.metric == 'damage_share' %}{{ '%.0f' % (row.peer_avg * 100) }}%{% else %}{{ row.peer_avg }}{% endif %}</td>
+      <td class="delta-{{ row.verdict }}">{% if row.delta_pct is not none %}{{ '%+.0f' % row.delta_pct }}%{% else %}{{ '%+.1f' % row.delta }}{% endif %}</td>
+      <td class="delta-{{ row.verdict }}">{{ row.verdict }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+<section id="graphs" class="report-section report-section--analysis">
+  {{ section_title("Statistical deep dive", "chart", "accent", category='analysis') }}
+  <p class="sub">Advanced correlations and game archetypes — collapse this section if you only want actionable coaching tips above.</p>
+  <details class="graphs-details" open>
+    <summary>Show statistical charts</summary>
+    <div class="graphs-details-body">
+      <div class="figure-block">
+        <div class="figure" id="fig-correlation_heatmap">{{ figures.correlation_heatmap | safe }}</div>
+        <p class="figure-caption">How stats move together — strong red/blue pairs mean two metrics rise or fall in tandem across your games.</p>
+      </div>
+      <div class="figure-block">
+        <p class="figure-header" id="hint-win_correlation_bar"{% if not figure_hints.win_correlation_bar %} style="display:none"{% endif %}>{% if figure_hints.win_correlation_bar %}{{ figure_hints.win_correlation_bar }}{% endif %}</p>
+        <div class="figure" id="fig-win_correlation_bar">{{ figures.win_correlation_bar | safe }}</div>
+        <p class="figure-caption">Which stats most align with winning — longer bars (positive or negative) matter more for your results.</p>
+      </div>
+      <div class="figure-block">
+        <p class="figure-header" id="hint-feature_importance"{% if not figure_hints.feature_importance %} style="display:none"{% endif %}>{% if figure_hints.feature_importance %}{{ figure_hints.feature_importance }}{% endif %}</p>
+        <div class="figure" id="fig-feature_importance">{{ figures.feature_importance | safe }}</div>
+        <p class="figure-caption">What the early-game win model weighs most — focus practice on the top features when sample size is sufficient.</p>
+      </div>
+      <div class="figure-block">
+        <div class="figure figure--with-help">
+          <button type="button" class="figure-info-btn" aria-expanded="false" aria-controls="archetype-help" title="How to read this chart">?</button>
+          <div class="figure-info-panel" id="archetype-help" role="region" aria-label="Game archetypes guide">
+            <strong>How to read this chart</strong>
+            <ul>
+              <li>Each dot is one game. <em>Color</em> = archetype. <em>Shape</em> = win or loss.</li>
+              <li>Games with similar stats (gold @10/@15, deaths, damage, vision, length) sit near each other.</li>
+              <li>The axes are a compressed view — they don't map to a single stat. Focus on color, shape, and clusters.</li>
+            </ul>
+            <strong style="display:block;margin-top:10px;">Archetype labels</strong>
+            <ul>
+              <li><em>Lane stomp win</em> — ahead ≥1k gold @15</li>
+              <li><em>Comeback win</em> — behind ≥750 @15, still won</li>
+              <li><em>Scaling win</em> — 32+ minutes</li>
+              <li><em>Clean win</em> — other wins</li>
+              <li><em>Throw</em> — ahead ≥750 @15, lost</li>
+              <li><em>One-sided loss</em> — behind ≥1k @15</li>
+              <li><em>Close loss</em> — other losses</li>
+            </ul>
+          </div>
+          <div id="fig-cluster_scatter">{{ figures.cluster_scatter | safe }}</div>
+        </div>
+        <p class="figure-caption">Game archetypes in a compressed stat space — look for clusters of throws or comeback wins to spot patterns.</p>
+      </div>
+    </div>
+  </details>
+</section>
 <script type="application/json" id="report-views-data">{{ report_views_json | safe }}</script>
 <script>
 (function () {
@@ -371,14 +495,37 @@
     return Math.round(Number(value) * 100) + '%';
   }
 
-  function metricLabel(label, iconify, tone, iconHref) {
+  function escapeHtml(str) {
+    var div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  function metricCardLabel(card) {
+    var labelHtml = metricLabel(card.label, card.iconify, card.icon_tone, card.icon_href, card.role_icon_href);
+    if (!card.tooltip) {
+      return '<div class="metric-card-label">' + labelHtml + '</div>';
+    }
+    return '<div class="metric-card-label">' + labelHtml +
+      '<span class="metric-tooltip-wrap"><button type="button" class="metric-tooltip-btn" aria-label="How ' +
+      escapeHtml(card.label) + ' is calculated" aria-expanded="false">?</button>' +
+      '<span class="metric-tooltip-panel" role="tooltip">' + escapeHtml(card.tooltip) + '</span></span></div>';
+  }
+
+  function metricLabel(label, iconify, tone, iconHref, roleIconHref) {
     tone = tone || 'muted';
+    var roleImg = roleIconHref
+      ? '<img src="' + roleIconHref + '" alt="" class="role-icon role-icon--sm">'
+      : '';
     if (iconHref) {
-      return '<span class="metric-label"><img src="' + iconHref + '" alt="" class="metric-icon metric-icon--asset metric-icon--' + tone + '" aria-hidden="true">' +
+      return '<span class="metric-label">' + roleImg +
+        '<img src="' + iconHref + '" alt="" class="metric-icon metric-icon--asset metric-icon--' + tone + '" aria-hidden="true">' +
         '<span>' + label + '</span></span>';
     }
-    if (!iconify) return label;
-    return '<span class="metric-label">' +
+    if (!iconify) {
+      return roleImg ? '<span class="metric-label">' + roleImg + '<span>' + label + '</span></span>' : label;
+    }
+    return '<span class="metric-label">' + roleImg +
       '<iconify-icon icon="' + iconify + '" class="metric-icon metric-icon--' + tone + '" aria-hidden="true"></iconify-icon>' +
       '<span>' + label + '</span></span>';
   }
@@ -387,7 +534,7 @@
     if (!container) return;
     container.innerHTML = (cards || []).map(function (card) {
       var cls = card.value_class ? ' value ' + card.value_class : ' value';
-      return '<div class="card"><div class="label">' + metricLabel(card.label, card.iconify, card.icon_tone, card.icon_href) +
+      return '<div class="card"><div class="label">' + metricCardLabel(card) +
         '</div><div class="' + cls.trim() + '">' + card.value + '</div></div>';
     }).join('');
   }
@@ -395,7 +542,7 @@
   function renderCardPairs(container, cards) {
     if (!container) return;
     container.innerHTML = (cards || []).map(function (card) {
-      return '<div class="card"><div class="label">' + metricLabel(card.label, card.iconify, card.icon_tone, card.icon_href) +
+      return '<div class="card"><div class="label">' + metricCardLabel(card) +
         '</div><div class="value">' + card.value + '</div></div>';
     }).join('');
   }
@@ -426,7 +573,13 @@
     }
     if (!compsNode) return;
     compsNode.innerHTML = (bundle.score_components || []).map(function (comp) {
-      return '<div class="comp"><strong>' + metricLabel(comp.name, comp.iconify, comp.icon_tone, comp.icon_href) + '</strong> — ' + comp.value +
+      return '<div class="comp"><strong>' + metricCardLabel({
+        label: comp.name,
+        iconify: comp.iconify,
+        icon_tone: comp.icon_tone,
+        icon_href: comp.icon_href,
+        tooltip: comp.tooltip,
+      }) + '</strong> — ' + comp.value +
         '<div class="bar"><i style="width:' + comp.score + '%"></i></div>' +
         '<small style="color:var(--muted)">' + comp.hint + '</small></div>';
     }).join('');
@@ -463,6 +616,15 @@
     setFigure('fig-peer_comparison', bundle.figures.peer_comparison || '');
   }
 
+  function coreCell(row) {
+    if (row.first_item_icon || row.second_item_icon) {
+      return '<span class="core-cell">' + iconCell(row.first_item, row.first_item_icon) +
+        '<span class="core-arrow" aria-hidden="true">→</span>' +
+        iconCell(row.second_item, row.second_item_icon) + '</span>';
+    }
+    return row.core;
+  }
+
   function iconCell(name, iconHref) {
     if (iconHref) {
       return '<span class="icon-cell"><img src="' + iconHref + '" alt="" class="game-icon game-icon--sm"><span>' + name + '</span></span>';
@@ -474,6 +636,37 @@
     var body = document.getElementById(id);
     if (!body) return;
     body.innerHTML = (rows || []).map(renderRow).join('');
+  }
+
+  function renderTopTips(bundle) {
+    var node = document.getElementById('top-tips-callout');
+    if (!node) return;
+    var tips = bundle.top_tips || [];
+    if (!tips.length) {
+      node.style.display = 'none';
+      node.innerHTML = '';
+      return;
+    }
+    node.style.display = '';
+    node.innerHTML = '<span class="top-tips-label">Top coaching tips</span>' +
+      tips.map(function (tip) {
+        return '<span class="top-tip top-tip--' + (tip.tone || 'positive') + '">' +
+          '<span class="badge">' + tip.category + '</span><span>' + tip.title + '</span></span>';
+      }).join('');
+  }
+
+  function renderFigureHints(bundle) {
+    var hints = bundle.figure_hints || {};
+    ['win_correlation_bar', 'feature_importance'].forEach(function (key) {
+      var node = document.getElementById('hint-' + key);
+      if (!node) return;
+      if (hints[key]) {
+        node.textContent = hints[key];
+        node.style.display = '';
+      } else {
+        node.style.display = 'none';
+      }
+    });
   }
 
   function renderRecommendations(bundle) {
@@ -514,6 +707,20 @@
     } else {
       negCol.innerHTML = '<h3>Work on</h3><p class="rec-empty">Nothing critical flagged — solid performance overall.</p>';
     }
+  }
+
+  function renderPositioningHints(hints) {
+    var node = document.getElementById('positioning-hints');
+    if (!node) return;
+    if (!hints || !hints.length) {
+      node.style.display = 'none';
+      node.innerHTML = '';
+      return;
+    }
+    node.style.display = '';
+    node.innerHTML = hints.map(function (hint) {
+      return '<p class="positioning-hint positioning-hint--' + hint.tone + '">' + hint.text + '</p>';
+    }).join('');
   }
 
   function updateGameWindowButtons(queueKey) {
@@ -557,12 +764,15 @@
         ' games analysed · patches ' + bundle.patch_range;
     }
     renderCards(document.getElementById('overview-cards'), bundle.overview_cards);
+    renderTopTips(bundle);
     renderScore(bundle);
     renderPeer(bundle);
     renderCardPairs(document.getElementById('lane-cards'), bundle.lane_cards);
     renderCardPairs(document.getElementById('economy-cards'), bundle.economy_cards);
     renderCardPairs(document.getElementById('vision-cards'), bundle.vision_cards);
     renderCardPairs(document.getElementById('death-cards'), bundle.death_cards);
+    renderPositioningHints(bundle.positioning_hints);
+    renderCardPairs(document.getElementById('positioning-cards'), bundle.positioning_cards);
     renderCardPairs(document.getElementById('teamfight-cards'), bundle.teamfight_cards);
 
     var blindBlock = document.getElementById('blind-spots-block');
@@ -581,7 +791,7 @@
         '</td><td>' + row.avg_wards_before + '</td></tr>';
     });
     renderTableBody('build-paths-body', bundle.build_paths, function (row) {
-      return '<tr><td>' + row.core + '</td><td>' + row.games + '</td><td>' + pct(row.winrate) + '</td><td>' +
+      return '<tr><td>' + coreCell(row) + '</td><td>' + row.games + '</td><td>' + pct(row.winrate) + '</td><td>' +
         row.avg_dpm + '</td><td>' + row.avg_deaths + '</td></tr>';
     });
     renderTableBody('rune-rows-body', bundle.rune_rows, function (row) {
@@ -597,6 +807,7 @@
     Object.keys(bundle.figures || {}).forEach(function (name) {
       setFigure('fig-' + name, bundle.figures[name]);
     });
+    renderFigureHints(bundle);
     renderRecommendations(bundle);
 
     updateQueueButtons(queueKey);
@@ -661,6 +872,34 @@
 </script>
 <script>
 (function () {
+  var navLinks = document.querySelectorAll('.nav-link[data-section]');
+  if (!navLinks.length || !('IntersectionObserver' in window)) return;
+  var sections = Array.prototype.map.call(navLinks, function (link) {
+    return document.getElementById(link.getAttribute('data-section'));
+  }).filter(Boolean);
+  if (!sections.length) return;
+
+  var activeId = sections[0].id;
+  function setActiveNav(id) {
+    if (!id || id === activeId) return;
+    activeId = id;
+    navLinks.forEach(function (link) {
+      link.classList.toggle('is-active', link.getAttribute('data-section') === id);
+    });
+  }
+
+  var observer = new IntersectionObserver(function (entries) {
+    entries.forEach(function (entry) {
+      if (entry.isIntersecting) setActiveNav(entry.target.id);
+    });
+  }, { rootMargin: '-18% 0px -62% 0px', threshold: 0 });
+
+  sections.forEach(function (section) { observer.observe(section); });
+  setActiveNav(sections[0].id);
+})();
+</script>
+<script>
+(function () {
   var recRoot = document.getElementById('recommendations-root');
   if (recRoot) {
     recRoot.addEventListener('click', function (e) {
@@ -694,7 +933,29 @@
   document.querySelectorAll('.figure-info-panel').forEach(function (panel) {
     panel.addEventListener('click', function (e) { e.stopPropagation(); });
   });
-  document.addEventListener('click', function () {
+  document.addEventListener('click', function (e) {
+    var metricBtn = e.target.closest('.metric-tooltip-btn');
+    if (metricBtn) {
+      e.stopPropagation();
+      var wrap = metricBtn.closest('.metric-tooltip-wrap');
+      if (!wrap) return;
+      var open = !wrap.classList.contains('is-open');
+      document.querySelectorAll('.metric-tooltip-wrap.is-open').forEach(function (w) {
+        w.classList.remove('is-open');
+        var b = w.querySelector('.metric-tooltip-btn');
+        if (b) b.setAttribute('aria-expanded', 'false');
+      });
+      if (open) {
+        wrap.classList.add('is-open');
+        metricBtn.setAttribute('aria-expanded', 'true');
+      }
+      return;
+    }
+    document.querySelectorAll('.metric-tooltip-wrap.is-open').forEach(function (w) {
+      w.classList.remove('is-open');
+      var b = w.querySelector('.metric-tooltip-btn');
+      if (b) b.setAttribute('aria-expanded', 'false');
+    });
     document.querySelectorAll('.figure-info-panel.is-open').forEach(function (p) {
       p.classList.remove('is-open');
       var btn = document.querySelector('[aria-controls="' + p.id + '"]');

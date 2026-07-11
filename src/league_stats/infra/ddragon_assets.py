@@ -18,9 +18,9 @@ from league_stats.ingest.parser import PERK_NAMES
 from league_stats.infra.riot_api import DDRAGON_BASE
 from league_stats.utils import get_logger
 
-# Keystones live in the 8000–9000 perk id range (stat shards are 5000+).
+# Keystones live in the 8000+ perk id range (stat shards are 5000+).
 KEYSTONE_ID_MIN: int = 8000
-KEYSTONE_ID_MAX: int = 9000
+KEYSTONE_ID_MAX: int = 10_000
 
 COMMUNITY_DRAGON_BASE = "https://raw.communitydragon.org/latest"
 ROLE_ICON_FILES: dict[str, str] = {
@@ -34,21 +34,23 @@ ROLE_ICON_URL = (
     "{base}/plugins/rcp-fe-lol-clash/global/default/assets/images/"
     "position-selector/positions/{filename}"
 )
-UI_ICON_URLS: dict[str, str] = {
-    "minions.png": (
-        "{base}/plugins/rcp-fe-lol-match-history/global/default/icon_minions.png"
-    ),
-}
 SCOREBOARD_BASE = f"{COMMUNITY_DRAGON_BASE}/game/assets/ux/scoreboard"
 MATCH_HISTORY_BASE = (
     f"{COMMUNITY_DRAGON_BASE}/plugins/rcp-fe-lol-match-history/global/default"
 )
+MINIMAP_ICONS_BASE = f"{COMMUNITY_DRAGON_BASE}/game/assets/ux/minimap/icons"
+UI_ICON_URLS: dict[str, str] = {
+    "minions.png": (
+        "{base}/plugins/rcp-fe-lol-match-history/global/default/icon_minions.png"
+    ),
+    "tower.png": f"{MATCH_HISTORY_BASE}/tower_building_blue.png",
+}
 OBJECTIVE_ICON_SOURCES: dict[str, str] = {
     "dragon.png": f"{SCOREBOARD_BASE}/_dragon.png",
     "elder.png": f"{SCOREBOARD_BASE}/_elderdrake.png",
     "baron.png": f"{SCOREBOARD_BASE}/_baronnashor.png",
     "herald.png": f"{SCOREBOARD_BASE}/_riftherald.png",
-    "grubs.png": f"{MATCH_HISTORY_BASE}/right_icons_grub.png",
+    "grubs.png": f"{MINIMAP_ICONS_BASE}/grub.png",
     "tower.png": f"{MATCH_HISTORY_BASE}/tower_building_blue.png",
     "inhibitor.png": f"{MATCH_HISTORY_BASE}/inhibitor_building_blue.png",
     "nexus.png": f"{MATCH_HISTORY_BASE}/nexus_building_blue.png",
@@ -341,6 +343,16 @@ class DDragonAssets:
             enriched.append(item)
         return enriched
 
+    def enrich_build_path_rows(self, rows: list[dict[str, Any]], *, from_dir: Path) -> list[dict[str, Any]]:
+        """Attach item icon hrefs to two-item core table rows."""
+        enriched: list[dict[str, Any]] = []
+        for row in rows:
+            item = dict(row)
+            item["first_item_icon"] = self.item_href_by_name(str(row.get("first_item", "")), from_dir=from_dir)
+            item["second_item_icon"] = self.item_href_by_name(str(row.get("second_item", "")), from_dir=from_dir)
+            enriched.append(item)
+        return enriched
+
     def _read_manifest(self) -> dict[str, Any]:
         if not self._manifest_path.is_file():
             return {}
@@ -459,6 +471,9 @@ class DDragonAssets:
             force or not destination.is_file() or _needs_minion_crop(source, destination)
         ):
             _crop_top_half_png(source, destination)
+        tower_destination = self._ui_dir / "tower.png"
+        if force or not tower_destination.is_file():
+            self._download_binary(UI_ICON_URLS["tower.png"], tower_destination)
 
     def _objectives_cached(self) -> bool:
         return all(
@@ -467,11 +482,13 @@ class DDragonAssets:
         )
 
     def _ensure_objective_icons(self, *, force: bool = False) -> None:
-        if self._objectives_cached() and not force:
+        if self._objectives_cached() and not force and not _needs_grub_refresh(self._objectives_dir):
             return
         for filename, url in OBJECTIVE_ICON_SOURCES.items():
             destination = self._objectives_dir / filename
-            if destination.is_file() and not force:
+            if destination.is_file() and not force and not (
+                filename == "grubs.png" and _needs_grub_refresh(self._objectives_dir)
+            ):
                 continue
             self._download_binary(url, destination)
 
@@ -490,6 +507,14 @@ def _png_dimensions(path: Path) -> tuple[int, int] | None:
         return width, height
     except (OSError, struct.error):
         return None
+
+
+def _needs_grub_refresh(objectives_dir: Path) -> bool:
+    """Detect the legacy match-history grub sprite cached as the objective icon."""
+    path = objectives_dir / "grubs.png"
+    if not path.is_file():
+        return False
+    return path.stat().st_size > 10_000
 
 
 def _needs_minion_crop(source: Path, destination: Path) -> bool:
