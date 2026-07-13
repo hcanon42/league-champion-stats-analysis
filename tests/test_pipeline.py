@@ -88,7 +88,7 @@ def test_full_pipeline_generates_all_artifacts(tmp_path: Path) -> None:
     html = report_path.read_text(encoding="utf-8")
     assert "Improvement score" in html and "Recommendations" in html
     assert "Rank peer comparison" in html
-    assert "Your champions" in html or "All players" in html
+    assert "All players" in html
 
     expected = [
         "summary.json", "matches.csv", "deaths.csv", "timeline.csv", "matchups.csv",

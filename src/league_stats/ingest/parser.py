@@ -17,6 +17,8 @@ from league_stats.analysis.deaths import extract_deaths
 from league_stats.analysis.objectives import extract_objectives
 from league_stats.analysis.positioning import extract_positioning
 from league_stats.analysis.teamfights import detect_teamfights
+from league_stats.analysis.jungle import extract_jungle_metrics
+from league_stats.analysis.support import extract_support_metrics
 from league_stats.analysis.timeline import TimelineContext, build_context, extract_timeline_stats
 from league_stats.analysis.vision import extract_control_ward_lifetime
 from league_stats.infra.cache import MatchStore
@@ -338,6 +340,17 @@ class MatchParser:
         timeline_stats.avg_allies_nearby = positioning["avg_allies_nearby"]
         timeline_stats.avg_teammate_distance = positioning["avg_teammate_distance"]
         timeline_stats.role_distances = positioning["role_distances"]
+        role = str(me.get("teamPosition", ""))
+        if role == "JUNGLE":
+            jungle_extra = extract_jungle_metrics(ctx)
+            timeline_stats.early_ganks = int(jungle_extra["early_ganks"])
+            timeline_stats.gank_assists = int(jungle_extra["gank_assists"])
+            timeline_stats.kp15 = jungle_extra["kp15"]
+        elif role == "UTILITY":
+            support_extra = extract_support_metrics(ctx, timeline_stats.roams)
+            timeline_stats.roam_conversions = int(support_extra["roam_conversions"])
+            timeline_stats.kp15 = support_extra["kp15"]
+            timeline_stats.vspm10 = support_extra["vspm10"]
         deaths = extract_deaths(ctx, timeline_stats.recalls, ult_learned_min)
         shutdown_collected = sum(
             int(e.get("shutdownBounty", 0))
@@ -396,6 +409,11 @@ class MatchParser:
         team_kills = sum(int(p.get("kills", 0)) for p in allies)
         kills, deaths, assists = int(me["kills"]), int(me["deaths"]), int(me["assists"])
         challenges = me.get("challenges", {}) or {}
+        raw_kp = challenges.get("killParticipation")
+        if raw_kp is None or float(raw_kp) <= 0:
+            kp = safe_div(kills + assists, team_kills)
+        else:
+            kp = float(raw_kp)
         return CombatStats(
             kills=kills,
             deaths=deaths,
@@ -415,9 +433,7 @@ class MatchParser:
             triple_kills=int(me.get("tripleKills", 0)),
             quadra_kills=int(me.get("quadraKills", 0)),
             penta_kills=int(me.get("pentaKills", 0)),
-            kill_participation=float(
-                challenges.get("killParticipation", safe_div(kills + assists, team_kills))
-            ),
+            kill_participation=kp,
         )
 
     def _economy(

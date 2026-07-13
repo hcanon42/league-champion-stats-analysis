@@ -21,6 +21,12 @@ matplotlib.use("Agg")  # headless rendering; must precede pyplot import
 import matplotlib.pyplot as plt
 
 from league_stats.analysis.statistics import ModelResult, feature_label
+from league_stats.presentation.metric_colors import (
+    NEUTRAL_HEX,
+    colors_for_winrates,
+    interpolate_metric_color,
+    score_peer_gap,
+)
 from league_stats.utils import MAP_SIZE, get_logger
 
 PLOTLY_TEMPLATE = "plotly_dark"
@@ -378,7 +384,7 @@ class GraphFactory:
             values=(frame["winrate"] * 100).tolist(),
             labels=labels,
             icon_hrefs=icon_hrefs,
-            colors=[WIN_COLOR if w >= 0.5 else LOSS_COLOR for w in frame["winrate"]],
+            colors=colors_for_winrates(frame["winrate"].tolist()),
             text=[f"{g} games" for g in frame["games"]],
             title=f"Win rate by lane opponent (min {min_games} games)",
             xaxis_title="Win rate %",
@@ -452,15 +458,26 @@ class GraphFactory:
         for c in comparisons:
             if c.delta_pct is None:
                 deltas.append(0.0)
-                colors.append("#888")
+                gap_score = score_peer_gap(
+                    metric=c.metric,
+                    delta_pct=None,
+                    delta=c.delta,
+                    direction=c.direction,
+                )
+                colors.append(interpolate_metric_color(gap_score) if gap_score is not None else NEUTRAL_HEX)
                 continue
             if c.direction == "lower":
-                # Invert so positive bar = better than peers for deaths etc.
                 pct = -c.delta_pct
             else:
                 pct = c.delta_pct
             deltas.append(pct)
-            colors.append(WIN_COLOR if pct > 0 else LOSS_COLOR if pct < 0 else "#888")
+            gap_score = score_peer_gap(
+                metric=c.metric,
+                delta_pct=c.delta_pct,
+                delta=c.delta,
+                direction=c.direction,
+            )
+            colors.append(interpolate_metric_color(gap_score) if gap_score is not None else NEUTRAL_HEX)
         fig = go.Figure(go.Bar(
             x=deltas, y=labels, orientation="h", marker_color=colors,
             text=[f"{d:+.0f}%" for d in deltas], textposition="outside",

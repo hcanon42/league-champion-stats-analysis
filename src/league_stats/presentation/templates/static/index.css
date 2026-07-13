@@ -1,0 +1,145 @@
+:root {
+  --bg: #0f1118; --panel: #171a24; --panel-2: #1e2230; --border: #2a2f40;
+  --text: #e8eaf2; --muted: #9aa0b5; --accent: #7c6cf0; --win: #3fb68b; --loss: #e05563;
+  --scrollbar-track: var(--bg);
+  --scrollbar-thumb: #353b50;
+  --scrollbar-thumb-hover: var(--accent);
+}
+html {
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scrollbar-width: thin;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track); scrollbar-width: thin; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--scrollbar-track); }
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 999px;
+  border: 3px solid var(--scrollbar-track);
+  min-height: 40px;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); }
+::-webkit-scrollbar-corner { background: var(--scrollbar-track); }
+body {
+  background: var(--bg); color: var(--text);
+  font: 15px/1.55 -apple-system, "Segoe UI", Roboto, sans-serif;
+  max-width: 1100px; margin: 0 auto; padding: 48px 24px 64px;
+}
+a { color: var(--accent); text-decoration: none; font-weight: 600; }
+a:hover { text-decoration: underline; }
+
+.app-brand { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; }
+.app-brand-title { font-size: 28px; font-weight: 700; color: var(--accent); line-height: 1.2; }
+.app-logo {
+  width: 44px; height: 44px; border-radius: 10px; flex-shrink: 0;
+  object-fit: cover; box-shadow: 0 2px 12px rgba(0, 0, 0, .35);
+}
+
+.index-header { margin-bottom: 28px; }
+.index-title { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+.index-sub { color: var(--muted); font-size: 14px; }
+
+.player-cards {
+  display: flex; gap: 12px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 28px;
+  scrollbar-color: var(--scrollbar-thumb) var(--panel);
+}
+.player-card {
+  flex: 0 0 auto; min-width: 200px; max-width: 280px;
+  display: block; padding: 14px 16px; background: var(--panel);
+  border: 1px solid var(--border); border-radius: 10px; color: var(--text);
+  text-decoration: none; transition: border-color .15s, background .15s;
+}
+.player-card:hover { border-color: var(--accent); background: var(--panel-2); text-decoration: none; }
+.player-card-name {
+  font-size: 14px; font-weight: 600; line-height: 1.3;
+  display: flex; align-items: flex-start; gap: 8px; flex-wrap: wrap;
+}
+.player-card-meta { font-size: 12px; color: var(--muted); margin-top: 8px; line-height: 1.45; }
+.badge-group {
+  display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: .04em;
+  text-transform: uppercase; padding: 2px 6px; border-radius: 4px;
+  background: rgba(124, 108, 240, 0.15); color: var(--accent); flex-shrink: 0;
+}
+
+.index-toolbar {
+  display: flex; flex-wrap: wrap; gap: 12px 16px; align-items: center;
+  margin-bottom: 20px; padding: 14px 16px; background: var(--panel);
+  border: 1px solid var(--border); border-radius: 10px;
+}
+.search-input {
+  flex: 1 1 180px; min-width: 0; padding: 9px 12px;
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text); font: inherit; font-size: 14px;
+}
+.search-input:focus { outline: none; border-color: var(--accent); }
+.search-input::placeholder { color: var(--muted); }
+
+.role-filters { display: flex; flex-wrap: wrap; gap: 6px; }
+.role-chip {
+  padding: 6px 10px; border: 1px solid var(--border); border-radius: 999px;
+  background: var(--panel-2); color: var(--muted); font-size: 12px; font-weight: 600;
+  cursor: pointer; transition: color .15s, border-color .15s, background .15s;
+}
+.role-chip:hover { color: var(--text); border-color: var(--accent); }
+.role-chip.is-active { color: var(--text); border-color: var(--accent); background: rgba(124, 108, 240, 0.12); }
+
+.sort-select {
+  padding: 7px 10px; background: var(--panel-2); border: 1px solid var(--border);
+  border-radius: 8px; color: var(--text); font: inherit; font-size: 13px; cursor: pointer;
+}
+.sort-select:focus { outline: none; border-color: var(--accent); }
+
+.build-grid--catalog {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px;
+}
+.build-card {
+  display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+  color: var(--text); text-decoration: none; font-size: 13px;
+  transition: border-color .15s, background .15s;
+}
+.build-card:hover { border-color: var(--accent); background: var(--panel-2); text-decoration: none; }
+.build-card .game-icon {
+  width: 36px; height: 36px; border-radius: 8px; flex-shrink: 0;
+  background: var(--panel-2); border: 1px solid var(--border);
+}
+.build-card-body { flex: 1; min-width: 0; }
+.build-card strong {
+  display: block; font-size: 14px; font-weight: 600; line-height: 1.3;
+}
+.build-card-role {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 12px; font-weight: 500; color: var(--muted); margin-left: 4px;
+}
+.build-card-player {
+  font-size: 12px; color: var(--muted); margin-top: 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.build-card .meta { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.build-card .meta .win { color: var(--win); }
+.build-card .meta .loss { color: var(--loss); }
+.build-card.is-hidden { display: none; }
+
+.role-icon { flex-shrink: 0; object-fit: contain; opacity: .92; }
+.role-icon--sm { width: 16px; height: 16px; }
+.build-heading { display: inline-flex; align-items: center; gap: 6px; }
+
+.empty, .empty-filtered {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+  padding: 32px; color: var(--muted); text-align: center;
+}
+.empty-filtered { display: none; margin-top: 12px; }
+.empty-filtered.is-visible { display: block; }
+.empty code { font-size: 13px; background: var(--panel-2); padding: 2px 6px; border-radius: 4px; }
+
+.index-footer {
+  color: var(--muted); font-size: 13px; margin-top: 40px;
+  padding-top: 24px; border-top: 1px solid var(--border);
+}
+
+@media (max-width: 640px) {
+  body { padding: 32px 16px 48px; }
+  .build-grid--catalog { grid-template-columns: 1fr; }
+  .index-toolbar { flex-direction: column; align-items: stretch; }
+  .role-filters { justify-content: flex-start; }
+}

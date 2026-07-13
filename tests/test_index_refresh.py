@@ -52,7 +52,11 @@ def test_run_analysis_refreshes_global_index(tmp_path: Path) -> None:
 
     global_index = viktor_config.output_dir / "index.html"
     assert global_index.exists()
-    assert "Viktor" in global_index.read_text(encoding="utf-8")
+    html = global_index.read_text(encoding="utf-8")
+    assert "All players" in html
+    assert "build-grid--catalog" in html
+    assert "Viktor" in html
+    assert (viktor_config.output_dir / "assets" / "static" / "index.css").exists()
     assert len(discover_reports(viktor_config.output_dir)) == 1
 
     ahri_config = _config(tmp_path, champion="Ahri", role="MIDDLE")
@@ -73,9 +77,12 @@ def test_run_analysis_refreshes_player_hub(tmp_path: Path) -> None:
     hub = player_dir / "index.html"
     assert hub.exists()
     hub_html = hub.read_text(encoding="utf-8")
-    assert "Viktor" in hub_html
-    assert "Ahri" in hub_html
-    assert len(discover_player_builds(player_dir)) == 2
+    assert "Redirecting" in hub_html
+    builds = discover_player_builds(player_dir)
+    assert len(builds) == 2
+    champions = {build["champion"] for build in builds}
+    assert "Viktor" in champions
+    assert "Ahri" in champions
 
 
 def test_refresh_report_indexes_rebuilds_from_disk(tmp_path: Path) -> None:
@@ -92,3 +99,6 @@ def test_refresh_report_indexes_rebuilds_from_disk(tmp_path: Path) -> None:
     assert global_index.exists()
     assert hub is not None
     assert hub.exists()
+    index_html = global_index.read_text(encoding="utf-8")
+    assert "All players" in index_html
+    assert "player-card" in index_html

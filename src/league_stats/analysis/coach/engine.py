@@ -21,6 +21,7 @@ from league_stats.analysis.economy import (
 from league_stats.analysis.positioning import ROLE_COLUMNS
 from league_stats.analysis.statistics import StatisticsEngine
 from league_stats.core.champions import role_display
+from league_stats.core.role_metrics import role_profile
 from league_stats.core.models import Recommendation, RecommendationTone
 from league_stats.utils import get_logger
 
@@ -82,6 +83,10 @@ WIN_FEATURE_HINTS: dict[str, tuple[str, str]] = {
         "high damage per minute",
         "Look for poke before fights and maximise your combos when cooldowns are available.",
     ),
+    "ccpm": (
+        "high crowd control per minute",
+        "Land CC on priority targets before fights and layer hard CC with your team.",
+    ),
     "vspm": (
         "strong vision score",
         "Buy a control ward every recall after 14 minutes and sweep before objectives.",
@@ -102,6 +107,49 @@ WIN_FEATURE_HINTS: dict[str, tuple[str, str]] = {
         "fast first-item timing",
         "Tighten your early resets so your first completed item lands sooner.",
     ),
+    "healing": (
+        "high healing output",
+        "Stay in range of allies during fights and weave heals between cooldown windows.",
+    ),
+    "shielding": (
+        "strong shielding",
+        "Pre-shield allies before major cooldowns land in teamfights.",
+    ),
+    "objectives_present_rate": (
+        "strong objective presence",
+        "Path toward the pit 60 seconds before spawn and arrive with your team.",
+    ),
+    "tf_participation": (
+        "high teamfight participation",
+        "Track fight timing and collapse with your team when objectives start.",
+    ),
+    "assists": (
+        "high assist count",
+        "Layer CC and follow up on your team's engage to secure picks.",
+    ),
+}
+
+# Short, specific titles for hero actions and coaching cards.
+WIN_FEATURE_TITLES: dict[str, str] = {
+    "gd10": "Win more when ahead @10",
+    "gd15": "Protect your @15 gold lead",
+    "xpd10": "Press your level lead @10",
+    "cs10": "Farm stronger @10 to win",
+    "csd10": "CS lead @10 wins your games",
+    "kill_participation": "Join more fights to win",
+    "damage_share": "Carry more teamfight damage",
+    "dpm": "Deal more damage to win",
+    "ccpm": "Land more CC to win",
+    "vspm": "Vision wins your games",
+    "control_wards": "Buy more control wards",
+    "lane_priority": "Push for lane priority",
+    "roams_pre15": "Roam earlier to snowball",
+    "first_item_min": "Rush your first item timing",
+    "healing": "Heal more to win",
+    "shielding": "Shield more to win",
+    "objectives_present_rate": "Show for objectives",
+    "tf_participation": "Join more teamfights",
+    "assists": "Set up more kills",
 }
 
 
@@ -180,6 +228,7 @@ class CoachEngine:
         self._stats = stats_engine
         self._build_label = build_label
         self._role = role.upper()
+        self._profile = role_profile(self._role)
         self._champion = build_label.split(" ", 1)[0]
         self._log = get_logger("coach")
 
@@ -216,9 +265,15 @@ class CoachEngine:
             self._rule_dead_before_objectives,
             self._rule_cs10,
             self._rule_lane_priority,
+            self._rule_low_kill_participation,
+            self._rule_low_vision,
+            self._rule_low_cc,
         ]
+        enabled = self._profile.coach_rule_ids
         recommendations: list[Recommendation] = []
         for rule in rules:
+            if rule.__name__ not in enabled:
+                continue
             try:
                 result = rule()
             except Exception as exc:
@@ -240,6 +295,8 @@ class CoachEngine:
         best_delta = 0.0
         best_p: float | None = None
         sample = 0
+        primary_feature: str | None = None
+        primary_delta = -1.0
 
         for pick in positive[:2]:
             if pick.feature not in WIN_FEATURE_HINTS:
@@ -251,6 +308,9 @@ class CoachEngine:
             delta = split["winrate_high"] - split["winrate_low"]
             if delta < MIN_WINRATE_DELTA_SOFT:
                 continue
+            if delta > primary_delta:
+                primary_delta = delta
+                primary_feature = pick.feature
             label, tip = WIN_FEATURE_HINTS[pick.feature]
             segments.append(
                 f"When you have {label}, you win {split['winrate_high']:.0%} of games "
@@ -269,7 +329,7 @@ class CoachEngine:
 
         return Recommendation(
             category="Win condition",
-            title="Your personal win conditions",
+            title=WIN_FEATURE_TITLES.get(primary_feature or "", "Your clearest path to wins"),
             detail=" ".join(segments),
             evidence="; ".join(evidence_parts),
             tone=RecommendationTone.POSITIVE,
@@ -1093,6 +1153,77 @@ class CoachEngine:
             effect_size=round(float(corr), 3),
             priority=_priority(float(corr), float(p_value), len(frame)),
             sample_size=len(frame),
+        )
+
+    def _rule_low_kill_participation(self) -> Recommendation | None:
+        if "kill_participation" not in self._matches.columns:
+            return None
+        from league_stats.analysis.peer.benchmarks import try_role_benchmark
+
+        benchmark = try_role_benchmark("GOLD", self._role) or {}
+        target = float(benchmark.get("kill_participation", 0.60))
+        avg = float(pd.to_numeric(self._matches["kill_participation"], errors="coerce").dropna().mean())
+        if avg >= target * 0.92:
+            return None
+        return Recommendation(
+            category="Map impact",
+            title="Kill participation is below role expectations",
+            detail=(
+                f"You average {avg:.0%} KP vs a ~{target:.0%} benchmark for {self._role.lower()}. "
+                "Path toward active lanes before objectives and arrive early for skirmishes."
+            ),
+            evidence=f"Mean KP = {avg:.1%} over {len(self._matches)} games",
+            priority=_priority(target - avg, None, len(self._matches)),
+            sample_size=len(self._matches),
+        )
+
+    def _rule_low_vision(self) -> Recommendation | None:
+        if self._role != "UTILITY" or "vspm" not in self._matches.columns:
+            return None
+        from league_stats.analysis.peer.benchmarks import try_role_benchmark
+
+        benchmark = try_role_benchmark("GOLD", self._role) or {}
+        target = float(benchmark.get("vspm", 1.8))
+        avg = float(pd.to_numeric(self._matches["vspm"], errors="coerce").dropna().mean())
+        if avg >= target * 0.88:
+            return None
+        return Recommendation(
+            category="Vision",
+            title="Vision score trails support benchmarks",
+            detail=(
+                f"{avg:.2f} VS/min vs ~{target:.2f} for peers. Buy control wards every recall "
+                "and sweep high-traffic river brushes before objectives."
+            ),
+            evidence=f"Mean VS/min = {avg:.2f} over {len(self._matches)} games",
+            priority=_priority(target - avg, None, len(self._matches)),
+            sample_size=len(self._matches),
+        )
+
+    def _rule_low_cc(self) -> Recommendation | None:
+        if "ccpm" not in self._matches.columns:
+            return None
+        from league_stats.analysis.combat import prefers_cc_over_dpm
+        from league_stats.analysis.peer.benchmarks import try_role_benchmark
+
+        damage_series = pd.to_numeric(self._matches.get("damage_share"), errors="coerce").dropna()
+        avg_damage = float(damage_series.mean()) if not damage_series.empty else None
+        if not prefers_cc_over_dpm(self._role, avg_damage_share=avg_damage):
+            return None
+        benchmark = try_role_benchmark("GOLD", self._role) or {}
+        target = float(benchmark.get("ccpm", 1.6))
+        avg = float(pd.to_numeric(self._matches["ccpm"], errors="coerce").dropna().mean())
+        if avg >= target * 0.85:
+            return None
+        return Recommendation(
+            category="Teamfights",
+            title="Crowd control output is below benchmark",
+            detail=(
+                f"{avg:.2f} CC/min vs ~{target:.2f} for peers. Look for flanks with hard CC "
+                "before objectives and chain CC on priority targets in fights."
+            ),
+            evidence=f"Mean CC/min = {avg:.2f} over {len(self._matches)} games",
+            priority=_priority(target - avg, None, len(self._matches)),
+            sample_size=len(self._matches),
         )
 
 

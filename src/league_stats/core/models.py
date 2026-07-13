@@ -143,6 +143,11 @@ class TimelineStats(BaseModel):
     avg_allies_nearby: float | None = None
     avg_teammate_distance: float | None = None
     role_distances: dict[str, float] = Field(default_factory=dict)
+    early_ganks: int = 0
+    gank_assists: int = 0
+    kp15: float | None = None
+    roam_conversions: int = 0
+    vspm10: float | None = None
 
 
 class DeathEvent(BaseModel):
@@ -353,6 +358,7 @@ class MatchRecord(BaseModel):
             "damage_share": round(self.combat.damage_share, 4),
             "kill_participation": round(self.combat.kill_participation, 4),
             "cc_score": self.combat.cc_score,
+            "ccpm": round(self.combat.cc_score / max(1.0, self.duration_min), 2),
             "healing": self.combat.healing,
             "shielding": self.combat.shielding,
             "true_damage": self.combat.true_damage,
@@ -465,6 +471,20 @@ class MatchRecord(BaseModel):
                 if self.objectives
                 else None
             ),
+            "early_ganks": self.timeline.early_ganks,
+            "gank_assists": self.timeline.gank_assists,
+            "kp15": self.timeline.kp15,
+            "roam_conversions": self.timeline.roam_conversions,
+            "vspm10": self.timeline.vspm10,
+            "avg_wards_before_objective": (
+                round(
+                    sum(o.team_wards_before for o in self.objectives) / len(self.objectives), 1
+                )
+                if self.objectives
+                else None
+            ),
+            "hpm": round(self.combat.healing / max(1.0, self.duration_min), 1),
+            "spm": round(self.combat.shielding / max(1.0, self.duration_min), 1),
         }
         for minute in (5, 10, 15, 20):
             row[f"gold{minute}"] = snap.gold.get(minute)

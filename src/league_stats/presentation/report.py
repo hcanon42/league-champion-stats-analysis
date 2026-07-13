@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import re
+import shutil
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -12,6 +14,13 @@ import pandas as pd
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from league_stats.analysis.economy import RECALL_GOLD_HEALTHY_AVG, RECALL_GOLD_HOARDING_WARN
+from league_stats.analysis.improvement import (
+    clamp_score,
+    column_mean,
+    kill_participation_score,
+    relative_band_score,
+    support_utility_impact,
+)
 from league_stats.core.champions import build_label, champion_slug, role_display
 from league_stats.core.models import Recommendation
 from league_stats.presentation.brand_assets import brand_context, refresh_saved_report_branding
@@ -20,6 +29,59 @@ from league_stats.utils import get_logger
 
 if TYPE_CHECKING:
     from league_stats.infra.ddragon_assets import DDragonAssets
+
+
+def utc_now_iso() -> str:
+    """UTC timestamp for ``generated_at`` (ISO-8601, sortable, JS-parseable)."""
+    return datetime.now(timezone.utc).replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def parse_generated_at_ts(raw: str | None) -> int:
+    """Return UTC epoch milliseconds for sorting; ``0`` when unparseable."""
+    if not raw:
+        return 0
+    legacy = re.match(r"^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})\s+UTC$", raw)
+    if legacy:
+        dt = datetime(
+            int(legacy.group(1)),
+            int(legacy.group(2)),
+            int(legacy.group(3)),
+            int(legacy.group(4)),
+            int(legacy.group(5)),
+            tzinfo=timezone.utc,
+        )
+        return int(dt.timestamp() * 1000)
+    date_only = re.match(r"^(\d{4})-(\d{2})-(\d{2})$", raw)
+    if date_only:
+        dt = datetime(
+            int(date_only.group(1)),
+            int(date_only.group(2)),
+            int(date_only.group(3)),
+            tzinfo=timezone.utc,
+        )
+        return int(dt.timestamp() * 1000)
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return int(dt.timestamp() * 1000)
+    except ValueError:
+        return 0
+
+
+def is_group_player_label(player: str) -> bool:
+    """True when the label represents a pooled multi-account run."""
+    return "," in player
+
+
+def enrich_index_report(report: dict[str, Any]) -> dict[str, Any]:
+    """Add index-page fields to one report metadata dict."""
+    player = str(report.get("player", ""))
+    generated_at = str(report.get("generated_at", ""))
+    report["is_group"] = is_group_player_label(player)
+    report["updated_ts"] = parse_generated_at_ts(generated_at)
+    report["default_href"] = str(report.get("href", ""))
+    return report
 
 
 @dataclass(frozen=True)
@@ -33,21 +95,8 @@ class ScoreComponent:
 
 
 def _clamp_score(value: float, floor: float, ceiling: float) -> float:
-    """Map a value linearly onto 0-100 between a floor and a ceiling.
-
-    Args:
-        value: Observed metric value.
-        floor: Value mapping to 0.
-        ceiling: Value mapping to 100.
-
-    Returns:
-        Score in [0, 100]; the scale inverts automatically when
-        ``floor > ceiling`` (lower-is-better metrics).
-    """
-    if floor == ceiling:
-        return 50.0
-    ratio = (value - floor) / (ceiling - floor)
-    return round(max(0.0, min(1.0, ratio)) * 100, 1)
+    """Map a value linearly onto 0-100 between a floor and a ceiling."""
+    return clamp_score(value, floor, ceiling)
 
 
 def improvement_score(
@@ -68,59 +117,127 @@ def improvement_score(
     if matches_df.empty:
         return 0.0, []
 
+    from league_stats.analysis.combat import prefers_cc_over_dpm
     from league_stats.analysis.peer.benchmarks import try_role_benchmark
+    from league_stats.core.role_metrics import role_profile
 
+    profile = role_profile(role)
     gold = try_role_benchmark("GOLD", role) or {}
-    cs10_floor = float(gold.get("cspm", 6.0)) * 10 * 0.85
-    cs10_ceiling = float(gold.get("cspm", 8.0)) * 10 * 1.05
-    vision_floor = float(gold.get("vspm", 0.8)) * 0.75
-    vision_ceiling = float(gold.get("vspm", 1.2)) * 1.25
-    deaths_floor = float(gold.get("deaths", 5.0)) + 2.5
-    deaths_ceiling = max(2.0, float(gold.get("deaths", 5.0)) - 1.5)
-    damage_floor = float(gold.get("damage_share", 0.22)) - 0.04
-    damage_ceiling = float(gold.get("damage_share", 0.26)) + 0.06
 
     def mean(column: str, default: float = 0.0) -> float:
-        """Column mean with NaN safety."""
-        series = pd.to_numeric(matches_df.get(column), errors="coerce")
-        if series is None:
-            return default
-        series = series.dropna()
-        return float(series.mean()) if not series.empty else default
+        value = column_mean(matches_df, column)
+        return default if value is None else value
 
-    components = [
-        ScoreComponent(
-            "Laning", _clamp_score(mean("gd10"), -800, 800),
-            f"{mean('gd10'):+.0f} gold @10", "Average gold diff vs lane opponent at 10 min",
+    use_cc = prefers_cc_over_dpm(role, avg_damage_share=mean("damage_share"))
+    cs10_bench = float(gold.get("cspm", 6.0)) * 10
+    cs10_floor = cs10_bench * 0.75
+    cs10_ceiling = cs10_bench * 1.15
+    vision_bench = float(gold.get("vspm", 0.8))
+    vision_floor = vision_bench * 0.65
+    vision_ceiling = vision_bench * 1.35
+    deaths_floor = float(gold.get("deaths", 5.0)) + 2.5
+    deaths_ceiling = max(2.0, float(gold.get("deaths", 5.0)) - 1.5)
+    damage_bench = float(gold.get("damage_share", 0.22))
+    damage_floor = max(0.05, damage_bench - 0.06)
+    damage_ceiling = damage_bench + 0.10
+    cc_bench = float(gold.get("ccpm", 1.2))
+    cc_floor = cc_bench * 0.50
+    cc_ceiling = cc_bench * 1.35
+    gank_bench = float(gold.get("early_ganks", 1.5))
+    gank_floor = gank_bench * 0.45
+    gank_ceiling = gank_bench * 1.50
+    roam_bench = float(gold.get("roams_pre15", 1.5))
+    roam_floor = roam_bench * 0.45
+    roam_ceiling = roam_bench * 1.40
+
+    impact_score, impact_value = kill_participation_score(matches_df, gold)
+    utility_score, utility_value = support_utility_impact(matches_df, gold)
+
+    score_builders: dict[str, tuple[float, str, str]] = {
+        "Laning": (
+            _clamp_score(mean("gd10"), -800, 800),
+            profile.score_components[0].value_fmt.format(v=mean("gd10")),
+            profile.score_components[0].hint,
         ),
-        ScoreComponent(
-            "Farming", _clamp_score(mean("cs10"), cs10_floor, cs10_ceiling),
-            f"{mean('cs10'):.0f} CS @10", f"Role benchmark band for {role.lower()}",
+        "Farming": (
+            _clamp_score(mean("cs10"), cs10_floor, cs10_ceiling),
+            profile.score_components[1].value_fmt.format(v=mean("cs10")),
+            profile.score_components[1].hint,
         ),
-        ScoreComponent(
-            "Survival", _clamp_score(mean("deaths"), deaths_floor, deaths_ceiling),
-            f"{mean('deaths'):.1f} deaths/game", "Fewer deaths score higher",
+        "Survival": (
+            _clamp_score(mean("deaths"), deaths_floor, deaths_ceiling),
+            f"{mean('deaths'):.1f} deaths/game",
+            "Fewer deaths score higher",
         ),
-        ScoreComponent(
-            "Damage", _clamp_score(mean("damage_share"), damage_floor, damage_ceiling),
-            f"{mean('damage_share') * 100:.0f}% team damage", "Share of team damage to champions",
+        "Damage": (
+            _clamp_score(mean("damage_share"), damage_floor, damage_ceiling),
+            f"{mean('damage_share') * 100:.0f}% team damage",
+            "Share of team damage to champions",
         ),
-        ScoreComponent(
-            "Vision", _clamp_score(mean("vspm"), vision_floor, vision_ceiling),
-            f"{mean('vspm'):.2f} VS/min", "Vision score per minute",
+        "CC impact": (
+            _clamp_score(mean("ccpm"), cc_floor, cc_ceiling),
+            f"{mean('ccpm'):.2f} CC/min",
+            "Crowd control time per minute",
         ),
-        ScoreComponent(
-            "Objectives", _clamp_score(mean("objectives_present_rate", 0.0), 0.30, 0.75),
-            f"{mean('objectives_present_rate') * 100:.0f}% presence", "Presence at epic monster takes",
+        "Utility": (
+            utility_score,
+            utility_value,
+            "CC, poke damage, healing and shielding to allies",
         ),
-        ScoreComponent(
-            "Resets",
+        "Vision": (
+            _clamp_score(mean("vspm"), vision_floor, vision_ceiling),
+            f"{mean('vspm'):.2f} VS/min",
+            "Vision score per minute",
+        ),
+        "Objectives": (
+            _clamp_score(mean("objectives_present_rate", 0.0), 0.30, 0.75),
+            f"{mean('objectives_present_rate') * 100:.0f}% presence",
+            "Presence at epic monster takes",
+        ),
+        "Resets": (
             _clamp_score(mean("avg_unspent_gold", 800), RECALL_GOLD_HOARDING_WARN, RECALL_GOLD_HEALTHY_AVG),
             f"{mean('avg_unspent_gold', 800):.0f}g banked",
             f"Component backs land around 800–1300g; {RECALL_GOLD_HOARDING_WARN}g+ before resets scores lower",
         ),
-    ]
-    overall = round(sum(c.score for c in components) / len(components), 1)
+        "Map control": (
+            _clamp_score(mean("objectives_present_rate", 0.0), 0.30, 0.75),
+            f"{mean('objectives_present_rate') * 100:.0f}% presence",
+            "Presence at epic monster takes",
+        ),
+        "Clear @10": (
+            _clamp_score(mean("cs10"), cs10_floor, cs10_ceiling),
+            f"{mean('cs10'):.0f} CS @10",
+            "Jungle clear speed at 10 minutes",
+        ),
+        "Impact": (
+            impact_score,
+            impact_value,
+            "Share of team kills and assists",
+        ),
+        "Setup": (
+            _clamp_score(mean("roams_pre15"), roam_floor, roam_ceiling),
+            f"{mean('roams_pre15'):.1f} roams pre-15",
+            "Early roams and map presence",
+        ),
+    }
+    if profile.role == "JUNGLE":
+        score_builders["Objectives"] = (
+            _clamp_score(mean("early_ganks"), gank_floor, gank_ceiling),
+            f"{mean('early_ganks'):.1f} early ganks",
+            "Successful early gank pressure",
+        )
+    if use_cc and profile.role not in {"UTILITY", "JUNGLE"}:
+        score_builders["Damage"] = score_builders["CC impact"]
+
+    components: list[ScoreComponent] = []
+    for spec in profile.score_components:
+        built = score_builders.get(spec.name)
+        if built is None:
+            continue
+        score, value, hint = built
+        components.append(ScoreComponent(name=spec.name, score=score, value=value, hint=hint))
+
+    overall = round(sum(c.score for c in components) / len(components), 1) if components else 0.0
     return overall, components
 
 
@@ -151,7 +268,7 @@ class ReportBuilder:
             The written path.
         """
         template = self._env.get_template("report.html")
-        context.setdefault("generated_at", datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"))
+        context.setdefault("generated_at", utc_now_iso())
         output_path.write_text(template.render(**context), encoding="utf-8")
         self._log.info("Report written to %s", output_path)
         return output_path
@@ -168,12 +285,19 @@ class ReportBuilder:
         """
         template = self._env.get_template("index.html")
         output_path = output_dir / "index.html"
-        players = group_reports_by_player(reports)
+        enriched = [enrich_index_report(dict(report)) for report in reports]
+        players = group_reports_by_player(enriched)
+        flat_reports = sorted(
+            enriched,
+            key=lambda entry: (entry.get("games", 0), entry.get("updated_ts", 0)),
+            reverse=True,
+        )
         context = {
             **brand_context(from_dir=output_dir, output_dir=output_dir),
             "players": players,
-            "report_count": len(reports),
-            "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+            "reports": flat_reports,
+            "report_count": len(enriched),
+            "generated_at": utc_now_iso(),
         }
         output_path.write_text(template.render(**context), encoding="utf-8")
         self._log.info(
@@ -202,7 +326,7 @@ class ReportBuilder:
             "builds": manifest.get("builds", []),
             "default_href": manifest.get("default_href", ""),
             "default_report_href": manifest.get("default_href", ""),
-            "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+            "generated_at": utc_now_iso(),
         }
         output_path.write_text(template.render(**context), encoding="utf-8")
         self._log.info("Player hub written to %s", output_path)
@@ -446,42 +570,59 @@ def discover_reports(output_dir: Path) -> list[dict[str, Any]]:
 
 
 def group_reports_by_player(reports: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Group flat report metadata into per-player sections for the global index.
+    """Group flat report metadata into per-player summary cards for the global index.
 
     Args:
-        reports: Metadata dicts from :func:`discover_reports`.
+        reports: Metadata dicts from :func:`discover_reports` (enriched for index).
 
     Returns:
-        Player groups sorted alphabetically. Each group contains ``player``,
-        ``hub_href``, ``build_count``, and ``reports`` (builds sorted by games).
+        Player groups sorted by most recent update. Each group contains ``player``,
+        ``default_href``, ``build_count``, ``total_games``, ``last_updated``, and
+        ``reports`` (builds sorted by games).
     """
     by_player: dict[str, list[dict[str, Any]]] = {}
-    hub_hrefs: dict[str, str] = {}
 
     for report in reports:
         player = str(report.get("player", ""))
         by_player.setdefault(player, []).append(report)
-        if player not in hub_hrefs and report.get("href"):
-            parts = report["href"].split("/")
-            if len(parts) >= 3:
-                hub_hrefs[player] = f"{parts[0]}/{parts[1]}/index.html"
 
     groups: list[dict[str, Any]] = []
-    for player in sorted(by_player, key=str.lower):
-        builds = by_player[player]
+    for player, builds in by_player.items():
         builds.sort(
-            key=lambda entry: (entry.get("games", 0), entry.get("generated_at", "")),
+            key=lambda entry: (entry.get("games", 0), entry.get("updated_ts", 0)),
             reverse=True,
+        )
+        total_games = sum(int(entry.get("games", 0)) for entry in builds)
+        last_updated_ts = max(int(entry.get("updated_ts", 0)) for entry in builds)
+        last_updated = max(
+            (str(entry.get("generated_at", "")) for entry in builds),
+            key=lambda value: parse_generated_at_ts(value),
+            default="",
         )
         groups.append(
             {
                 "player": player,
-                "hub_href": hub_hrefs.get(player, ""),
+                "is_group": is_group_player_label(player),
+                "default_href": str(builds[0].get("href", "")),
                 "build_count": len(builds),
+                "total_games": total_games,
+                "last_updated": last_updated,
+                "last_updated_ts": last_updated_ts,
                 "reports": builds,
             }
         )
+    groups.sort(key=lambda group: group.get("last_updated_ts", 0), reverse=True)
     return groups
+
+
+def copy_index_static(template_dir: Path, output_dir: Path) -> Path:
+    """Copy shared index stylesheet into the output assets tree."""
+    src = template_dir / "static" / "index.css"
+    dest_dir = output_dir / "assets" / "static"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / "index.css"
+    shutil.copy2(src, dest)
+    return dest
 
 
 def refresh_report_index(
@@ -512,6 +653,7 @@ def refresh_report_index(
                 from_dir=output_dir,
             )
     builder = ReportBuilder(template_dir)
+    copy_index_static(template_dir, output_dir)
     index_path = builder.render_index(output_dir, reports)
     refresh_saved_report_branding(output_dir)
     return index_path

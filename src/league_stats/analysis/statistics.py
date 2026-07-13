@@ -30,6 +30,7 @@ FEATURE_COLUMNS: tuple[str, ...] = (
     "gd15",
     "xpd10",
     "dpm",
+    "ccpm",
     "vspm",
     "avg_unspent_gold",
     "avg_unspent_gold_per_fight",
@@ -69,6 +70,7 @@ FEATURE_LABELS: dict[str, str] = {
     "gd15": "Gold diff @15",
     "xpd10": "XP diff @10",
     "dpm": "DPM",
+    "ccpm": "CC/min",
     "vspm": "VS/min",
     "avg_unspent_gold": "Unspent gold/recall",
     "avg_unspent_gold_per_fight": "Unspent gold/fight",
@@ -86,6 +88,16 @@ FEATURE_LABELS: dict[str, str] = {
     "damage_share": "Damage share",
     "deaths": "Deaths/game",
     "duration_min": "Game length (min)",
+    "early_ganks": "Early ganks",
+    "kp15": "KP @15",
+    "roam_conversions": "Roam conversions",
+    "vspm10": "VS/min @10",
+    "objectives_present_rate": "Obj. presence",
+    "assists": "Assists/game",
+    "healing": "Healing",
+    "shielding": "Shielding",
+    "hpm": "Healing/min",
+    "spm": "Shielding/min",
 }
 MIN_GAMES_FOR_ML: int = 20
 MIN_GAMES_FOR_CLUSTERS: int = 12
@@ -123,16 +135,26 @@ class ModelResult:
 class StatisticsEngine:
     """Statistical analysis over the master per-game table."""
 
-    def __init__(self, matches_df: pd.DataFrame, output_dir: Path) -> None:
+    def __init__(self, matches_df: pd.DataFrame, output_dir: Path, *, role: str = "MIDDLE") -> None:
         """Create the engine.
 
         Args:
             matches_df: One row per game (from ``MatchRecord.to_row``).
             output_dir: Directory for model artefacts.
+            role: Team position used to filter role-relevant ML features.
         """
+        from league_stats.core.role_metrics import role_profile
+
         self._df = matches_df
         self._output_dir = output_dir
+        self._role_profile = role_profile(role)
         self._log = get_logger("statistics")
+
+    def _feature_columns(self) -> tuple[str, ...]:
+        return self._role_profile.ml_features
+
+    def _early_features(self) -> tuple[str, ...]:
+        return self._role_profile.early_ml_features
 
     # ---------------------------------------------------------- Correlation
 
@@ -142,7 +164,7 @@ class StatisticsEngine:
         Returns:
             The correlation matrix (empty when there is no data).
         """
-        columns = [c for c in (*FEATURE_COLUMNS, "win") if c in self._df.columns]
+        columns = [c for c in (*self._feature_columns(), "win") if c in self._df.columns]
         numeric = self._df[columns].apply(pd.to_numeric, errors="coerce")
         usable = numeric.dropna(axis=1, how="all")
         if usable.empty:
@@ -157,7 +179,7 @@ class StatisticsEngine:
         """
         results: list[WinCorrelation] = []
         wins = pd.to_numeric(self._df.get("win"), errors="coerce")
-        for feature in FEATURE_COLUMNS:
+        for feature in self._feature_columns():
             if feature not in self._df.columns:
                 continue
             values = pd.to_numeric(self._df[feature], errors="coerce")
@@ -190,7 +212,7 @@ class StatisticsEngine:
             A :class:`ModelResult` with feature importances (or the reason
             training was skipped).
         """
-        features = [f for f in EARLY_FEATURES if f in self._df.columns]
+        features = [f for f in self._early_features() if f in self._df.columns]
         frame = self._df[[*features, "win"]].apply(pd.to_numeric, errors="coerce")
         frame = frame.dropna(subset=["win"])
         frame[features] = frame[features].fillna(frame[features].median())

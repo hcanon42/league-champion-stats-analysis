@@ -214,7 +214,7 @@ def run_analysis(
         "build_label": config.build_label,
         "champion": config.champion,
         "champion_icon": asset_catalog.champion_href(config.champion, from_dir=run_dir),
-        "role_icon": asset_catalog.role_href(config.role, from_dir=run_dir),
+        "role_icon_href": asset_catalog.role_href(config.role, from_dir=run_dir),
         "role_display": config.role_display,
         "player_name": config.players_label,
         "recommendation_visible_count": VISIBLE_RECOMMENDATIONS,

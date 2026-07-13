@@ -8,7 +8,8 @@
     "vspm": 0.9,
     "control_wards": 1.4,
     "kill_participation": 0.55,
-    "damage_share": 0.24
+    "damage_share": 0.24,
+    "ccpm": 0.8
   },
   "PLATINUM": {
     "winrate": 0.5,
@@ -19,7 +20,8 @@
     "vspm": 0.95,
     "control_wards": 1.5,
     "kill_participation": 0.56,
-    "damage_share": 0.24
+    "damage_share": 0.24,
+    "ccpm": 0.85
   },
   "EMERALD": {
     "winrate": 0.5,
@@ -30,7 +32,8 @@
     "vspm": 1.0,
     "control_wards": 1.6,
     "kill_participation": 0.57,
-    "damage_share": 0.25
+    "damage_share": 0.25,
+    "ccpm": 0.9
   },
   "DIAMOND": {
     "winrate": 0.5,
@@ -41,6 +44,7 @@
     "vspm": 1.05,
     "control_wards": 1.7,
     "kill_participation": 0.58,
-    "damage_share": 0.25
+    "damage_share": 0.25,
+    "ccpm": 0.95
   }
 }

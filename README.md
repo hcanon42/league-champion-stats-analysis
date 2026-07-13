@@ -117,13 +117,13 @@ match_count = 500
 Each eligible build saves to **`output/reports/{player}/{champion_lane}/`**. Re-running
 for the same summoner refreshes every eligible build.
 
-Open **`output/reports/{player}/index.html`** to pick a champion/lane, or use the
-**dropdown inside any report** to switch builds instantly.
+Open **`output/index.html`** to browse all saved reports, or open any
+**`report.html`** and use the **sidebar build picker** to switch champions.
 
 | File | Content |
 | --- | --- |
-| `output/index.html` | Global index — all players |
-| `output/reports/{player}/index.html` | Player hub — champion/lane dropdown |
+| `output/index.html` | Global index — all players and builds |
+| `output/reports/{player}/index.html` | Redirect to default build (convenience entry) |
 | `output/reports/{player}/manifest.json` | Build list metadata for the UI |
 | `output/reports/.../report.html` | Interactive dark dashboard for one build |
 | `output/reports/.../summary.json` | Every aggregate in machine-readable form |

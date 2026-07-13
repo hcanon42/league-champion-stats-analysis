@@ -11,12 +11,19 @@ BENCHMARK_METRIC_KEYS: Final[tuple[str, ...]] = (
     "win",
     "kda",
     "dpm",
+    "ccpm",
     "cspm",
     "deaths",
     "vspm",
     "control_wards",
     "kill_participation",
     "damage_share",
+    "assists",
+    "healing",
+    "shielding",
+    "objectives_present_rate",
+    "roams_pre15",
+    "early_ganks",
 )
 
 
@@ -50,17 +57,24 @@ def participant_row(participant: dict[str, Any], duration_min: float) -> dict[st
         participant.get("neutralMinionsKilled", 0)
     )
     challenges = participant.get("challenges", {}) or {}
+    cc_score = int(participant.get("timeCCingOthers", 0))
+    healing = int(participant.get("totalHealsOnTeammates", 0)) + int(participant.get("totalHeal", 0))
+    shielding = int(participant.get("totalDamageShieldedOnTeammates", 0))
     return {
         "puuid": str(participant.get("puuid", "")),
         "win": int(bool(participant.get("win"))),
         "kda": (kills + assists) / max(1, deaths),
         "dpm": damage / minutes,
+        "ccpm": cc_score / minutes,
         "cspm": cs / minutes,
         "deaths": float(deaths),
         "vspm": int(participant.get("visionScore", 0)) / minutes,
         "control_wards": float(int(participant.get("visionWardsBoughtInGame", 0))),
         "kill_participation": float(challenges.get("killParticipation", 0.0)),
         "damage_share": safe_div(damage, damage),
+        "assists": float(assists),
+        "healing": float(healing),
+        "shielding": float(shielding),
         "gold": gold,
         "damage": damage,
     }

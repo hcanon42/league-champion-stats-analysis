@@ -32,13 +32,17 @@ from league_stats.core.models import MatchRecord, PeerComparisonResult
 from league_stats.infra.ddragon_assets import DDragonAssets
 from league_stats.pipeline.frames import AnalysisFrames, build_analysis_frames, build_overview
 from league_stats.pipeline.summaries import ReportStats, build_domain_summaries, generate_recommendations
+from league_stats.core.role_metrics import role_profile
 from league_stats.pipeline.view_models import (
+    annotate_card_tiers,
     card,
     card_entries,
+    cards_from_specs,
     overview_card_entries,
     peer_row_display,
     peer_subtitle,
     pct,
+    priority_label,
 )
 from league_stats.presentation.graphs import ChartIconResolver, GraphFactory
 from league_stats.presentation.report import improvement_score, score_badge
@@ -103,8 +107,30 @@ def game_window_options(total_games: int) -> list[dict[str, Any]]:
     return options
 
 
+def _recommendation_payload(rec: Any) -> dict[str, Any]:
+    """Serialize one coaching recommendation for HTML/JSON views."""
+    badge = score_badge(rec)
+    return {
+        **rec.model_dump(),
+        "badge": badge,
+        "priority_label": priority_label(badge),
+        "tone": rec.tone.value,
+    }
+
+
+def _finalize_coaching_anchors(bundle: dict[str, Any]) -> None:
+    """Assign stable anchor ids to coaching tips by global priority."""
+    recs = [
+        *bundle.get("positive_recommendations", []),
+        *bundle.get("negative_recommendations", []),
+    ]
+    ranked = sorted(recs, key=lambda rec: rec.get("priority", 0), reverse=True)
+    for index, rec in enumerate(ranked):
+        rec["anchor"] = f"coaching-tip-{index}"
+
+
 def _build_top_tips(bundle: dict[str, Any], *, limit: int = 3) -> list[dict[str, Any]]:
-    """Return the highest-priority recommendations for the overview callout."""
+    """Return the highest-priority recommendations for the overview hero."""
     recs = [
         *bundle.get("positive_recommendations", []),
         *bundle.get("negative_recommendations", []),
@@ -162,7 +188,7 @@ def _build_positioning_cards(
             href = assets.role_href(role, from_dir=from_dir)
             if href:
                 entry["role_icon_href"] = href
-    return entries
+    return annotate_card_tiers(entries, "positioning")
 
 
 def bundle_to_template_context(
@@ -181,6 +207,8 @@ def bundle_to_template_context(
         "figures": bundle["figures"],
         "overview_cards": bundle.get("overview_cards", []),
         "lane_cards": bundle["lane_cards"],
+        "early_section_title": bundle.get("early_section_title", "Laning"),
+        "section_order": bundle.get("section_order", []),
         "economy_cards": bundle["economy_cards"],
         "vision_cards": bundle["vision_cards"],
         "death_cards": bundle["death_cards"],
@@ -201,7 +229,7 @@ def bundle_to_template_context(
     }
     if peer_comparison is not None:
         context["peer_comparison"] = peer_comparison
-        context["peer_rows"] = [row.model_dump() for row in peer_comparison.comparisons]
+        context["peer_rows"] = [peer_row_display(row.model_dump()) for row in peer_comparison.comparisons]
     return context
 
 
@@ -225,6 +253,8 @@ def build_window_bundle(
         "score": 0,
         "score_components": [],
         "lane_cards": [],
+        "early_section_title": "Laning",
+        "section_order": [],
         "economy_cards": [],
         "vision_cards": [],
         "death_cards": [],
@@ -257,7 +287,7 @@ def build_window_bundle(
     fights = summaries["teamfights"]
     objectives_agg = summaries["objectives"]
 
-    slice_stats = StatisticsEngine(frames.matches_df, graphs_dir)
+    slice_stats = StatisticsEngine(frames.matches_df, graphs_dir, role=config.role)
     corr = slice_stats.correlation_matrix()
     win_corrs = slice_stats.win_correlations()
     clusters_df = slice_stats.cluster_games()
@@ -310,6 +340,23 @@ def build_window_bundle(
         "objective_timing": graphs.objective_timing(frames.objectives_df),
     }
 
+    profile = role_profile(config.role)
+    avg_damage_share = overview.get("avg_damage_share")
+    if avg_damage_share is not None:
+        avg_damage_share = float(avg_damage_share)
+    summary_buckets = {
+        "overview": overview,
+        "laning": lane,
+        "economy": economy,
+        "resets": resets,
+        "vision": vision,
+        "deaths": deaths_agg,
+        "teamfights": fights,
+        "positioning": positioning_agg,
+        "jungle": summaries.get("jungle", {}),
+        "utility": summaries.get("utility", {}),
+    }
+
     bundle: dict[str, Any] = {
         "total_games": len(records),
         "patch_range": (
@@ -319,7 +366,9 @@ def build_window_bundle(
         ),
         "queue_label": queue_label,
         "overview": overview,
-        "overview_cards": overview_card_entries(overview),
+        "overview_cards": overview_card_entries(overview, role=config.role),
+        "early_section_title": profile.early_section_title,
+        "section_order": list(profile.section_order),
         "score": score,
         "score_components": [
             {
@@ -329,20 +378,40 @@ def build_window_bundle(
             }
             for component in components
         ],
-        "lane_cards": card_entries(
-            [
-                ("Gold diff @10", card(lane.get("avg_gd10"))),
-                ("CS diff @10", card(lane.get("avg_csd10"))),
-                ("XP diff @10", card(lane.get("avg_xpd10"))),
-                ("Lane win rate", card(pct(lane.get("lane_win_rate")))),
-                ("WR when ahead @10", card(pct(lane.get("winrate_when_ahead_at_10")))),
-                ("WR when behind @10", card(pct(lane.get("winrate_when_behind_at_10")))),
-                ("Deaths pre-14", card(lane.get("avg_deaths_pre14"))),
-                ("Gank deaths (lane)", card(lane.get("avg_gank_deaths_laning"))),
-                ("Under own tower (lane)", card(lane.get("avg_under_own_tower_laning_deaths"))),
-                ("Under enemy tower (lane)", card(lane.get("avg_under_enemy_tower_laning_deaths"))),
-                ("Roams pre-15", card(lane.get("avg_roams_pre15"))),
-            ]
+        "lane_cards": cards_from_specs(
+            profile.early_game,
+            summary_buckets,
+            section="early",
+            role=config.role,
+            avg_damage_share=avg_damage_share,
+        ),
+        "economy_cards": cards_from_specs(
+            profile.economy,
+            summary_buckets,
+            section="economy",
+            role=config.role,
+            avg_damage_share=avg_damage_share,
+        ),
+        "vision_cards": cards_from_specs(
+            profile.vision,
+            summary_buckets,
+            section="vision",
+            role=config.role,
+            avg_damage_share=avg_damage_share,
+        ),
+        "death_cards": cards_from_specs(
+            profile.deaths,
+            summary_buckets,
+            section="deaths",
+            role=config.role,
+            avg_damage_share=avg_damage_share,
+        ),
+        "teamfight_cards": cards_from_specs(
+            profile.teamfights,
+            summary_buckets,
+            section="teamfight",
+            role=config.role,
+            avg_damage_share=avg_damage_share,
         ),
         "positioning_cards": _build_positioning_cards(
             positioning_agg,
@@ -351,58 +420,6 @@ def build_window_bundle(
             from_dir=graphs_dir.parent if assets is not None else None,
         ),
         "positioning_hints": positioning_agg.get("hints", []),
-        "economy_cards": card_entries(
-            [
-                ("GPM", card(economy.get("avg_gpm"))),
-                ("CS/min", card(economy.get("avg_cspm"))),
-                ("Gold share", card(pct(economy.get("avg_gold_share")))),
-                ("Damage per gold", card(economy.get("avg_damage_per_gold"))),
-                ("Unspent gold/recall", card(economy.get("avg_unspent_gold_before_recall"), "g")),
-                ("First recall", card(resets.get("avg_first_recall_min"), " min")),
-                ("Time dead/game", card(economy.get("avg_time_dead_s"), "s")),
-            ]
-        ),
-        "vision_cards": card_entries(
-            [
-                ("Vision score", card(vision.get("avg_vision_score"))),
-                ("VS/min", card(vision.get("avg_vspm"))),
-                ("Control wards", card(vision.get("avg_control_wards"))),
-                ("CW lifetime", card(vision.get("avg_control_ward_lifetime_s"), "s")),
-                ("VS/min in wins", card(vision.get("avg_vspm_wins"))),
-                ("VS/min in losses", card(vision.get("avg_vspm_losses"))),
-            ]
-        ),
-        "death_cards": card_entries(
-            [
-                ("Total deaths", card(deaths_agg.get("total_deaths"))),
-                ("Solo deaths", card(pct(deaths_agg.get("solo_death_rate")))),
-                ("Gank deaths (lane)", card(pct(deaths_agg.get("gank_death_rate")))),
-                ("Under own tower (lane)", card(pct(deaths_agg.get("under_own_tower_laning_death_rate")))),
-                ("Under enemy tower (lane)", card(pct(deaths_agg.get("under_enemy_tower_laning_death_rate")))),
-                ("Greed deaths", card(pct(deaths_agg.get("greed_death_rate")))),
-                ("Side-lane deaths", card(pct(deaths_agg.get("side_lane_death_rate")))),
-                ("Before neutral obj.", card(pct(deaths_agg.get("death_before_neutral_objective_rate")))),
-                ("Gold at death", card(deaths_agg.get("avg_gold_at_death"), "g")),
-                ("Outnumbered deaths", card(pct(deaths_agg.get("outnumbered_death_rate")))),
-                ("Avg death minute", card(deaths_agg.get("avg_death_minute"))),
-                ("Top killer", card(deaths_agg.get("most_common_killer"))),
-            ]
-        ),
-        "teamfight_cards": card_entries(
-            [
-                ("Fights detected", card(fights.get("total_fights"))),
-                ("Participation", card(pct(fights.get("participation_rate")))),
-                ("Fight win rate", card(pct(fights.get("fight_win_rate")))),
-                ("Damage/fight", card(fights.get("avg_damage_per_fight"))),
-                ("Death rate in fights", card(pct(fights.get("death_rate_in_fights")))),
-                ("Front-to-back", card(fights.get("avg_front_to_back"))),
-                ("Unspent gold/fight", card(fights.get("avg_unspent_gold_per_fight"), "g")),
-                ("Advantaged fights", card(fights.get("fights_advantaged"))),
-                ("Disadvantaged fights", card(fights.get("fights_disadvantaged"))),
-                ("WR advantaged fights", card(pct(fights.get("fight_win_rate_when_advantaged")))),
-                ("WR disadvantaged fights", card(pct(fights.get("fight_win_rate_when_disadvantaged")))),
-            ]
-        ),
         "objective_rows": [
             {
                 "kind": kind,
@@ -420,17 +437,18 @@ def build_window_bundle(
         "rune_rows": rune_setup_stats(frames.runes_df).to_dict("records"),
         "matchup_rows": matchup_rows,
         "positive_recommendations": [
-            {**rec.model_dump(), "badge": score_badge(rec), "tone": rec.tone.value}
+            _recommendation_payload(rec)
             for rec in recommendations
             if rec.tone.value == "positive"
         ],
         "negative_recommendations": [
-            {**rec.model_dump(), "badge": score_badge(rec), "tone": rec.tone.value}
+            _recommendation_payload(rec)
             for rec in recommendations
             if rec.tone.value == "negative"
         ],
         "figures": figures,
     }
+    _finalize_coaching_anchors(bundle)
     bundle["top_tips"] = _build_top_tips(bundle)
     bundle["figure_hints"] = _build_figure_hints(win_corrs, model)
 

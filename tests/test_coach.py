@@ -91,7 +91,7 @@ def test_matchup_rules_fire(coach: CoachEngine) -> None:
 def test_new_rules_fire(coach: CoachEngine) -> None:
     """New coaching rules surface on the synthetic dataset."""
     titles = " | ".join(r.title for r in coach.generate())
-    assert "Your personal win conditions" in titles
+    assert "Win more when ahead @10" in titles
     assert "Greed deaths are a recurring pattern" in titles
     assert "You give away too many shutdown bounties" in titles
     assert "You throw leads you build in lane" in titles

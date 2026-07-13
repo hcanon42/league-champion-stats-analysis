@@ -371,6 +371,21 @@ class MatchStore:
         )
         return [str(row[0]) for row in cursor.fetchall()]
 
+    def iter_unverified_puuids_for_build(
+        self, champion: str, role: str, platform: str, limit: int = 200
+    ) -> list[str]:
+        """Return unverified PUUIDs scoped to one champion+lane build."""
+        cursor = self._conn.execute(
+            """
+            SELECT DISTINCT puuid FROM peer_games
+            WHERE rank_verified = 0
+              AND champion = ? AND role = ? AND platform = ?
+            LIMIT ?
+            """,
+            (champion, role, platform, limit),
+        )
+        return [str(row[0]) for row in cursor.fetchall()]
+
     def set_puuid_rank(self, puuid: str, tier: str, rank: str) -> int:
         """Backfill rank metadata for every peer row owned by one player."""
         cursor = self._conn.execute(

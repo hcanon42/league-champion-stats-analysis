@@ -2,11 +2,30 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
 from league_stats.core.models import PeerComparisonResult
+from league_stats.core.role_metrics import (
+    MetricSpec,
+    card_tier_headlines,
+    overview_metric_specs,
+    resolve_metric_value,
+    role_profile,
+)
+from league_stats.presentation.metric_colors import (
+    color_winrate,
+    interpolate_metric_color,
+    score_death_share,
+    score_deaths_per_game,
+    score_lane_diff,
+    score_peer_gap,
+    score_winrate,
+)
 from league_stats.presentation.ui_icons import icon_fields_for_label, with_icons
+
+PRIORITY_LABELS: dict[str, str] = {"high": "High", "medium": "Medium", "low": "Low"}
 
 
 @dataclass(frozen=True)
@@ -20,6 +39,7 @@ class MetricCard:
     icon_href: str | None = None
     icon_tone: str = "muted"
     value_class: str = ""
+    value_color: str = ""
 
 
 def card(value: Any, suffix: str = "") -> str:
@@ -34,36 +54,176 @@ def pct(value: float | None) -> str | None:
 
 def card_entries(pairs: list[tuple[str, str]]) -> list[dict[str, str]]:
     """Convert label/value card pairs to JSON-friendly dicts."""
-    return with_icons([{"label": label, "value": value} for label, value in pairs])
+    entries = with_icons([{"label": label, "value": value} for label, value in pairs])
+    for entry in entries:
+        enrich_value_semantics(entry)
+    return entries
 
 
-def overview_card_entries(overview: dict[str, Any]) -> list[dict[str, str]]:
-    """Build overview cards with win/loss styling metadata."""
-    winrate = float(overview.get("winrate", 0.0))
-    return with_icons(
-        [
-            {
-                "label": "Win rate",
-                "value": f"{winrate * 100:.0f}%",
-                "value_class": "win" if winrate >= 0.5 else "loss",
-            },
-            {"label": "KDA", "value": str(overview.get("avg_kda", "—")), "value_class": ""},
-            {"label": "DPM", "value": str(overview.get("avg_dpm", "—")), "value_class": ""},
-            {"label": "CS/min", "value": str(overview.get("avg_cspm", "—")), "value_class": ""},
-            {
-                "label": "Damage share",
-                "value": f"{float(overview.get('avg_damage_share', 0)) * 100:.0f}%",
-                "value_class": "",
-            },
-            {"label": "Deaths/game", "value": str(overview.get("avg_deaths", "—")), "value_class": ""},
-            {"label": "Vision/min", "value": str(overview.get("avg_vspm", "—")), "value_class": ""},
-            {
-                "label": "Avg game",
-                "value": f"{overview.get('avg_duration', '—')} min",
-                "value_class": "",
-            },
-        ]
+def _format_metric_value(spec: MetricSpec, raw: Any) -> str:
+    if raw is None:
+        return "—"
+    if spec.pct:
+        return f"{float(raw) * 100:.0f}%"
+    if spec.key == "winrate_pct":
+        return f"{float(raw):.0f}%"
+    if isinstance(raw, float):
+        if raw == int(raw):
+            return f"{int(raw)}{spec.suffix}"
+        return f"{raw:.2f}{spec.suffix}"
+    return f"{raw}{spec.suffix}"
+
+
+def cards_from_specs(
+    specs: tuple[MetricSpec, ...],
+    summaries: dict[str, Any],
+    *,
+    section: str,
+    role: str = "MIDDLE",
+    avg_damage_share: float | None = None,
+) -> list[dict[str, Any]]:
+    """Build dashboard cards from role metric specs."""
+    pairs: list[tuple[str, str]] = []
+    for spec in specs:
+        raw = resolve_metric_value(spec, summaries)
+        pairs.append((spec.label, _format_metric_value(spec, raw)))
+    entries = card_entries(pairs)
+    return annotate_card_tiers(
+        entries,
+        section,
+        role=role,
+        avg_damage_share=avg_damage_share,
     )
+
+
+def priority_label(badge: str) -> str:
+    """Map a recommendation badge class to a player-facing label."""
+    return PRIORITY_LABELS.get(badge, "Medium")
+
+
+def _parse_signed_number(value: str) -> float | None:
+    """Extract a leading signed number from a formatted metric value."""
+    match = re.search(r"([+-]?\d+(?:\.\d+)?)", str(value).replace(",", ""))
+    if not match:
+        return None
+    try:
+        return float(match.group(1))
+    except ValueError:
+        return None
+
+
+def _parse_percent(value: str) -> float | None:
+    """Parse a percentage string such as ``53%``."""
+    match = re.search(r"([+-]?\d+(?:\.\d+)?)\s*%", str(value))
+    if not match:
+        return None
+    try:
+        return float(match.group(1))
+    except ValueError:
+        return None
+
+
+def _apply_value_color(entry: dict[str, Any], score: float | None) -> None:
+    """Attach a weighted gradient color when a semantic score is available."""
+    if score is None:
+        return
+    entry["value_color"] = interpolate_metric_color(score)
+    if score > 0.15:
+        entry["value_class"] = "win"
+    elif score < -0.15:
+        entry["value_class"] = "loss"
+    else:
+        entry["value_class"] = ""
+
+
+def enrich_value_semantics(entry: dict[str, Any]) -> None:
+    """Attach weighted metric coloring when a metric has a clear good/bad direction."""
+    if entry.get("value_color"):
+        return
+    label = str(entry.get("label", ""))
+    value = str(entry.get("value", ""))
+    lower = label.lower()
+
+    if "diff @10" in lower or label.startswith("GD@") or label.startswith("CSD@"):
+        number = _parse_signed_number(value)
+        if number is not None:
+            _apply_value_color(entry, score_lane_diff(number))
+        return
+
+    if "win rate" in lower or lower.startswith("wr when"):
+        pct_value = _parse_percent(value)
+        if pct_value is not None:
+            _apply_value_color(entry, score_winrate(pct_value))
+        return
+
+    if "deaths" in lower or "death rate" in lower:
+        pct_value = _parse_percent(value)
+        if pct_value is not None:
+            _apply_value_color(entry, score_death_share(pct_value))
+            return
+        number = _parse_signed_number(value)
+        if number is not None and "game" in lower:
+            _apply_value_color(entry, score_deaths_per_game(number))
+
+
+def annotate_card_tiers(
+    entries: list[dict[str, Any]],
+    section: str,
+    *,
+    role: str = "MIDDLE",
+    avg_damage_share: float | None = None,
+) -> list[dict[str, Any]]:
+    """Mark cards as headline or secondary stats and order headline metrics first."""
+    profile = role_profile(role)
+    if section == "overview":
+        headlines = card_tier_headlines(profile, "overview", avg_damage_share=avg_damage_share)
+    elif section in {"lane", "early"}:
+        headlines = card_tier_headlines(profile, "early", avg_damage_share=avg_damage_share)
+    else:
+        headlines = card_tier_headlines(profile, section, avg_damage_share=avg_damage_share)
+    headline_set = set(headlines)
+    ordered: list[dict[str, Any]] = []
+    for label in headlines:
+        for entry in entries:
+            if entry.get("label") == label:
+                ordered.append({**entry, "tier": "headline"})
+                break
+    for entry in entries:
+        if entry.get("label") not in headline_set:
+            ordered.append({**entry, "tier": "more"})
+    return ordered
+
+
+def overview_card_entries(
+    overview: dict[str, Any], *, role: str = "MIDDLE"
+) -> list[dict[str, str]]:
+    """Build overview cards from the role profile."""
+    avg_damage_share = overview.get("avg_damage_share")
+    if avg_damage_share is not None:
+        avg_damage_share = float(avg_damage_share)
+    profile = role_profile(role)
+    summaries = {"overview": overview}
+    specs = overview_metric_specs(profile, avg_damage_share=avg_damage_share)
+    entries = cards_from_specs(
+        specs,
+        summaries,
+        section="overview",
+        role=role,
+        avg_damage_share=avg_damage_share,
+    )
+    for entry in entries:
+        if entry.get("label") == "Win rate":
+            winrate = float(overview.get("winrate", 0.0))
+            entry["value_color"] = color_winrate(winrate)
+            if winrate >= 0.53:
+                entry["value_class"] = "win"
+            elif winrate <= 0.47:
+                entry["value_class"] = "loss"
+        if entry.get("label") == "Deaths/game":
+            avg_deaths = overview.get("avg_deaths")
+            if avg_deaths is not None:
+                _apply_value_color(entry, score_deaths_per_game(float(avg_deaths)))
+    return entries
 
 
 def peer_row_display(row: dict[str, Any]) -> dict[str, str]:
@@ -71,7 +231,7 @@ def peer_row_display(row: dict[str, Any]) -> dict[str, str]:
     metric = row.get("metric")
     yours = row.get("yours")
     peer_avg = row.get("peer_avg")
-    if metric in {"win", "kill_participation", "damage_share"}:
+    if metric in {"win", "kill_participation", "damage_share", "objectives_present_rate"}:
         yours_display = f"{float(yours) * 100:.0f}%"
         peer_display = f"{float(peer_avg) * 100:.0f}%"
     else:
@@ -83,12 +243,20 @@ def peer_row_display(row: dict[str, Any]) -> dict[str, str]:
         gap_display = f"{float(delta_pct):+.0f}%"
     else:
         gap_display = f"{float(delta):+.1f}"
+    gap_score = score_peer_gap(
+        metric=str(row.get("metric", "")),
+        delta_pct=row.get("delta_pct"),
+        delta=float(row.get("delta", 0.0)),
+        direction=str(row.get("direction", "higher")),
+    )
+    gap_color = interpolate_metric_color(gap_score) if gap_score is not None else ""
     return {
         "label": str(row.get("label", "")),
         **icon_fields_for_label(str(row.get("label", ""))),
         "yours": yours_display,
         "peer_avg": peer_display,
         "gap": gap_display,
+        "gap_color": gap_color,
         "verdict": str(row.get("verdict", "inline")),
     }
 

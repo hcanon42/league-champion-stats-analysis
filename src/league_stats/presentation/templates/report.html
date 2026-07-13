@@ -6,32 +6,24 @@
 <title>{{ app_title }} — {{ player_name }}</title>
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
 <script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
-{% from '_macros.html' import metric_label, metric_card_label, metric_icon, section_title, role_icon, build_heading, favicon_links, app_brand, icon_cell, core_cell, category_divider, nav_link %}
+{% from '_macros.html' import metric_label, metric_card_label, metric_icon, section_title, role_icon, build_heading, build_card, favicon_links, app_brand, icon_cell, core_cell, category_divider, nav_link, tiered_cards, rec_card, metric_card, generated_at_time, format_generated_at_script %}
 {{ favicon_links(favicon_href) }}
 <link rel="stylesheet" href="static/report.css">
 <link rel="stylesheet" href="static/chatbot.css">
+<script>if ('scrollRestoration' in history) history.scrollRestoration = 'manual';</script>
 </head>
 <body>
 <div class="layout">
 <nav class="report-nav">
   {{ app_brand(app_title, logo_href, variant='nav') }}
   <div class="nav-back">
-    <a href="../index.html">← Reports</a>
     <a href="../../../index.html">← All players</a>
   </div>
   {% if player_builds %}
   <div class="nav-builds">
     <div class="build-grid">
       {% for build in player_builds %}
-      <a class="build-card{% if build.selected %} is-default{% endif %}" href="{{ build.href }}">
-        {% if build.champion_icon %}
-        <img src="{{ build.champion_icon }}" alt="" class="game-icon">
-        {% endif %}
-        <div>
-          <strong>{{ build_heading(build.champion, build.role_icon, build.role_display) }}</strong>
-          <div class="meta">{{ build.games }}g · {{ '%.0f' % (build.winrate * 100) }}%</div>
-        </div>
-      </a>
+      {{ build_card(build, variant='nav') }}
       {% endfor %}
     </div>
   </div>
@@ -40,11 +32,10 @@
     <div class="nav-group nav-group--performance">
       <div class="nav-group-label">Performance</div>
       {{ nav_link('#overview', 'Overview', 'lucide:layout-dashboard', 'overview') }}
-      {{ nav_link('#score', 'Score', 'lucide:gauge', 'score') }}
-      {{ nav_link('#recommendations', 'Tips', 'lucide:lightbulb', 'recommendations') }}
+      {{ nav_link('#coaching', 'Coaching', 'lucide:lightbulb', 'coaching') }}
     </div>
     <div class="nav-group nav-group--laning">
-      <div class="nav-group-label">Laning</div>
+      <div class="nav-group-label">{{ early_section_title | default('Laning') }}</div>
       {{ nav_link('#lane', 'Lane', 'lucide:map', 'lane') }}
       {{ nav_link('#economy', 'Economy', 'lucide:coins', 'economy') }}
     </div>
@@ -67,7 +58,7 @@
       {% if has_peer_comparison %}
       {{ nav_link('#rank-peers', 'Peers', 'lucide:bar-chart-2', 'rank-peers') }}
       {% endif %}
-      {{ nav_link('#graphs', 'Deep dive', 'lucide:line-chart', 'graphs') }}
+      {{ nav_link('#graphs', 'Advanced', 'lucide:line-chart', 'graphs') }}
     </div>
   </div>
 </nav>
@@ -101,79 +92,74 @@
 {{ category_divider('Performance', 'performance') }}
 
 <section id="overview" class="report-section report-section--performance">
-  <h2 class="report-title section-title--performance">
-    {% if champion_icon %}
-    <img src="{{ champion_icon }}" alt="" class="game-icon">
-    {% endif %}
-    <span>Overview — {{ player_name }}</span>
-  </h2>
-  <p class="sub" id="overview-subtitle">{{ total_games }} {{ queue_label }} {{ build_label }} games analysed · patches {{ patch_range }}</p>
-  {% if top_tips %}
-  <div class="top-tips" id="top-tips-callout">
-    <span class="top-tips-label">Top coaching tips</span>
-    {% for tip in top_tips %}
-    <span class="top-tip top-tip--{{ tip.tone }}">
-      <span class="badge">{{ tip.category }}</span>
-      <span>{{ tip.title }}</span>
-    </span>
-    {% endfor %}
+  <div class="report-hero" id="report-hero">
+    <div class="report-hero-identity">
+      {% if champion_icon %}
+      <img src="{{ champion_icon }}" alt="" class="game-icon">
+      {% endif %}
+      <div>
+        <h1 class="report-page-title">{{ build_heading(champion, role_icon_href, role_display) }}</h1>
+        <div class="report-player-name">{{ player_name }}</div>
+        <div class="report-hero-meta" id="overview-subtitle">{{ total_games }} {{ queue_label }} games · patches {{ patch_range }}</div>
+      </div>
+    </div>
+    <div class="hero-score-panel">
+      <div class="hero-score-label">Improvement score</div>
+      <div class="hero-score-value" id="score-value">{{ score }}<span>/100</span></div>
+      <details class="score-breakdown">
+        <summary>Score breakdown</summary>
+        <div class="score-breakdown-panel" id="score-comps">
+          {% for comp in score_components %}
+          <div class="score-row" title="{{ comp.hint }}">
+            <span class="score-row-label">{{ comp.name }}</span>
+            <span class="score-row-num">{{ '%.0f' % comp.score }}</span>
+            <span class="score-row-value">{{ comp.value }}</span>
+            <div class="score-row-bar"><i style="width: {{ comp.score }}%"></i></div>
+          </div>
+          {% endfor %}
+        </div>
+      </details>
+    </div>
+    <div class="hero-actions-block">
+      <div class="hero-actions-title">Focus next game</div>
+      <div class="hero-actions" id="hero-actions">
+        {% if top_tips %}
+        {% for tip in top_tips %}
+        <a class="hero-action hero-action--{{ tip.tone }}" href="#{{ tip.anchor }}">
+          <span class="hero-action-index">{{ loop.index }}</span>
+          <span>{{ tip.title }}</span>
+        </a>
+        {% endfor %}
+        {% else %}
+        <p class="hero-action-empty">Play a few more games to unlock personalised coaching tips.</p>
+        {% endif %}
+      </div>
+    </div>
   </div>
-  {% else %}
-  <div class="top-tips" id="top-tips-callout" style="display:none"></div>
-  {% endif %}
-  <div class="cards" id="overview-cards">
-    {% for card in overview_cards %}
-    <div class="card"><div class="label">{{ metric_card_label(card.label, card.icon, card.icon_tone, iconify_id=card.iconify, icon_href=card.icon_href, tooltip=card.tooltip) }}</div><div class="value{% if card.value_class %} {{ card.value_class }}{% endif %}">{{ card.value }}</div></div>
-    {% endfor %}
-  </div>
+  <div id="overview-cards">{{ tiered_cards(overview_cards, 'More overview stats') }}</div>
   <div class="figure-block">
     <div class="figure" id="fig-winrate_trend">{{ figures.winrate_trend | safe }}</div>
     <p class="figure-caption">Rolling win rate over your last games — look for upward trends after patch changes or build adjustments.</p>
   </div>
 </section>
 
-<section id="score" class="report-section report-section--performance">
-  {{ section_title("Improvement score", "chart", "accent", category='performance') }}
-  <p class="sub">Composite of laning, farming, survival, damage, vision, objectives and reset quality against fixed benchmarks.</p>
-  <div class="score-ring">
-    <div class="score-big" id="score-value">{{ score }}<span style="font-size:24px;color:var(--muted)">/100</span></div>
-    <div class="score-comps" id="score-comps">
-      {% for comp in score_components %}
-      <div class="comp">
-        <strong>{{ metric_card_label(comp.name, comp.icon, comp.icon_tone, iconify_id=comp.iconify, icon_href=comp.icon_href, tooltip=comp.tooltip) }}</strong> — {{ comp.value }}
-        <div class="bar"><i style="width: {{ comp.score }}%"></i></div>
-        <small style="color:var(--muted)">{{ comp.hint }}</small>
-      </div>
-      {% endfor %}
-    </div>
-  </div>
-</section>
-
-<section id="recommendations" class="report-section report-section--performance">
-  {{ section_title("Recommendations", "bulb", "win", category='performance') }}
-  <p class="sub">Strengths on the left, areas to improve on the right — top {{ recommendation_visible_count }} per side, ranked by priority.</p>
+<section id="coaching" class="report-section report-section--performance">
+  {{ section_title("Coaching", "bulb", "win", category='performance') }}
+  <p class="sub sub--lead">Strengths on the left, areas to improve on the right — ranked by what matters most for your next games.</p>
   <div class="rec-columns" id="recommendations-root">
     <div class="rec-column rec-column-positive" id="rec-positive-column">
       <h3>Keep doing</h3>
       {% if positive_recommendations %}
       {% for rec in positive_recommendations[:recommendation_visible_count] %}
-      <div class="rec {{ rec.badge }}">
-        <span class="badge">{{ rec.category }}</span><strong>{{ rec.title }}</strong>
-        <p>{{ rec.detail }}</p>
-        <p class="meta">Evidence: {{ rec.evidence }}{% if rec.p_value is not none %} · p = {{ '%.4f' % rec.p_value }}{% endif %} · priority {{ '%.2f' % rec.priority }}</p>
-      </div>
+      {{ rec_card(rec) }}
       {% endfor %}
       {% if positive_recommendations|length > recommendation_visible_count %}
       <div class="rec-more" id="rec-more-positive">
         {% for rec in positive_recommendations[recommendation_visible_count:] %}
-        <div class="rec {{ rec.badge }}">
-          <span class="badge">{{ rec.category }}</span><strong>{{ rec.title }}</strong>
-          <p>{{ rec.detail }}</p>
-          <p class="meta">Evidence: {{ rec.evidence }}{% if rec.p_value is not none %} · p = {{ '%.4f' % rec.p_value }}{% endif %} · priority {{ '%.2f' % rec.priority }}</p>
-        </div>
+        {{ rec_card(rec) }}
         {% endfor %}
       </div>
-      <button type="button" class="rec-extend" data-target="rec-more-positive" aria-expanded="false" aria-controls="rec-more-positive">
+      <button type="button" class="rec-extend" data-target="rec-more-positive" data-more-label="Show {{ positive_recommendations|length - recommendation_visible_count }} more strength{{ 's' if positive_recommendations|length - recommendation_visible_count != 1 else '' }}" aria-expanded="false" aria-controls="rec-more-positive">
         Show {{ positive_recommendations|length - recommendation_visible_count }} more strength{{ 's' if positive_recommendations|length - recommendation_visible_count != 1 else '' }}
       </button>
       {% endif %}
@@ -185,23 +171,15 @@
       <h3>Work on</h3>
       {% if negative_recommendations %}
       {% for rec in negative_recommendations[:recommendation_visible_count] %}
-      <div class="rec {{ rec.badge }}">
-        <span class="badge">{{ rec.category }}</span><strong>{{ rec.title }}</strong>
-        <p>{{ rec.detail }}</p>
-        <p class="meta">Evidence: {{ rec.evidence }}{% if rec.p_value is not none %} · p = {{ '%.4f' % rec.p_value }}{% endif %} · priority {{ '%.2f' % rec.priority }}</p>
-      </div>
+      {{ rec_card(rec) }}
       {% endfor %}
       {% if negative_recommendations|length > recommendation_visible_count %}
       <div class="rec-more" id="rec-more-negative">
         {% for rec in negative_recommendations[recommendation_visible_count:] %}
-        <div class="rec {{ rec.badge }}">
-          <span class="badge">{{ rec.category }}</span><strong>{{ rec.title }}</strong>
-          <p>{{ rec.detail }}</p>
-          <p class="meta">Evidence: {{ rec.evidence }}{% if rec.p_value is not none %} · p = {{ '%.4f' % rec.p_value }}{% endif %} · priority {{ '%.2f' % rec.priority }}</p>
-        </div>
+        {{ rec_card(rec) }}
         {% endfor %}
       </div>
-      <button type="button" class="rec-extend" data-target="rec-more-negative" aria-expanded="false" aria-controls="rec-more-negative">
+      <button type="button" class="rec-extend" data-target="rec-more-negative" data-more-label="Show {{ negative_recommendations|length - recommendation_visible_count }} more area{{ 's' if negative_recommendations|length - recommendation_visible_count != 1 else '' }} to improve" aria-expanded="false" aria-controls="rec-more-negative">
         Show {{ negative_recommendations|length - recommendation_visible_count }} more area{{ 's' if negative_recommendations|length - recommendation_visible_count != 1 else '' }} to improve
       </button>
       {% endif %}
@@ -212,15 +190,11 @@
   </div>
 </section>
 
-{{ category_divider('Laning', 'laning') }}
+{{ category_divider(early_section_title | default('Laning'), 'laning') }}
 
 <section id="lane" class="report-section report-section--laning">
-  {{ section_title("Lane", "lane", "accent", category='laning') }}
-  <div class="cards" id="lane-cards">
-    {% for card in lane_cards %}
-    <div class="card"><div class="label">{{ metric_card_label(card.label, card.icon, card.icon_tone, iconify_id=card.iconify, icon_href=card.icon_href, tooltip=card.tooltip) }}</div><div class="value">{{ card.value }}</div></div>
-    {% endfor %}
-  </div>
+  {{ section_title(early_section_title | default('Lane'), "lane", "accent", category='laning') }}
+  <div id="lane-cards">{{ tiered_cards(lane_cards, 'More ' ~ (early_section_title | default('lane') | lower) ~ ' stats') }}</div>
   <div class="figure-block">
     <div class="figure" id="fig-gd10_histogram">{{ figures.gd10_histogram | safe }}</div>
     <p class="figure-caption">Gold diff @10 distribution — a right-skewed shape means you often win lane; left-skewed means you fall behind early.</p>
@@ -237,11 +211,7 @@
 
 <section id="economy" class="report-section report-section--laning">
   {{ section_title("Economy", "coin", "gold", category='laning') }}
-  <div class="cards" id="economy-cards">
-    {% for card in economy_cards %}
-    <div class="card"><div class="label">{{ metric_card_label(card.label, card.icon, card.icon_tone, iconify_id=card.iconify, icon_href=card.icon_href, tooltip=card.tooltip) }}</div><div class="value">{{ card.value }}</div></div>
-    {% endfor %}
-  </div>
+  <div id="economy-cards">{{ tiered_cards(economy_cards, 'More economy stats') }}</div>
   <div class="figure-block">
     <div class="figure" id="fig-dpm_scatter">{{ figures.dpm_scatter | safe }}</div>
     <p class="figure-caption">Damage vs gold income per game — dots above the trend line punch above their gold weight.</p>
@@ -252,11 +222,7 @@
 
 <section id="vision" class="report-section report-section--impact">
   {{ section_title("Vision", "eye", "blue", category='impact') }}
-  <div class="cards" id="vision-cards">
-    {% for card in vision_cards %}
-    <div class="card"><div class="label">{{ metric_card_label(card.label, card.icon, card.icon_tone, iconify_id=card.iconify, icon_href=card.icon_href, tooltip=card.tooltip) }}</div><div class="value">{{ card.value }}</div></div>
-    {% endfor %}
-  </div>
+  <div id="vision-cards">{{ tiered_cards(vision_cards, 'More vision stats') }}</div>
   <div class="figure-block">
     <div class="figure" id="fig-vision_trend">{{ figures.vision_trend | safe }}</div>
     <p class="figure-caption">Vision score per minute over time — compare win and loss trajectories to spot when vision drops off.</p>
@@ -265,11 +231,7 @@
 
 <section id="deaths" class="report-section report-section--impact">
   {{ section_title("Deaths", "skull", "danger", category='impact') }}
-  <div class="cards" id="death-cards">
-    {% for card in death_cards %}
-    <div class="card"><div class="label">{{ metric_card_label(card.label, card.icon, card.icon_tone, iconify_id=card.iconify, icon_href=card.icon_href, tooltip=card.tooltip) }}</div><div class="value">{{ card.value }}</div></div>
-    {% endfor %}
-  </div>
+  <div id="death-cards">{{ tiered_cards(death_cards, 'More death stats') }}</div>
   <div class="figure-block">
     <div class="figure" id="fig-death_heatmap">{{ figures.death_heatmap | safe }}</div>
     <p class="figure-caption">Where you die on the map — hot zones without nearby team vision are prime gank or face-check risks.</p>
@@ -280,10 +242,12 @@
   </div>
   <div id="blind-spots-block"{% if not blind_spots %} style="display:none"{% endif %}>
   <h3>{{ metric_label("Most dangerous zones (solo deaths without recent team vision)", "skull", "danger") }}</h3>
+  <div class="table-scroll">
   <table><thead><tr><th>Zone</th><th>{{ metric_label("Deaths", "skull", "danger") }}</th></tr></thead>
   <tbody id="blind-spots-body">
   {% for spot in blind_spots %}<tr><td>{{ spot.zone }}</td><td>{{ spot.deaths }}</td></tr>{% endfor %}
   </tbody></table>
+  </div>
   </div>
 </section>
 
@@ -299,27 +263,17 @@
   {% else %}
   <div class="positioning-hints" id="positioning-hints" style="display:none"></div>
   {% endif %}
-  <div class="cards" id="positioning-cards">
-    {% for card in positioning_cards %}
-    <div class="card">
-      <div class="label">{{ metric_card_label(card.label, card.icon, card.icon_tone, iconify_id=card.iconify, icon_href=card.icon_href, role_icon_href=card.role_icon_href, tooltip=card.tooltip) }}</div>
-      <div class="value">{{ card.value }}</div>
-    </div>
-    {% endfor %}
-  </div>
+  <div id="positioning-cards">{{ tiered_cards(positioning_cards, 'More positioning stats') }}</div>
 </section>
 
 <section id="teamfights" class="report-section report-section--impact">
   {{ section_title("Teamfights", "teamfight", "accent", category='impact') }}
-  <div class="cards" id="teamfight-cards">
-    {% for card in teamfight_cards %}
-    <div class="card"><div class="label">{{ metric_card_label(card.label, card.icon, card.icon_tone, iconify_id=card.iconify, icon_href=card.icon_href, tooltip=card.tooltip) }}</div><div class="value">{{ card.value }}</div></div>
-    {% endfor %}
-  </div>
+  <div id="teamfight-cards">{{ tiered_cards(teamfight_cards, 'More teamfight stats') }}</div>
 </section>
 
 <section id="objectives" class="report-section report-section--impact">
   {{ section_title("Objectives", "target", "gold", category='impact') }}
+  <div class="table-scroll">
   <table>
     <thead>
     <tr><th>Objective</th><th>Count</th><th>Taken</th><th>Present</th><th>Arrived early</th><th>Dead before</th><th>{{ metric_label("Wards before", "ward", "blue") }}</th></tr>
@@ -330,6 +284,7 @@
     {% endfor %}
     </tbody>
   </table>
+  </div>
   <div class="figure-block">
     <div class="figure" id="fig-objective_timing">{{ figures.objective_timing | safe }}</div>
     <p class="figure-caption">When objectives are taken — early arrivals and ward placement before spawn improve take rates.</p>
@@ -345,6 +300,7 @@
     <p class="figure-caption">Win rate by completed item — favor items with enough sample size and a clear WR edge.</p>
   </div>
   <h3>Two-item cores</h3>
+  <div class="table-scroll">
   <table>
     <thead><tr><th>Core</th><th>Games</th><th>Win rate</th><th>{{ metric_label("Avg DPM", "flame", "orange") }}</th><th>{{ metric_label("Avg deaths", "skull", "danger") }}</th></tr></thead>
     <tbody id="build-paths-body">
@@ -353,6 +309,7 @@
     {% endfor %}
     </tbody>
   </table>
+  </div>
 </section>
 
 <section id="runes" class="report-section report-section--champion">
@@ -361,6 +318,7 @@
     <div class="figure" id="fig-rune_winrate_bar">{{ figures.rune_winrate_bar | safe }}</div>
     <p class="figure-caption">Win rate by keystone — compare rune setups with similar game counts before switching.</p>
   </div>
+  <div class="table-scroll">
   <table>
     <thead><tr><th>Keystone</th><th>Games</th><th>Win rate</th><th>{{ metric_label("Avg DPM", "flame", "orange") }}</th><th>{{ metric_label("Avg deaths", "skull", "danger") }}</th></tr></thead>
     <tbody id="rune-rows-body">
@@ -369,6 +327,7 @@
     {% endfor %}
     </tbody>
   </table>
+  </div>
 </section>
 
 <section id="matchups" class="report-section report-section--champion">
@@ -377,6 +336,7 @@
     <div class="figure" id="fig-matchup_bar">{{ figures.matchup_bar | safe }}</div>
     <p class="figure-caption">Win rate vs lane opponents — bar length shows sample size; color shows above/below 50% WR.</p>
   </div>
+  <div class="table-scroll">
   <table>
     <thead><tr><th>Opponent</th><th>Games</th><th>Win rate</th><th>GD@10</th><th>CSD@10</th><th>Deaths pre-14</th><th>Recommendation</th></tr></thead>
     <tbody id="matchup-rows-body">
@@ -385,6 +345,7 @@
     {% endfor %}
     </tbody>
   </table>
+  </div>
 </section>
 
 {{ category_divider('Analysis', 'analysis') }}
@@ -393,12 +354,12 @@
 <section id="rank-peers" class="report-section report-section--analysis">
   {{ section_title("Rank peer comparison", "chart", "accent", category='analysis') }}
   <p class="sub" id="peer-subtitle">Your averages vs {{ build_label }} at <strong>{{ peer_comparison.rank_label }}</strong> · {{ peer_comparison.source }} · {{ peer_comparison.peer_games }} peer games ({{ peer_comparison.peer_players }} players, {{ peer_comparison.confidence }} confidence)</p>
-  <div class="cards" id="peer-highlight-cards">
+  <div id="peer-highlight-cards" class="cards">
     {% for label, items, icon, tone in [('Strengths', peer_comparison.strengths, 'trophy', 'win'), ('Weaknesses', peer_comparison.weaknesses, 'skull', 'danger')] %}
-    <div class="card" style="grid-column: span 2;">
+    <div class="card card--wide">
       <div class="label">{{ metric_label(label, icon, tone) }}</div>
       {% if items %}
-      <ul style="margin-top:8px;padding-left:18px;color:var(--muted);">
+      <ul class="peer-highlight-list">
         {% for item in items %}<li>{{ item }}</li>{% endfor %}
       </ul>
       {% else %}<p class="sub" style="margin:8px 0 0">—</p>{% endif %}
@@ -407,8 +368,9 @@
   </div>
   <div class="figure-block">
     <div class="figure" id="fig-peer_comparison">{{ figures.peer_comparison | safe }}</div>
-    <p class="figure-caption">Gap vs same-rank peers — green bars are strengths, red bars are areas trailing the benchmark.</p>
+    <p class="figure-caption">Gap vs same-rank peers — greener bars are strengths, redder bars trail the benchmark (intensity reflects gap size).</p>
   </div>
+  <div class="table-scroll">
   <table>
     <thead>
     <tr><th>Metric</th><th>You</th><th>{{ peer_comparison.tier|title }} {{ build_label }} avg</th><th>Gap</th><th>Verdict</th></tr>
@@ -417,22 +379,23 @@
     {% for row in peer_rows %}
     <tr>
       <td>{{ metric_label(row.label, row.icon, row.icon_tone, icon_href=row.icon_href) }}</td>
-      <td>{% if row.metric == 'win' %}{{ '%.0f' % (row.yours * 100) }}%{% elif row.metric == 'kill_participation' or row.metric == 'damage_share' %}{{ '%.0f' % (row.yours * 100) }}%{% else %}{{ row.yours }}{% endif %}</td>
-      <td>{% if row.metric == 'win' %}{{ '%.0f' % (row.peer_avg * 100) }}%{% elif row.metric == 'kill_participation' or row.metric == 'damage_share' %}{{ '%.0f' % (row.peer_avg * 100) }}%{% else %}{{ row.peer_avg }}{% endif %}</td>
-      <td class="delta-{{ row.verdict }}">{% if row.delta_pct is not none %}{{ '%+.0f' % row.delta_pct }}%{% else %}{{ '%+.1f' % row.delta }}{% endif %}</td>
-      <td class="delta-{{ row.verdict }}">{{ row.verdict }}</td>
+      <td>{{ row.yours }}</td>
+      <td>{{ row.peer_avg }}</td>
+      <td class="delta-{{ row.verdict }}"{% if row.gap_color %} style="color: {{ row.gap_color }}"{% endif %}>{{ row.gap }}</td>
+      <td class="delta-{{ row.verdict }}"{% if row.gap_color %} style="color: {{ row.gap_color }}"{% endif %}>{{ row.verdict }}</td>
     </tr>
     {% endfor %}
     </tbody>
   </table>
+  </div>
 </section>
 {% endif %}
 
 <section id="graphs" class="report-section report-section--analysis">
-  {{ section_title("Statistical deep dive", "chart", "accent", category='analysis') }}
-  <p class="sub">Advanced correlations and game archetypes — collapse this section if you only want actionable coaching tips above.</p>
-  <details class="graphs-details" open>
-    <summary>Show statistical charts</summary>
+  {{ section_title("Advanced stats", "chart", "accent", category='analysis') }}
+  <p class="sub">Correlations and game archetypes for deeper analysis — expand only when you want the full statistical picture.</p>
+  <details class="graphs-details" id="graphs-details">
+    <summary>Show advanced charts</summary>
     <div class="graphs-details-body">
       <div class="figure-block">
         <div class="figure" id="fig-correlation_heatmap">{{ figures.correlation_heatmap | safe }}</div>
@@ -530,21 +493,39 @@
       '<span>' + label + '</span></span>';
   }
 
-  function renderCards(container, cards) {
-    if (!container) return;
-    container.innerHTML = (cards || []).map(function (card) {
-      var cls = card.value_class ? ' value ' + card.value_class : ' value';
-      return '<div class="card"><div class="label">' + metricCardLabel(card) +
-        '</div><div class="' + cls.trim() + '">' + card.value + '</div></div>';
-    }).join('');
+  function renderMetricCard(card) {
+    var headline = card.tier === 'headline' ? ' card--headline' : '';
+    var cls = card.value_class ? ' value ' + card.value_class : ' value';
+    var style = card.value_color ? ' style="color:' + card.value_color + '"' : '';
+    return '<div class="card' + headline + '"><div class="label">' + metricCardLabel(card) +
+      '</div><div class="' + cls.trim() + '"' + style + '>' + card.value + '</div></div>';
   }
 
-  function renderCardPairs(container, cards) {
+  var tieredMoreLabels = {
+    'overview-cards': 'More overview stats',
+    'lane-cards': 'More lane stats',
+    'economy-cards': 'More economy stats',
+    'vision-cards': 'More vision stats',
+    'death-cards': 'More death stats',
+    'positioning-cards': 'More positioning stats',
+    'teamfight-cards': 'More teamfight stats',
+  };
+
+  function renderTieredCards(container, cards) {
     if (!container) return;
-    container.innerHTML = (cards || []).map(function (card) {
-      return '<div class="card"><div class="label">' + metricCardLabel(card) +
-        '</div><div class="value">' + card.value + '</div></div>';
-    }).join('');
+    var moreLabel = tieredMoreLabels[container.id] || 'More stats';
+    var headline = (cards || []).filter(function (card) { return card.tier === 'headline'; });
+    var more = (cards || []).filter(function (card) { return card.tier === 'more'; });
+    if (!headline.length && cards && cards.length) {
+      headline = cards;
+      more = [];
+    }
+    var html = '<div class="cards cards--headline">' + headline.map(renderMetricCard).join('') + '</div>';
+    if (more.length) {
+      html += '<details class="cards-more"><summary>' + escapeHtml(moreLabel) + '</summary>' +
+        '<div class="cards cards--more">' + more.map(renderMetricCard).join('') + '</div></details>';
+    }
+    container.innerHTML = html;
   }
 
   function setFigure(id, html) {
@@ -569,19 +550,15 @@
     var scoreNode = document.getElementById('score-value');
     var compsNode = document.getElementById('score-comps');
     if (scoreNode) {
-      scoreNode.innerHTML = String(bundle.score) + '<span style="font-size:24px;color:var(--muted)">/100</span>';
+      scoreNode.innerHTML = String(bundle.score) + '<span>/100</span>';
     }
     if (!compsNode) return;
     compsNode.innerHTML = (bundle.score_components || []).map(function (comp) {
-      return '<div class="comp"><strong>' + metricCardLabel({
-        label: comp.name,
-        iconify: comp.iconify,
-        icon_tone: comp.icon_tone,
-        icon_href: comp.icon_href,
-        tooltip: comp.tooltip,
-      }) + '</strong> — ' + comp.value +
-        '<div class="bar"><i style="width:' + comp.score + '%"></i></div>' +
-        '<small style="color:var(--muted)">' + comp.hint + '</small></div>';
+      return '<div class="score-row" title="' + escapeHtml(comp.hint || '') + '">' +
+        '<span class="score-row-label">' + escapeHtml(comp.name) + '</span>' +
+        '<span class="score-row-num">' + Math.round(comp.score) + '</span>' +
+        '<span class="score-row-value">' + escapeHtml(comp.value) + '</span>' +
+        '<div class="score-row-bar"><i style="width:' + comp.score + '%"></i></div></div>';
     }).join('');
   }
 
@@ -597,20 +574,21 @@
     var cards = document.getElementById('peer-highlight-cards');
     if (cards) {
       cards.innerHTML =
-        '<div class="card" style="grid-column: span 2;"><div class="label">' + metricLabel('Strengths', 'lucide:trophy', 'win') + '</div>' +
-        (bundle.peer.strengths.length ? '<ul style="margin-top:8px;padding-left:18px;color:var(--muted);">' +
-          bundle.peer.strengths.map(function (item) { return '<li>' + item + '</li>'; }).join('') + '</ul>' :
+        '<div class="card card--wide"><div class="label">' + metricLabel('Strengths', 'lucide:trophy', 'win') + '</div>' +
+        (bundle.peer.strengths.length ? '<ul class="peer-highlight-list">' +
+          bundle.peer.strengths.map(function (item) { return '<li>' + escapeHtml(item) + '</li>'; }).join('') + '</ul>' :
           '<p class="sub" style="margin:8px 0 0">—</p>') + '</div>' +
-        '<div class="card" style="grid-column: span 2;"><div class="label">' + metricLabel('Weaknesses', 'lucide:skull', 'danger') + '</div>' +
-        (bundle.peer.weaknesses.length ? '<ul style="margin-top:8px;padding-left:18px;color:var(--muted);">' +
-          bundle.peer.weaknesses.map(function (item) { return '<li>' + item + '</li>'; }).join('') + '</ul>' :
+        '<div class="card card--wide"><div class="label">' + metricLabel('Weaknesses', 'lucide:skull', 'danger') + '</div>' +
+        (bundle.peer.weaknesses.length ? '<ul class="peer-highlight-list">' +
+          bundle.peer.weaknesses.map(function (item) { return '<li>' + escapeHtml(item) + '</li>'; }).join('') + '</ul>' :
           '<p class="sub" style="margin:8px 0 0">—</p>') + '</div>';
     }
     var body = document.getElementById('peer-table-body');
     if (body) {
       body.innerHTML = (bundle.peer.rows || []).map(function (row) {
+        var style = row.gap_color ? ' style="color:' + row.gap_color + '"' : '';
         return '<tr><td>' + metricLabel(row.label, row.iconify, row.icon_tone, row.icon_href) + '</td><td>' + row.yours + '</td><td>' + row.peer_avg +
-          '</td><td class="delta-' + row.verdict + '">' + row.gap + '</td><td class="delta-' + row.verdict + '">' + row.verdict + '</td></tr>';
+          '</td><td class="delta-' + row.verdict + '"' + style + '>' + row.gap + '</td><td class="delta-' + row.verdict + '"' + style + '>' + row.verdict + '</td></tr>';
       }).join('');
     }
     setFigure('fig-peer_comparison', bundle.figures.peer_comparison || '');
@@ -638,21 +616,19 @@
     body.innerHTML = (rows || []).map(renderRow).join('');
   }
 
-  function renderTopTips(bundle) {
-    var node = document.getElementById('top-tips-callout');
+  function renderHeroActions(bundle) {
+    var node = document.getElementById('hero-actions');
     if (!node) return;
     var tips = bundle.top_tips || [];
     if (!tips.length) {
-      node.style.display = 'none';
-      node.innerHTML = '';
+      node.innerHTML = '<p class="hero-action-empty">Play a few more games to unlock personalised coaching tips.</p>';
       return;
     }
-    node.style.display = '';
-    node.innerHTML = '<span class="top-tips-label">Top coaching tips</span>' +
-      tips.map(function (tip) {
-        return '<span class="top-tip top-tip--' + (tip.tone || 'positive') + '">' +
-          '<span class="badge">' + tip.category + '</span><span>' + tip.title + '</span></span>';
-      }).join('');
+    node.innerHTML = tips.map(function (tip, index) {
+      var anchor = tip.anchor ? ('#' + tip.anchor) : '#coaching';
+      return '<a class="hero-action hero-action--' + (tip.tone || 'negative') + '" href="' + anchor + '">' +
+        '<span class="hero-action-index">' + (index + 1) + '</span><span>' + escapeHtml(tip.title) + '</span></a>';
+    }).join('');
   }
 
   function renderFigureHints(bundle) {
@@ -672,9 +648,20 @@
   function renderRecommendations(bundle) {
     function renderRec(rec) {
       var pValue = rec.p_value != null ? ' · p = ' + Number(rec.p_value).toFixed(4) : '';
-      return '<div class="rec ' + rec.badge + '"><span class="badge">' + rec.category + '</span><strong>' + rec.title +
-        '</strong><p>' + rec.detail + '</p><p class="meta">Evidence: ' + rec.evidence + pValue +
-        ' · priority ' + Number(rec.priority).toFixed(2) + '</p></div>';
+      var sample = rec.sample_size ? ' · ' + rec.sample_size + ' games' : '';
+      var idAttr = rec.anchor ? (' id="' + rec.anchor + '"') : '';
+      var priority = rec.priority_label || 'Medium';
+      return '<div class="rec ' + rec.badge + '"' + idAttr + '>' +
+        '<div class="rec-head"><span class="badge badge--priority badge--' + rec.badge + '">' + priority +
+        '</span><span class="badge">' + escapeHtml(rec.category) + '</span><strong>' + escapeHtml(rec.title) + '</strong></div>' +
+        '<p>' + escapeHtml(rec.detail) + '</p>' +
+        '<details class="rec-evidence"><summary>Why this?</summary>' +
+        '<p class="meta">Evidence: ' + escapeHtml(rec.evidence) + pValue + sample + '</p></details></div>';
+    }
+    function extendButton(targetId, count, noun) {
+      var label = 'Show ' + count + ' more ' + noun;
+      return '<button type="button" class="rec-extend" data-target="' + targetId + '" data-more-label="' + label +
+        '" aria-expanded="false" aria-controls="' + targetId + '">' + label + '</button>';
     }
     var positive = bundle.positive_recommendations || [];
     var negative = bundle.negative_recommendations || [];
@@ -687,8 +674,7 @@
       var posHtml = '<h3>Keep doing</h3>' + posVisible;
       if (posMore.length) {
         posHtml += '<div class="rec-more" id="rec-more-positive">' + posMore.map(renderRec).join('') + '</div>';
-        posHtml += '<button type="button" class="rec-extend" data-target="rec-more-positive" aria-expanded="false" aria-controls="rec-more-positive">Show ' +
-          posMore.length + ' more strength' + (posMore.length !== 1 ? 's' : '') + '</button>';
+        posHtml += extendButton('rec-more-positive', posMore.length, 'strength' + (posMore.length !== 1 ? 's' : ''));
       }
       posCol.innerHTML = posHtml;
     } else {
@@ -700,8 +686,7 @@
       var negHtml = '<h3>Work on</h3>' + negVisible;
       if (negMore.length) {
         negHtml += '<div class="rec-more" id="rec-more-negative">' + negMore.map(renderRec).join('') + '</div>';
-        negHtml += '<button type="button" class="rec-extend" data-target="rec-more-negative" aria-expanded="false" aria-controls="rec-more-negative">Show ' +
-          negMore.length + ' more area' + (negMore.length !== 1 ? 's' : '') + ' to improve</button>';
+        negHtml += extendButton('rec-more-negative', negMore.length, 'area' + (negMore.length !== 1 ? 's' : '') + ' to improve');
       }
       negCol.innerHTML = negHtml;
     } else {
@@ -750,30 +735,33 @@
     return view.default_window;
   }
 
+  var mainEl = document.querySelector('main');
+
   function applyView(queueKey, windowKey) {
     var view = reportViews[queueKey];
     if (!view) return;
     windowKey = resolveWindowKey(queueKey, windowKey);
     var bundle = view.windows[windowKey];
     if (!bundle) return;
+    if (mainEl) mainEl.classList.add('is-filter-loading');
     currentQueue = queueKey;
     currentWindow = windowKey;
     var subtitle = document.getElementById('overview-subtitle');
     if (subtitle) {
-      subtitle.textContent = bundle.total_games + ' ' + (bundle.queue_label || 'ranked') + ' ' + buildLabel +
-        ' games analysed · patches ' + bundle.patch_range;
+      subtitle.textContent = bundle.total_games + ' ' + (bundle.queue_label || 'ranked') +
+        ' games · patches ' + bundle.patch_range;
     }
-    renderCards(document.getElementById('overview-cards'), bundle.overview_cards);
-    renderTopTips(bundle);
+    renderTieredCards(document.getElementById('overview-cards'), bundle.overview_cards);
+    renderHeroActions(bundle);
     renderScore(bundle);
     renderPeer(bundle);
-    renderCardPairs(document.getElementById('lane-cards'), bundle.lane_cards);
-    renderCardPairs(document.getElementById('economy-cards'), bundle.economy_cards);
-    renderCardPairs(document.getElementById('vision-cards'), bundle.vision_cards);
-    renderCardPairs(document.getElementById('death-cards'), bundle.death_cards);
+    renderTieredCards(document.getElementById('lane-cards'), bundle.lane_cards);
+    renderTieredCards(document.getElementById('economy-cards'), bundle.economy_cards);
+    renderTieredCards(document.getElementById('vision-cards'), bundle.vision_cards);
+    renderTieredCards(document.getElementById('death-cards'), bundle.death_cards);
     renderPositioningHints(bundle.positioning_hints);
-    renderCardPairs(document.getElementById('positioning-cards'), bundle.positioning_cards);
-    renderCardPairs(document.getElementById('teamfight-cards'), bundle.teamfight_cards);
+    renderTieredCards(document.getElementById('positioning-cards'), bundle.positioning_cards);
+    renderTieredCards(document.getElementById('teamfight-cards'), bundle.teamfight_cards);
 
     var blindBlock = document.getElementById('blind-spots-block');
     var blindBody = document.getElementById('blind-spots-body');
@@ -816,6 +804,7 @@
       localStorage.setItem('reportQueueFilter', queueKey);
       localStorage.setItem('reportGameWindow', windowKey);
     } catch (e) {}
+    if (mainEl) mainEl.classList.remove('is-filter-loading');
   }
 
   document.querySelectorAll('.queue-filter-btn').forEach(function (btn) {
@@ -872,6 +861,86 @@
 </script>
 <script>
 (function () {
+  var filterBar = document.getElementById('report-filter-bar');
+  if (!filterBar) return;
+  function syncStickyOffset() {
+    var height = Math.ceil(filterBar.getBoundingClientRect().height) + 16;
+    document.documentElement.style.setProperty('--report-sticky-offset', height + 'px');
+  }
+  syncStickyOffset();
+  window.addEventListener('resize', syncStickyOffset);
+  if (window.ResizeObserver) {
+    new ResizeObserver(syncStickyOffset).observe(filterBar);
+  }
+})();
+</script>
+<script>
+(function () {
+  var graphsDetails = document.getElementById('graphs-details');
+  if (!graphsDetails) return;
+  try {
+    if (localStorage.getItem('reportGraphsOpen') === '1') {
+      graphsDetails.open = true;
+    }
+  } catch (e) {}
+  graphsDetails.addEventListener('toggle', function () {
+    try {
+      localStorage.setItem('reportGraphsOpen', graphsDetails.open ? '1' : '0');
+    } catch (e) {}
+  });
+})();
+</script>
+<script>
+(function () {
+  var btn = document.getElementById('back-to-top');
+  if (!btn) return;
+  function onScroll() {
+    btn.classList.toggle('is-visible', window.scrollY > window.innerHeight * 1.5);
+  }
+  window.addEventListener('scroll', onScroll, { passive: true });
+  btn.addEventListener('click', function () {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+  onScroll();
+})();
+</script>
+<script>
+(function () {
+  function scrollToSection(id, behavior) {
+    var el = document.getElementById(id);
+    if (!el) return false;
+    el.scrollIntoView({ behavior: behavior || 'smooth', block: 'start' });
+    return true;
+  }
+
+  document.addEventListener('click', function (e) {
+    var link = e.target.closest('a[href^="#"]');
+    if (!link) return;
+    var href = link.getAttribute('href');
+    if (!href || href.length < 2) return;
+    var id = decodeURIComponent(href.slice(1));
+    if (!document.getElementById(id)) return;
+    e.preventDefault();
+    scrollToSection(id);
+    if (location.protocol !== 'file:') {
+      history.replaceState(null, '', '#' + id);
+    }
+  });
+
+  function scrollInitialHash() {
+    if (!location.hash || location.hash.length < 2) return;
+    scrollToSection(decodeURIComponent(location.hash.slice(1)), 'auto');
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', scrollInitialHash);
+  } else {
+    scrollInitialHash();
+  }
+})();
+</script>
+<script>
+(function () {
   var navLinks = document.querySelectorAll('.nav-link[data-section]');
   if (!navLinks.length || !('IntersectionObserver' in window)) return;
   var sections = Array.prototype.map.call(navLinks, function (link) {
@@ -907,9 +976,18 @@
       if (!btn) return;
       var panel = document.getElementById(btn.getAttribute('data-target'));
       if (!panel) return;
-      panel.classList.add('is-open');
-      btn.setAttribute('aria-expanded', 'true');
-      btn.remove();
+      var expanded = panel.classList.contains('is-open');
+      if (!expanded) {
+        panel.classList.add('is-open');
+        btn.setAttribute('aria-expanded', 'true');
+        btn.textContent = 'Show less';
+        btn.classList.add('is-expanded');
+        return;
+      }
+      panel.classList.remove('is-open');
+      btn.setAttribute('aria-expanded', 'false');
+      btn.textContent = btn.getAttribute('data-more-label') || 'Show more';
+      btn.classList.remove('is-expanded');
     });
   }
 
@@ -965,10 +1043,16 @@
 })();
 </script>
 
-<footer>Generated {{ generated_at }} by {{ app_title }}. Data from the Riot Games API. Not endorsed by Riot Games.</footer>
+<footer>Generated {{ generated_at_time(generated_at) }} by {{ app_title }}. Data from the Riot Games API. Not endorsed by Riot Games.</footer>
+{{ format_generated_at_script() }}
 </main>
 </div>
-<button id="chatbot-toggle" class="chatbot-toggle" aria-label="Ask about your stats">💬</button>
+<button id="back-to-top" class="back-to-top" type="button" aria-label="Back to top">
+  <iconify-icon icon="lucide:arrow-up" aria-hidden="true"></iconify-icon>
+</button>
+<button id="chatbot-toggle" class="chatbot-toggle" aria-label="Ask about your stats" title="Ask coach">
+  <iconify-icon icon="lucide:message-circle" aria-hidden="true"></iconify-icon>
+</button>
 <aside id="chatbot-panel" class="chatbot-panel" aria-hidden="true">
   <div id="chatbot-resize-handle" class="chatbot-resize-handle"></div>
   <div class="chatbot-header">

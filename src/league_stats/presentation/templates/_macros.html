@@ -9,8 +9,56 @@
 {% macro build_heading(champion, role_icon_href=none, role_label=none) -%}
 <span class="build-heading">
   <span>{{ champion }}</span>
-  {{ role_icon(role_icon_href, role_label) }}
+  {%- if role_icon_href -%}
+  <img src="{{ role_icon_href }}" alt="{{ role_label or '' }}" title="{{ role_label or '' }}" class="role-icon role-icon--sm">
+  {%- elif role_label -%}
+  <span>{{ role_label }}</span>
+  {%- endif -%}
 </span>
+{%- endmacro %}
+
+{% macro build_card(build, variant='nav') -%}
+<a class="build-card{% if variant == 'catalog' %} build-card--catalog{% endif %}{% if build.selected %} is-default{% endif %}"
+   href="{{ build.href }}"
+   {%- if variant == 'catalog' %}
+   data-champion="{{ build.champion }}"
+   data-player="{{ build.player }}"
+   data-role="{{ build.role }}"
+   data-games="{{ build.games }}"
+   data-winrate="{{ build.winrate }}"
+   data-updated="{{ build.updated_ts }}"
+   {%- endif %}>
+  {%- if build.champion_icon -%}
+  <img src="{{ build.champion_icon }}" alt="" class="game-icon">
+  {%- endif -%}
+  <div class="build-card-body">
+    {%- if variant == 'catalog' -%}
+    <strong>
+      {{ build.champion }}
+      <span class="build-card-role">
+        {%- if build.role_icon -%}
+        <img src="{{ build.role_icon }}" alt="{{ build.role_display }}" title="{{ build.role_display }}" class="role-icon role-icon--sm">
+        {%- endif -%}
+        {{ build.role_display }}
+      </span>
+    </strong>
+    {%- else -%}
+    <strong>{{ build_heading(build.champion, build.role_icon, build.role_display) }}</strong>
+    {%- endif -%}
+    {%- if variant == 'catalog' -%}
+    <div class="build-card-player">{{ build.player }}{% if build.is_group %} <span class="badge-group">Group</span>{% endif %}</div>
+    {%- endif -%}
+    <div class="meta">
+      {{ build.games }}g ·
+      {%- if variant == 'catalog' -%}
+      <span class="{{ 'win' if build.winrate >= 0.5 else 'loss' }}">{{ '%.0f' % (build.winrate * 100) }}%</span>
+      {%- else -%}
+      {{ '%.0f' % (build.winrate * 100) }}%
+      {%- endif -%}
+      {%- if variant == 'catalog' %} · {{ generated_at_time(build.generated_at) }}{%- endif -%}
+    </div>
+  </div>
+</a>
 {%- endmacro %}
 
 {% macro metric_icon(icon=none, tone='muted', iconify_id=none, icon_href=none) -%}
@@ -96,6 +144,52 @@
 {%- endif -%}
 {%- endmacro %}
 
+{% macro metric_card(card) -%}
+<div class="card{% if card.tier == 'headline' %} card--headline{% endif %}">
+  <div class="label">{{ metric_card_label(card.label, card.icon, card.icon_tone, iconify_id=card.iconify, icon_href=card.icon_href, role_icon_href=card.role_icon_href, tooltip=card.tooltip) }}</div>
+  <div class="value{% if card.value_class %} {{ card.value_class }}{% endif %}"{% if card.value_color %} style="color: {{ card.value_color }}"{% endif %}>{{ card.value }}</div>
+</div>
+{%- endmacro %}
+
+{% macro tiered_cards(cards, more_label='More stats') -%}
+{% set headline = cards | selectattr('tier', 'equalto', 'headline') | list %}
+{% set more = cards | selectattr('tier', 'equalto', 'more') | list %}
+{% if not headline and cards %}
+{% set headline = cards %}
+{% set more = [] %}
+{% endif %}
+<div class="cards cards--headline">
+  {% for card in headline %}
+  {{ metric_card(card) }}
+  {% endfor %}
+</div>
+{% if more %}
+<details class="cards-more">
+  <summary>{{ more_label }}</summary>
+  <div class="cards cards--more">
+    {% for card in more %}
+    {{ metric_card(card) }}
+    {% endfor %}
+  </div>
+</details>
+{% endif %}
+{%- endmacro %}
+
+{% macro rec_card(rec) -%}
+<div class="rec {{ rec.badge }}"{% if rec.anchor %} id="{{ rec.anchor }}"{% endif %}>
+  <div class="rec-head">
+    <span class="badge badge--priority badge--{{ rec.badge }}">{{ rec.priority_label }}</span>
+    <span class="badge">{{ rec.category }}</span>
+    <strong>{{ rec.title }}</strong>
+  </div>
+  <p>{{ rec.detail }}</p>
+  <details class="rec-evidence">
+    <summary>Why this?</summary>
+    <p class="meta">Evidence: {{ rec.evidence }}{% if rec.p_value is not none %} · p = {{ '%.4f' % rec.p_value }}{% endif %}{% if rec.sample_size %} · {{ rec.sample_size }} games{% endif %}</p>
+  </details>
+</div>
+{%- endmacro %}
+
 {% macro app_brand(title, logo_href=none, variant='page') -%}
 <div class="app-brand app-brand--{{ variant }}">
   {%- if logo_href -%}
@@ -103,4 +197,46 @@
   {%- endif -%}
   <span class="app-brand-title">{{ title }}</span>
 </div>
+{%- endmacro %}
+
+{% macro generated_at_time(value) -%}
+<time datetime="{{ value }}" class="js-generated-at">{{ value }}</time>
+{%- endmacro %}
+
+{% macro format_generated_at_script() -%}
+<script>
+(function () {
+  function parseGeneratedAt(raw) {
+    if (!raw) return null;
+    var legacy = raw.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})\s+UTC$/);
+    if (legacy) {
+      return new Date(Date.UTC(+legacy[1], +legacy[2] - 1, +legacy[3], +legacy[4], +legacy[5]));
+    }
+    var dateOnly = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (dateOnly) {
+      return new Date(+dateOnly[1], +dateOnly[2] - 1, +dateOnly[3]);
+    }
+    var parsed = new Date(raw);
+    return isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  function formatGeneratedAt(raw) {
+    var date = parseGeneratedAt(raw);
+    if (!date) return raw || '';
+    var now = new Date();
+    var today = date.getFullYear() === now.getFullYear()
+      && date.getMonth() === now.getMonth()
+      && date.getDate() === now.getDate();
+    if (today) {
+      return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    }
+    return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  }
+
+  document.querySelectorAll('.js-generated-at').forEach(function (el) {
+    var raw = el.getAttribute('datetime') || el.textContent;
+    el.textContent = formatGeneratedAt(raw);
+  });
+})();
+</script>
 {%- endmacro %}

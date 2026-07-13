@@ -3,44 +3,68 @@
     "winrate": 0.5,
     "kda": 3.0,
     "dpm": 320.0,
+    "ccpm": 1.9,
     "cspm": 1.2,
     "deaths": 5.1,
     "vspm": 1.8,
     "control_wards": 2.4,
     "kill_participation": 0.6,
-    "damage_share": 0.08
+    "damage_share": 0.08,
+    "assists": 8.5,
+    "healing": 7500.0,
+    "shielding": 3500.0,
+    "objectives_present_rate": 0.62,
+    "roams_pre15": 2.1
   },
   "PLATINUM": {
     "winrate": 0.5,
     "kda": 3.1,
     "dpm": 330.0,
+    "ccpm": 2.0,
     "cspm": 1.3,
     "deaths": 5.0,
     "vspm": 1.9,
     "control_wards": 2.5,
     "kill_participation": 0.61,
-    "damage_share": 0.08
+    "damage_share": 0.08,
+    "assists": 8.8,
+    "healing": 7800.0,
+    "shielding": 3700.0,
+    "objectives_present_rate": 0.64,
+    "roams_pre15": 2.2
   },
   "EMERALD": {
     "winrate": 0.5,
     "kda": 3.2,
     "dpm": 340.0,
+    "ccpm": 2.1,
     "cspm": 1.3,
     "deaths": 4.9,
     "vspm": 2.0,
     "control_wards": 2.6,
     "kill_participation": 0.62,
-    "damage_share": 0.09
+    "damage_share": 0.09,
+    "assists": 9.0,
+    "healing": 8100.0,
+    "shielding": 3900.0,
+    "objectives_present_rate": 0.65,
+    "roams_pre15": 2.3
   },
   "DIAMOND": {
     "winrate": 0.5,
     "kda": 3.3,
     "dpm": 350.0,
+    "ccpm": 2.2,
     "cspm": 1.4,
     "deaths": 4.8,
     "vspm": 2.1,
     "control_wards": 2.7,
     "kill_participation": 0.63,
-    "damage_share": 0.09
+    "damage_share": 0.09,
+    "assists": 9.2,
+    "healing": 8400.0,
+    "shielding": 4100.0,
+    "objectives_present_rate": 0.66,
+    "roams_pre15": 2.4
   }
 }

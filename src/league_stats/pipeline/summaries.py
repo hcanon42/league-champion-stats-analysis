@@ -11,7 +11,9 @@ from league_stats.analysis.coach.engine import CoachEngine
 from league_stats.analysis.deaths import death_summary
 from league_stats.analysis.economy import economy_summary, reset_quality
 from league_stats.analysis.items import item_summary
+from league_stats.analysis.jungle import jungle_summary
 from league_stats.analysis.laning import laning_summary
+from league_stats.analysis.support import utility_summary
 from league_stats.analysis.matchups import matchup_summary
 from league_stats.analysis.objectives import objective_summary
 from league_stats.analysis.peer import peer_recommendations
@@ -21,6 +23,7 @@ from league_stats.analysis.statistics import ModelResult, StatisticsEngine, WinC
 from league_stats.analysis.teamfights import teamfight_summary
 from league_stats.analysis.vision import vision_summary
 from league_stats.core.config import AppConfig
+from league_stats.core.role_metrics import role_profile
 from league_stats.core.models import MatchRecord, PeerComparisonResult, RankedEntry, Recommendation
 from league_stats.pipeline.frames import AnalysisFrames, build_overview
 
@@ -51,7 +54,7 @@ def compute_report_stats(frames: AnalysisFrames, output_dir) -> ReportStats:
 def build_domain_summaries(frames: AnalysisFrames, records: list[MatchRecord]) -> dict[str, Any]:
     """Aggregate summaries used by exports and window bundles."""
     player_role = records[0].role if records else "MIDDLE"
-    return {
+    summaries = {
         "overview": build_overview(frames.matches_df),
         "laning": laning_summary(frames.matches_df),
         "economy": economy_summary(frames.matches_df),
@@ -65,7 +68,10 @@ def build_domain_summaries(frames: AnalysisFrames, records: list[MatchRecord]) -
         "matchups": matchup_summary(frames.matchups_df),
         "items": item_summary(frames.items_df),
         "runes": rune_summary(frames.runes_df),
+        "jungle": jungle_summary(frames.matches_df),
+        "utility": utility_summary(frames.matches_df),
     }
+    return summaries
 
 
 def generate_recommendations(
@@ -93,6 +99,7 @@ def generate_recommendations(
             peer_comparison.rank_label,
             max(peer_comparison.peer_games, records_count),
             build_label=peer_comparison.build_label,
+            role=config.role,
         )
         recommendations = sorted(
             peer_recs + recommendations, key=lambda rec: rec.priority, reverse=True
@@ -117,6 +124,7 @@ def build_export_summary(
         "role": config.role,
         "build_label": config.build_label,
         "games": records_count,
+        "early_section_title": role_profile(config.role).early_section_title,
         "overview": summaries["overview"],
         "laning": summaries["laning"],
         "economy": summaries["economy"] | {"resets": summaries["resets"]},
@@ -129,6 +137,8 @@ def build_export_summary(
         "matchups": summaries["matchups"],
         "items": summaries["items"],
         "runes": summaries["runes"],
+        "jungle": summaries.get("jungle", {}),
+        "utility": summaries.get("utility", {}),
         "win_correlations": [vars(c) for c in report_stats.win_corrs],
         "ml_model": {
             "trained": report_stats.model.trained,

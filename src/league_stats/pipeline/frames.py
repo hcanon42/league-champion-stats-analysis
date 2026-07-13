@@ -66,9 +66,22 @@ def build_overview(matches_df: pd.DataFrame) -> dict[str, float | int]:
         "winrate": round(float(matches_df["win"].mean()), 3),
         "avg_kda": round(float(matches_df["kda"].mean()), 2),
         "avg_dpm": round(float(matches_df["dpm"].mean()), 0),
+        "avg_ccpm": round(float(matches_df["ccpm"].mean()), 2) if "ccpm" in matches_df else 0.0,
         "avg_cspm": round(float(matches_df["cspm"].mean()), 2),
         "avg_damage_share": round(float(matches_df["damage_share"].mean()), 3),
         "avg_deaths": round(float(matches_df["deaths"].mean()), 1),
         "avg_vspm": round(float(matches_df["vspm"].mean()), 2),
         "avg_duration": round(float(matches_df["duration_min"].mean()), 1),
+        "avg_kill_participation": round(float(matches_df["kill_participation"].mean()), 3)
+        if "kill_participation" in matches_df
+        else None,
+        "avg_objectives_present_rate": round(float(matches_df["objectives_present_rate"].mean()), 3)
+        if "objectives_present_rate" in matches_df and matches_df["objectives_present_rate"].notna().any()
+        else None,
+        "avg_control_wards": round(float(matches_df["control_wards"].mean()), 1)
+        if "control_wards" in matches_df
+        else None,
+        "avg_assists": round(float(matches_df["assists"].mean()), 1)
+        if "assists" in matches_df
+        else None,
     }

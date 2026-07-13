@@ -9,7 +9,11 @@ import pandas as pd
 import pytest
 
 from league_stats.analysis.peer.benchmarks import adjacent_tiers, resolve_benchmark_path, tier_benchmark
-from league_stats.analysis.peer import build_comparisons, peer_recommendations
+from league_stats.analysis.peer.comparison import (
+    build_comparisons,
+    compare_metrics_for_role,
+    peer_recommendations,
+)
 from league_stats.analysis.peer.comparison import _extract_champion_role_from_match
 from league_stats.core.models import RankedEntry
 from tests.fixtures import MY_PUUID, make_match
@@ -132,6 +136,13 @@ def test_comparison_summary_handles_none_delta_pct() -> None:
     line = _comparison_summary_line(comp)
     assert "120.0" in line
     assert "%" not in line
+
+
+def test_compare_metrics_swaps_dpm_for_support() -> None:
+    metrics = compare_metrics_for_role("UTILITY")
+    keys = [m[0] for m in metrics]
+    assert "ccpm" in keys
+    assert "dpm" not in keys
 
 
 def test_build_comparisons_verdicts() -> None:

@@ -15,7 +15,7 @@ from league_stats.core.models import RankedEntry
 from league_stats.infra.riot_api import RiotApiClient
 from league_stats.utils import get_logger
 
-MAX_RANK_LOOKUPS: int = 100
+MAX_RANK_LOOKUPS: int = 200
 
 
 @dataclass(frozen=True)
@@ -55,11 +55,21 @@ def aggregate_peer_metrics(rows: list[dict[str, Any]]) -> dict[str, float]:
     return metrics
 
 
-def _backfill_ranks(store: MatchStore, client: RiotApiClient | None) -> None:
-    """Resolve unknown peer ranks via league-v4."""
+def _backfill_ranks(
+    store: MatchStore,
+    client: RiotApiClient | None,
+    *,
+    champion: str = "",
+    role: str = "",
+    platform: str = "",
+) -> None:
+    """Resolve unknown peer ranks via league-v4, scoped to the current build when provided."""
     if client is None:
         return
-    puuids = store.iter_unverified_puuids(MAX_RANK_LOOKUPS)
+    if champion and role and platform:
+        puuids = store.iter_unverified_puuids_for_build(champion, role, platform, limit=MAX_RANK_LOOKUPS)
+    else:
+        puuids = store.iter_unverified_puuids(MAX_RANK_LOOKUPS)
     for puuid in puuids:
         ranked = client.fetch_solo_rank(puuid)
         if ranked is None:
@@ -98,17 +108,22 @@ def collect_peer_games_from_store(
     exclude_puuid: str,
     client: RiotApiClient | None = None,
 ) -> PeerSample:
-    """Load peer games for a champion + lane from the persistent store."""
+    """Load peer games for a champion + lane from the persistent store.
+
+    On first access (peer store empty for this build) we ingest only the tracked
+    player's own match history rather than scanning the entire store, which is much
+    faster when many builds are active.
+    """
     log = get_logger("peer_cache")
 
     if store.count_peer_games(champion=champion, role=role, platform=platform) == 0:
-        for match_id in store.iter_all_match_ids():
+        for match_id in store.iter_match_ids(exclude_puuid):
             match = store.load_match(match_id)
             if match is None:
                 continue
             ingest_match(store, match_id, match, platform)
 
-    _backfill_ranks(store, client)
+    _backfill_ranks(store, client, champion=champion, role=role, platform=platform)
     rows = store.load_peer_games(champion=champion, role=role, platform=platform)
     filtered = _filter_rows(rows, scope=scope, exclude_puuid=exclude_puuid)
     players = len({row["puuid"] for row in filtered})

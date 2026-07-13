@@ -10,6 +10,7 @@ from typing import Any, Final, Literal
 
 import pandas as pd
 
+from league_stats.core.role_metrics import compare_metrics_for_profile, role_profile
 from league_stats.analysis.peer.baseline import resolve_peer_baseline
 from league_stats.analysis.peer.cache import collect_user_history_peers
 from league_stats.analysis.peer.metrics import extract_champion_role_rows
@@ -40,6 +41,14 @@ COMPARE_METRICS: Final[tuple[tuple[str, str, Literal["higher", "lower"]], ...]] 
 
 # Minimum relative gap (%) to flag a weakness/strength
 GAP_THRESHOLD_PCT: Final[float] = 10.0
+
+
+def compare_metrics_for_role(
+    role: str, *, avg_damage_share: float | None = None
+) -> tuple[tuple[str, str, Literal["higher", "lower"]], ...]:
+    """Comparable metrics for a role, with DPM/CC/min swap for tank builds."""
+    profile = role_profile(role)
+    return compare_metrics_for_profile(profile, avg_damage_share=avg_damage_share)
 
 
 def _extract_champion_role_from_match(
@@ -74,16 +83,23 @@ def _average_metrics(frame: pd.DataFrame, columns: list[str]) -> dict[str, float
     return result
 
 
-def _user_averages(matches_df: pd.DataFrame) -> dict[str, float]:
+def _user_averages(
+    matches_df: pd.DataFrame,
+    *,
+    role: str = "MIDDLE",
+    avg_damage_share: float | None = None,
+) -> dict[str, float]:
     """Aggregate the player's metrics from the master match table.
 
     Args:
         matches_df: One row per analysed game.
+        role: Normalised team position for combat-metric selection.
+        avg_damage_share: Average team damage share for tank detection.
 
     Returns:
         Mean values for every comparable metric.
     """
-    columns = [m[0] for m in COMPARE_METRICS]
+    columns = [m[0] for m in compare_metrics_for_role(role, avg_damage_share=avg_damage_share)]
     return _average_metrics(matches_df, columns)
 
 
@@ -116,19 +132,25 @@ def _verdict(delta: float, direction: str, metric: str, peer: float) -> str:
 
 
 def build_comparisons(
-    user_avgs: dict[str, float], peer_avgs: dict[str, float]
+    user_avgs: dict[str, float],
+    peer_avgs: dict[str, float],
+    *,
+    role: str = "MIDDLE",
+    avg_damage_share: float | None = None,
 ) -> list[MetricComparison]:
     """Build side-by-side metric comparisons.
 
     Args:
         user_avgs: Player averages.
         peer_avgs: Peer/benchmark averages.
+        role: Normalised team position for combat-metric selection.
+        avg_damage_share: Average team damage share for tank detection.
 
     Returns:
         List of :class:`~models.MetricComparison` rows.
     """
     comparisons: list[MetricComparison] = []
-    for key, label, direction in COMPARE_METRICS:
+    for key, label, direction in compare_metrics_for_role(role, avg_damage_share=avg_damage_share):
         if key not in user_avgs or key not in peer_avgs:
             continue
         yours = float(user_avgs[key])
@@ -170,6 +192,7 @@ def peer_recommendations(
     peer_games: int,
     *,
     build_label: str,
+    role: str = "MIDDLE",
 ) -> list[Recommendation]:
     """Generate coaching tips from the largest peer gaps.
 
@@ -184,6 +207,8 @@ def peer_recommendations(
     """
     tips: list[tuple[float, Recommendation]] = []
     peer_name = build_label
+    normalized_role = role.upper()
+    is_laner = normalized_role in {"TOP", "MIDDLE", "BOTTOM"}
 
     def add_weakness(
         comp: MetricComparison, title: str, detail: str, priority_boost: float = 1.0
@@ -231,7 +256,7 @@ def peer_recommendations(
             f"You average {c.yours:.1f} deaths before 14 min vs {c.peer_avg:.1f} for peers. "
             "Respect level 2-3 all-ins and avoid trading without minion cover.",
         )
-    if "cspm" in by_key:
+    if is_laner and "cspm" in by_key:
         c = by_key["cspm"]
         add_weakness(
             c,
@@ -239,7 +264,7 @@ def peer_recommendations(
             f"Your {c.yours:.1f} CS/min trails the {rank_label} {peer_name} average of "
             f"{c.peer_avg:.1f}. Catch every cannon and secure ranged minions under tower.",
         )
-    if "cs10" in by_key:
+    if is_laner and "cs10" in by_key:
         c = by_key["cs10"]
         add_weakness(
             c,
@@ -247,7 +272,7 @@ def peer_recommendations(
             f"{c.yours:.0f} CS @10 vs peer average {c.peer_avg:.0f}. Prioritise wave control "
             "over roams in the first 10 minutes unless the roam is guaranteed.",
         )
-    if "gd10" in by_key:
+    if is_laner and "gd10" in by_key:
         c = by_key["gd10"]
         add_weakness(
             c,
@@ -280,13 +305,46 @@ def peer_recommendations(
             f"{c.yours:.0f} DPM vs peer {c.peer_avg:.0f}. Look for more poke before fights "
             "and maximise combos in teamfights rather than holding for perfect angles.",
         )
+    if "ccpm" in by_key:
+        c = by_key["ccpm"]
+        add_weakness(
+            c,
+            "Crowd control trails rank peers",
+            f"{c.yours:.2f} CC/min vs peer {c.peer_avg:.2f}. Look for picks with hard CC "
+            "before objectives and layer stuns with your team in fights.",
+        )
     if "kill_participation" in by_key:
         c = by_key["kill_participation"]
+        kp_detail = (
+            f"{c.yours:.0%} KP vs peer {c.peer_avg:.0%}. Path toward active lanes before "
+            "objectives and arrive early for skirmishes."
+            if normalized_role == "JUNGLE"
+            else f"{c.yours:.0%} KP vs peer {c.peer_avg:.0%}. Roam on cannon waves when "
+            "your ADC has cover and collapse for objective setup."
+            if normalized_role == "UTILITY"
+            else f"{c.yours:.0%} KP vs peer {c.peer_avg:.0%}. Roam on cannon waves when you "
+            "have priority and arrive before objectives with your team."
+        )
         add_weakness(
             c,
             "Lower kill participation than peers",
-            f"{c.yours:.0%} KP vs peer {c.peer_avg:.0%}. Roam on cannon waves when you have "
-            "priority and arrive before objectives with your team.",
+            kp_detail,
+        )
+    if normalized_role == "JUNGLE" and "early_ganks" in by_key:
+        c = by_key["early_ganks"]
+        add_weakness(
+            c,
+            "Early gank pressure below peers",
+            f"{c.yours:.1f} early ganks vs peer {c.peer_avg:.1f}. Look for gank windows "
+            "when lanes have push and track enemy jungle to punish opposite side.",
+        )
+    if normalized_role == "UTILITY" and "assists" in by_key:
+        c = by_key["assists"]
+        add_weakness(
+            c,
+            "Fewer assists than peer supports",
+            f"{c.yours:.1f} assists vs peer {c.peer_avg:.1f}. Follow up roams with CC and "
+            "stay within fight range when your team commits.",
         )
 
     tips.sort(key=lambda item: item[0], reverse=True)
@@ -309,14 +367,23 @@ def peer_comparison_for_window(
         Updated comparison with window-specific user averages.
     """
     peer_avgs = {comp.metric: comp.peer_avg for comp in base.comparisons}
-    user_avgs = _user_averages(matches_df)
+    avg_damage_share = None
+    if "damage_share" in matches_df.columns and matches_df["damage_share"].notna().any():
+        avg_damage_share = float(
+            pd.to_numeric(matches_df["damage_share"], errors="coerce").dropna().mean()
+        )
+    user_avgs = _user_averages(
+        matches_df, role=base.role, avg_damage_share=avg_damage_share
+    )
     if records:
         for key in ("cs10", "gd10", "deaths_pre14"):
             if key in matches_df.columns and matches_df[key].notna().any():
                 user_avgs[key] = float(
                     pd.to_numeric(matches_df[key], errors="coerce").dropna().mean()
                 )
-    comparisons = build_comparisons(user_avgs, peer_avgs)
+    comparisons = build_comparisons(
+        user_avgs, peer_avgs, role=base.role, avg_damage_share=avg_damage_share
+    )
     strengths = [
         _comparison_summary_line(comp) for comp in comparisons if comp.verdict == "above"
     ][:4]
@@ -383,9 +450,15 @@ def build_peer_comparison(
         )
         return None
 
+    avg_damage_share = None
+    if "damage_share" in matches_df.columns and matches_df["damage_share"].notna().any():
+        avg_damage_share = float(
+            pd.to_numeric(matches_df["damage_share"], errors="coerce").dropna().mean()
+        )
+    metric_defs = compare_metrics_for_role(role, avg_damage_share=avg_damage_share)
     final_peer: dict[str, float] = {
         key: float(baseline.metrics[key])
-        for key, _, _ in COMPARE_METRICS
+        for key, _, _ in metric_defs
         if key in baseline.metrics and baseline.metrics[key] is not None
     }
 
@@ -400,14 +473,16 @@ def build_peer_comparison(
             f"{history_players} players.)"
         )
 
-    user_avgs = _user_averages(matches_df)
+    user_avgs = _user_averages(matches_df, role=role, avg_damage_share=avg_damage_share)
     if records:
         snap = matches_df
         for key in ("cs10", "gd10", "deaths_pre14"):
             if key in snap.columns and snap[key].notna().any():
                 user_avgs[key] = float(pd.to_numeric(snap[key], errors="coerce").dropna().mean())
 
-    comparisons = build_comparisons(user_avgs, final_peer)
+    comparisons = build_comparisons(
+        user_avgs, final_peer, role=role, avg_damage_share=avg_damage_share
+    )
     strengths = [
         _comparison_summary_line(c) for c in comparisons if c.verdict == "above"
     ][:4]

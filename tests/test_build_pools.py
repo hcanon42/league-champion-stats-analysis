@@ -12,6 +12,7 @@ from league_stats.cli.app import PlayerContext, Services, _group_records, _parse
 from league_stats.infra.riot_api import RiotApiClient
 from league_stats.infra.ddragon_assets import DDragonAssets
 from league_stats.ingest.parser import ItemCatalog, MatchParser, discover_build_pools
+from league_stats.presentation.report import discover_player_builds
 from tests.fixtures import FAKE_ITEMS, MY_PUUID, make_player_match, make_timeline
 
 
@@ -147,9 +148,12 @@ def test_run_all_builds_generates_player_hub(tmp_path: Path, monkeypatch: pytest
 
     assert hub_path.exists()
     hub_html = hub_path.read_text(encoding="utf-8")
-    assert "Viktor" in hub_html
-    assert "Ahri" in hub_html
+    assert "Redirecting" in hub_html
     assert (config.player_reports_dir / "manifest.json").exists()
+    builds = discover_player_builds(config.player_reports_dir)
+    champions = {build["champion"] for build in builds}
+    assert "Viktor" in champions
+    assert "Ahri" in champions
     assert (config.player_reports_dir / "viktor_middle" / "report.html").exists()
     assert (config.player_reports_dir / "ahri_middle" / "report.html").exists()
 

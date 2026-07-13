@@ -38,6 +38,7 @@ def laning_summary(matches_df: pd.DataFrame) -> dict[str, Any]:
         "avg_xpd10": mean_of("xpd10"),
         "avg_csd10": mean_of("csd10"),
         "avg_cs10": mean_of("cs10"),
+        "avg_gold10": mean_of("gold10"),
         "avg_gd10_wins": mean_of("gd10", wins),
         "avg_gd10_losses": mean_of("gd10", losses),
         "lane_win_rate": round(float((gd10 > 0).mean()), 3) if not gd10.empty else None,
