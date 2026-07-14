@@ -136,6 +136,7 @@ METRIC_ICONS: dict[str, str] = {
     "Map control": "target",
     "Clear @10": "cs",
     "Setup": "roam",
+    "Early ganks": "roam",
     "Vision": "eye",
     "Objectives": "target",
     "Resets": "recall",
@@ -224,6 +225,7 @@ METRIC_TOOLTIPS: dict[str, str] = {
     "Map control": "0–100 score from objective presence at epic monster takes.",
     "Clear @10": "0–100 score from jungle CS @10 vs role clear-speed benchmarks.",
     "Setup": "0–100 score from early roams before 15 minutes.",
+    "Early ganks": "0–100 score from successful early ganks before minute 15.",
     "CC impact": "0–100 score from crowd control time per minute.",
 }
 

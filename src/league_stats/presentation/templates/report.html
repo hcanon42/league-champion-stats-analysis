@@ -660,10 +660,12 @@
       headline = cards;
       more = [];
     }
-    var html = '<div class="cards cards--headline">' + headline.map(renderMetricCard).join('');
+    var html = '<div class="cards-tiered"><div class="cards-tiered-head">' + headline.map(renderMetricCard).join('');
     if (more.length) {
-      html += '<details class="cards-more"><summary>' + escapeHtml(moreLabel) + '</summary>' +
-        '<div class="cards cards--more">' + more.map(renderMetricCard).join('') + '</div></details>';
+      html += '<details class="cards-more"><summary>' + escapeHtml(moreLabel) + '</summary></details></div>' +
+        '<div class="cards-tiered-more">' + more.map(renderMetricCard).join('') + '</div>';
+    } else {
+      html += '</div>';
     }
     html += '</div>';
     container.innerHTML = html;

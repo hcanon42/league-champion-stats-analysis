@@ -171,19 +171,23 @@
 {% set headline = cards %}
 {% set more = [] %}
 {% endif %}
-<div class="cards cards--headline">
-  {% for card in headline %}
-  {{ metric_card(card) }}
-  {% endfor %}
+<div class="cards-tiered">
+  <div class="cards-tiered-head">
+    {% for card in headline %}
+    {{ metric_card(card) }}
+    {% endfor %}
+    {% if more %}
+    <details class="cards-more">
+      <summary>{{ more_label }}</summary>
+    </details>
+    {% endif %}
+  </div>
   {% if more %}
-  <details class="cards-more">
-    <summary>{{ more_label }}</summary>
-    <div class="cards cards--more">
-      {% for card in more %}
-      {{ metric_card(card) }}
-      {% endfor %}
-    </div>
-  </details>
+  <div class="cards-tiered-more">
+    {% for card in more %}
+    {{ metric_card(card) }}
+    {% endfor %}
+  </div>
   {% endif %}
 </div>
 {%- endmacro %}

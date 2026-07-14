@@ -320,7 +320,7 @@ def _jungle_score() -> tuple[ScoreSpec, ...]:
         ScoreSpec("Survival", "deaths", "Fewer deaths score higher", "{v:.1f} deaths/game"),
         ScoreSpec("Impact", "kill_participation", "Share of team kills and assists", "{v:.0%} KP"),
         ScoreSpec("Vision", "vspm", "Vision score per minute", "{v:.2f} VS/min"),
-        ScoreSpec("Objectives", "early_ganks", "Successful early gank pressure", "{v:.1f} early ganks"),
+        ScoreSpec("Early ganks", "early_ganks", "Successful early gank pressure", "{v:.1f} early ganks"),
         ScoreSpec("Resets", "avg_unspent_gold", "Gold banked before recalls", "{v:.0f}g banked"),
     )
 

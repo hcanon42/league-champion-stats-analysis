@@ -41,9 +41,23 @@ def test_jungle_impact_score_not_zero() -> None:
     by_name = {component.name: component for component in components}
     assert by_name["Impact"].score > 0
     assert "KP" in by_name["Impact"].value
+    assert "Early ganks" in by_name
+    assert "Objectives" not in by_name
 
 
-def test_jungle_impact_uses_kda_fallback_when_kp_missing() -> None:
-    _, components = improvement_score(_matches_df("JUNGLE", challenges_kp=None), role="JUNGLE")
+def test_damage_share_ceiling_clamps_at_role_benchmark_plus_six_points() -> None:
+    df = _matches_df("MIDDLE")
+    df["damage_share"] = 0.40
+    _, components = improvement_score(df, role="MIDDLE")
     by_name = {component.name: component for component in components}
-    assert by_name["Impact"].score > 0
+    assert by_name["Damage"].score == 100.0
+
+    df["damage_share"] = 0.31
+    _, components = improvement_score(df, role="MIDDLE")
+    by_name = {component.name: component for component in components}
+    assert by_name["Damage"].score == 100.0
+
+    df["damage_share"] = 0.29
+    _, components = improvement_score(df, role="MIDDLE")
+    by_name = {component.name: component for component in components}
+    assert by_name["Damage"].score < 100.0

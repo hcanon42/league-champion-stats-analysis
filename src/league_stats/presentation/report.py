@@ -144,7 +144,7 @@ def improvement_score(
     deaths_ceiling = max(2.0, float(gold.get("deaths", 5.0)) - 1.5)
     damage_bench = float(gold.get("damage_share", 0.22))
     damage_floor = max(0.05, damage_bench - 0.06)
-    damage_ceiling = damage_bench + 0.10
+    damage_ceiling = damage_bench + 0.06
     cc_bench = float(gold.get("ccpm", 1.2))
     cc_floor = cc_bench * 0.50
     cc_ceiling = cc_bench * 1.35
@@ -224,13 +224,12 @@ def improvement_score(
             f"{mean('roams_pre15'):.1f} roams pre-15",
             "Early roams and map presence",
         ),
-    }
-    if profile.role == "JUNGLE":
-        score_builders["Objectives"] = (
+        "Early ganks": (
             _clamp_score(mean("early_ganks"), gank_floor, gank_ceiling),
             f"{mean('early_ganks'):.1f} early ganks",
             "Successful early gank pressure",
-        )
+        ),
+    }
     if use_cc and profile.role not in {"UTILITY", "JUNGLE"}:
         score_builders["Damage"] = score_builders["CC impact"]
 
