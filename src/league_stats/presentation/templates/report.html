@@ -33,6 +33,7 @@
       <div class="nav-group-label">Performance</div>
       {{ nav_link('#overview', 'Overview', 'lucide:layout-dashboard', 'overview') }}
       {{ nav_link('#coaching', 'Coaching', 'lucide:lightbulb', 'coaching') }}
+      {{ nav_link('#form-tracker', 'Form tracker', 'lucide:trending-up', 'form-tracker') }}
     </div>
     <div class="nav-group nav-group--laning">
       <div class="nav-group-label">{{ early_section_title | default('Laning') }}</div>
@@ -64,32 +65,41 @@
 </nav>
 <main>
 
-<div class="report-filter-bar" id="report-filter-bar">
-  <div class="filter-group" id="queue-filter-bar">
-    <span class="game-window-label">Queue</span>
-    {% for option in queue_filter_options %}
-    <button
-      type="button"
-      class="queue-filter-btn game-window-btn{% if option.key == queue_filter_default %} is-active{% endif %}"
-      data-queue="{{ option.key }}"
-      {% if not option.enabled %}disabled{% endif %}
-    >{{ option.label }}</button>
-    {% endfor %}
+<div class="report-sticky-header" id="report-sticky-header">
+  <div class="report-filter-bar" id="report-filter-bar">
+    <div class="filter-group" id="queue-filter-bar">
+      <span class="game-window-label">Queue</span>
+      {% for option in queue_filter_options %}
+      <button
+        type="button"
+        class="queue-filter-btn game-window-btn{% if option.key == queue_filter_default %} is-active{% endif %}"
+        data-queue="{{ option.key }}"
+        {% if not option.enabled %}disabled{% endif %}
+      >{{ option.label }}</button>
+      {% endfor %}
+    </div>
+    <div class="filter-group" id="game-window-bar">
+      <span class="game-window-label">Games</span>
+      {% for option in game_window_options %}
+      <button
+        type="button"
+        class="game-window-btn{% if option.key == game_window_default %} is-active{% endif %}"
+        data-window="{{ option.key }}"
+        {% if not option.enabled %}disabled{% endif %}
+      >{{ option.label }}</button>
+      {% endfor %}
+    </div>
   </div>
-  <div class="filter-group" id="game-window-bar">
-    <span class="game-window-label">Games</span>
-    {% for option in game_window_options %}
-    <button
-      type="button"
-      class="game-window-btn{% if option.key == game_window_default %} is-active{% endif %}"
-      data-window="{{ option.key }}"
-      {% if not option.enabled %}disabled{% endif %}
-    >{{ option.label }}</button>
-    {% endfor %}
+  <div class="report-category-tabs" id="report-category-tabs" role="tablist" aria-label="Report categories">
+    <button type="button" class="report-tab report-tab--performance is-active" data-category="performance" role="tab" aria-selected="true" aria-controls="category-performance" id="tab-performance">Performance</button>
+    <button type="button" class="report-tab report-tab--laning" data-category="laning" role="tab" aria-selected="false" aria-controls="category-laning" id="tab-laning">{{ early_section_title | default('Laning') }}</button>
+    <button type="button" class="report-tab report-tab--impact" data-category="impact" role="tab" aria-selected="false" aria-controls="category-impact" id="tab-impact">Game impact</button>
+    <button type="button" class="report-tab report-tab--champion" data-category="champion" role="tab" aria-selected="false" aria-controls="category-champion" id="tab-champion">Champion</button>
+    <button type="button" class="report-tab report-tab--analysis" data-category="analysis" role="tab" aria-selected="false" aria-controls="category-analysis" id="tab-analysis">Analysis</button>
   </div>
 </div>
 
-{{ category_divider('Performance', 'performance') }}
+<div class="report-category-panel is-active" id="category-performance" data-category="performance" role="tabpanel" aria-labelledby="tab-performance">
 
 <section id="overview" class="report-section report-section--performance">
   <div class="report-hero" id="report-hero">
@@ -190,7 +200,121 @@
   </div>
 </section>
 
-{{ category_divider(early_section_title | default('Laning'), 'laning') }}
+<section id="form-tracker" class="report-section report-section--performance">
+  {{ section_title("Form tracker", "trending-up", "win", category='performance') }}
+  <p class="sub sub--lead" id="form-subtitle">{{ form_sample_subtitle or 'Recent form vs your personal baseline' }} — independent of the game window filter above.</p>
+  <div id="form-unavailable" class="form-empty"{% if form_available %} style="display:none"{% endif %}>
+    <p id="form-unavailable-text">{{ form_insufficient_reason or 'Need more games for Form Tracker.' }}</p>
+  </div>
+  <div id="form-content"{% if not form_available %} style="display:none"{% endif %}>
+    <div class="form-hero cards">
+      <div class="card form-score-card">
+        <div class="label">Form score</div>
+        <div class="form-score-value" id="form-score-value">{{ '%+.0f' % form_snapshot.form_score if form_snapshot else '0' }}</div>
+        <div class="form-meta">
+          <span class="form-badge form-badge--{{ form_snapshot.trend if form_snapshot else 'stable' }}" id="form-trend-badge">{{ form_snapshot.trend if form_snapshot else 'stable' }}</span>
+          <span class="form-badge form-badge--confidence" id="form-confidence-badge">{{ form_snapshot.confidence if form_snapshot else 'insufficient' }} confidence</span>
+          {% if form_snapshot and form_snapshot.current_streak %}
+          <span class="form-streak" id="form-streak">{{ form_snapshot.current_streak }}</span>
+          {% endif %}
+        </div>
+      </div>
+      <div class="card card--wide">
+        <div class="label">Win rate shift</div>
+        <p class="form-headline" id="form-wr-shift">
+          {% if form_snapshot %}
+          {{ '%.0f' % (form_snapshot.recent_winrate * 100) }}% recent vs {{ '%.0f' % (form_snapshot.baseline_winrate * 100) }}% baseline ({{ '%+.1f' % form_snapshot.winrate_delta_pp }} pp)
+          {% else %}—{% endif %}
+        </p>
+        <p class="sub" id="form-headline">{{ form_snapshot.headline if form_snapshot else '' }}</p>
+      </div>
+    </div>
+    <div class="form-movers cards" id="form-movers">
+      <div class="card card--wide">
+        <div class="label">Top improvements</div>
+        <ul class="peer-highlight-list" id="form-improved-list">
+          {% for row in form_top_improved %}
+          <li>{{ row.label }}: {{ row.baseline }} → {{ row.recent }} ({{ row.gap }})</li>
+          {% else %}
+          <li>—</li>
+          {% endfor %}
+        </ul>
+      </div>
+      <div class="card card--wide">
+        <div class="label">Regressions</div>
+        <ul class="peer-highlight-list" id="form-regressed-list">
+          {% for row in form_top_regressed %}
+          <li>{{ row.label }}: {{ row.baseline }} → {{ row.recent }} ({{ row.gap }})</li>
+          {% else %}
+          <li>—</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+    <div class="card card--wide" id="form-shifts-block"{% if not form_behavioral_shifts %} style="display:none"{% endif %}>
+      <div class="label">Behavioral shifts</div>
+      <ul class="peer-highlight-list" id="form-shifts-list">
+        {% for shift in form_behavioral_shifts %}
+        <li>{{ shift }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>Metric</th><th>Recent</th><th>Baseline</th><th>Change</th><th>Verdict</th></tr>
+        </thead>
+        <tbody id="form-table-body">
+          {% for row in form_delta_rows %}
+          <tr>
+            <td>{{ metric_label(row.label, row.iconify, row.icon_tone, icon_href=row.icon_href) }}</td>
+            <td>{{ row.recent }}</td>
+            <td>{{ row.baseline }}</td>
+            <td class="delta-{{ row.verdict }}"{% if row.gap_color %} style="color: {{ row.gap_color }}"{% endif %}>{{ row.gap }}{% if row.significant %} *{% endif %}</td>
+            <td class="delta-{{ row.verdict }}"{% if row.gap_color %} style="color: {{ row.gap_color }}"{% endif %}>{{ row.verdict }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="rec-columns" id="form-recommendations-root" style="margin-top: 20px;">
+      <div class="rec-column rec-column-positive" id="form-rec-positive-column">
+        <h3>Keep doing</h3>
+        {% set form_positive = form_recommendations | selectattr('tone', 'equalto', 'positive') | list %}
+        {% if form_positive %}
+        {% for rec in form_positive[:form_recommendation_visible_count] %}
+        {{ rec_card(rec) }}
+        {% endfor %}
+        {% else %}
+        <p class="rec-empty">No recent improvements flagged yet.</p>
+        {% endif %}
+      </div>
+      <div class="rec-column rec-column-negative" id="form-rec-negative-column">
+        <h3>Work on</h3>
+        {% set form_negative = form_recommendations | selectattr('tone', 'equalto', 'negative') | list %}
+        {% if form_negative %}
+        {% for rec in form_negative[:form_recommendation_visible_count] %}
+        {{ rec_card(rec) }}
+        {% endfor %}
+        {% else %}
+        <p class="rec-empty">No regressions flagged in recent form.</p>
+        {% endif %}
+      </div>
+    </div>
+    <div class="figure-block">
+      <div class="figure" id="fig-form_rolling_wr">{{ form_figures.form_rolling_wr | safe if form_figures else '' }}</div>
+      <p class="figure-caption">Rolling win rate — shaded region is your recent window; grey band is baseline WR.</p>
+    </div>
+    <div class="figure-block">
+      <div class="figure" id="fig-form_metric_delta_bar">{{ form_figures.form_metric_delta_bar | safe if form_figures else '' }}</div>
+      <p class="figure-caption">Largest metric shifts between recent games and your baseline period.</p>
+    </div>
+  </div>
+</section>
+
+</div>
+
+<div class="report-category-panel" id="category-laning" data-category="laning" role="tabpanel" aria-labelledby="tab-laning" hidden>
 
 <section id="lane" class="report-section report-section--laning">
   {{ section_title(early_section_title | default('Lane'), "lane", "accent", category='laning') }}
@@ -218,7 +342,9 @@
   </div>
 </section>
 
-{{ category_divider('Game impact', 'impact') }}
+</div>
+
+<div class="report-category-panel" id="category-impact" data-category="impact" role="tabpanel" aria-labelledby="tab-impact" hidden>
 
 <section id="vision" class="report-section report-section--impact">
   {{ section_title("Vision", "eye", "blue", category='impact') }}
@@ -276,7 +402,7 @@
   <div class="table-scroll">
   <table>
     <thead>
-    <tr><th>Objective</th><th>Count</th><th>Taken</th><th>Present</th><th>Arrived early</th><th>Dead before</th><th>{{ metric_label("Wards before", "ward", "blue") }}</th></tr>
+    <tr><th>Objective</th><th>Count</th><th>Taken</th><th>Present</th><th>Arrived early</th><th>Dead before</th><th>{{ metric_label("Wards before", tooltip=metric_tooltip("Wards before")) }}</th></tr>
     </thead>
     <tbody id="objective-table-body">
     {% for row in objective_rows %}
@@ -291,7 +417,9 @@
   </div>
 </section>
 
-{{ category_divider('Champion', 'champion') }}
+</div>
+
+<div class="report-category-panel" id="category-champion" data-category="champion" role="tabpanel" aria-labelledby="tab-champion" hidden>
 
 <section id="items" class="report-section report-section--champion">
   {{ section_title("Items", "items", "gold", category='champion') }}
@@ -348,7 +476,9 @@
   </div>
 </section>
 
-{{ category_divider('Analysis', 'analysis') }}
+</div>
+
+<div class="report-category-panel" id="category-analysis" data-category="analysis" role="tabpanel" aria-labelledby="tab-analysis" hidden>
 
 {% if has_peer_comparison %}
 <section id="rank-peers" class="report-section report-section--analysis">
@@ -439,16 +569,26 @@
     </div>
   </details>
 </section>
+
+</div>
 <script type="application/json" id="report-views-data">{{ report_views_json | safe }}</script>
+<script type="application/json" id="progression-views-data">{{ progression_views_json | safe }}</script>
 <script>
 (function () {
   var buildLabel = {{ build_label | tojson }};
   var visibleCount = {{ recommendation_visible_count }};
+  var formVisibleCount = {{ form_recommendation_visible_count | default(3) }};
   var reportViews = {};
+  var progressionViews = {};
   try {
     reportViews = JSON.parse(document.getElementById('report-views-data').textContent || '{}');
   } catch (err) {
     reportViews = {};
+  }
+  try {
+    progressionViews = JSON.parse(document.getElementById('progression-views-data').textContent || '{}');
+  } catch (err) {
+    progressionViews = {};
   }
 
   var currentQueue = {{ queue_filter_default | tojson }};
@@ -520,11 +660,12 @@
       headline = cards;
       more = [];
     }
-    var html = '<div class="cards cards--headline">' + headline.map(renderMetricCard).join('') + '</div>';
+    var html = '<div class="cards cards--headline">' + headline.map(renderMetricCard).join('');
     if (more.length) {
       html += '<details class="cards-more"><summary>' + escapeHtml(moreLabel) + '</summary>' +
         '<div class="cards cards--more">' + more.map(renderMetricCard).join('') + '</div></details>';
     }
+    html += '</div>';
     container.innerHTML = html;
   }
 
@@ -737,6 +878,120 @@
 
   var mainEl = document.querySelector('main');
 
+  function formSampleSubtitle(preset) {
+    if (preset && preset.sample_subtitle) return preset.sample_subtitle;
+    var snap = preset && preset.snapshot ? preset.snapshot : {};
+    var recent = snap.recent_games || 0;
+    var baseline = snap.baseline_games || 0;
+    var overlap = preset && preset.comparison && preset.comparison.overlap_mode === 'inclusive';
+    if (recent === 0 && baseline === 0) return 'Recent form vs your personal baseline.';
+    if (overlap) {
+      return 'Statistics from your last ' + recent + ' game' + (recent === 1 ? '' : 's') +
+        ' compared to your previous ' + baseline + '-game baseline (overlapping windows).';
+    }
+    if (baseline === 0) {
+      return 'Statistics from your last ' + recent + ' game' + (recent === 1 ? '' : 's') + '.';
+    }
+    return 'Statistics from your last ' + recent + ' game' + (recent === 1 ? '' : 's') +
+      ' compared to the ' + baseline + ' game' + (baseline === 1 ? '' : 's') + ' before that.';
+  }
+
+  function renderFormProgression(queueKey) {
+    var view = progressionViews[queueKey];
+    var presetKey = view ? view.default_preset : null;
+    var preset = view && presetKey ? view.presets[presetKey] : null;
+    var unavailable = document.getElementById('form-unavailable');
+    var content = document.getElementById('form-content');
+    var subtitle = document.getElementById('form-subtitle');
+    if (subtitle) {
+      subtitle.textContent = formSampleSubtitle(preset) + ' — independent of the game window filter above.';
+    }
+    if (!preset || !preset.available) {
+      if (unavailable) {
+        unavailable.style.display = '';
+        var text = document.getElementById('form-unavailable-text');
+        if (text) text.textContent = (preset && preset.insufficient_reason) || 'Need more games for Form Tracker.';
+      }
+      if (content) content.style.display = 'none';
+      return;
+    }
+    if (unavailable) unavailable.style.display = 'none';
+    if (content) content.style.display = '';
+    var snap = preset.snapshot || {};
+    var scoreNode = document.getElementById('form-score-value');
+    if (scoreNode) scoreNode.textContent = (snap.form_score >= 0 ? '+' : '') + Math.round(snap.form_score);
+    var trendBadge = document.getElementById('form-trend-badge');
+    if (trendBadge) {
+      trendBadge.textContent = snap.trend || 'stable';
+      trendBadge.className = 'form-badge form-badge--' + (snap.trend || 'stable');
+    }
+    var confBadge = document.getElementById('form-confidence-badge');
+    if (confBadge) confBadge.textContent = (snap.confidence || 'low') + ' confidence';
+    var streakNode = document.getElementById('form-streak');
+    if (streakNode) streakNode.textContent = snap.current_streak || '';
+    var wrShift = document.getElementById('form-wr-shift');
+    if (wrShift) {
+      wrShift.textContent = Math.round((snap.recent_winrate || 0) * 100) + '% recent vs ' +
+        Math.round((snap.baseline_winrate || 0) * 100) + '% baseline (' +
+        (snap.winrate_delta_pp >= 0 ? '+' : '') + Number(snap.winrate_delta_pp || 0).toFixed(1) + ' pp)';
+    }
+    var headline = document.getElementById('form-headline');
+    if (headline) headline.textContent = snap.headline || '';
+    function moverLine(row) {
+      return '<li>' + escapeHtml(row.label) + ': ' + row.baseline + ' → ' + row.recent + ' (' + row.gap + ')</li>';
+    }
+    var improved = document.getElementById('form-improved-list');
+    if (improved) {
+      var imp = preset.top_improved || [];
+      improved.innerHTML = imp.length ? imp.map(moverLine).join('') : '<li>—</li>';
+    }
+    var regressed = document.getElementById('form-regressed-list');
+    if (regressed) {
+      var reg = preset.top_regressed || [];
+      regressed.innerHTML = reg.length ? reg.map(moverLine).join('') : '<li>—</li>';
+    }
+    var shiftsBlock = document.getElementById('form-shifts-block');
+    var shiftsList = document.getElementById('form-shifts-list');
+    var shifts = preset.behavioral_shifts || [];
+    if (shiftsBlock) shiftsBlock.style.display = shifts.length ? '' : 'none';
+    if (shiftsList) {
+      shiftsList.innerHTML = shifts.map(function (s) { return '<li>' + escapeHtml(s) + '</li>'; }).join('');
+    }
+    var body = document.getElementById('form-table-body');
+    if (body) {
+      body.innerHTML = (preset.delta_rows || []).map(function (row) {
+        var style = row.gap_color ? ' style="color:' + row.gap_color + '"' : '';
+        var sig = row.significant ? ' *' : '';
+        return '<tr><td>' + metricLabel(row.label, row.iconify, row.icon_tone, row.icon_href) + '</td><td>' + row.recent +
+          '</td><td>' + row.baseline + '</td><td class="delta-' + row.verdict + '"' + style + '>' + row.gap + sig +
+          '</td><td class="delta-' + row.verdict + '"' + style + '>' + row.verdict + '</td></tr>';
+      }).join('');
+    }
+    function renderFormRec(rec) {
+      var pValue = rec.p_value != null ? ' · p = ' + Number(rec.p_value).toFixed(4) : '';
+      var priority = rec.priority_label || 'Medium';
+      return '<div class="rec ' + rec.badge + '"><div class="rec-head"><span class="badge badge--priority badge--' + rec.badge + '">' +
+        priority + '</span><span class="badge">' + escapeHtml(rec.category) + '</span><strong>' + escapeHtml(rec.title) +
+        '</strong></div><p>' + escapeHtml(rec.detail) + '</p><details class="rec-evidence"><summary>Why this?</summary><p class="meta">Evidence: ' +
+        escapeHtml(rec.evidence) + pValue + '</p></details></div>';
+    }
+    var posCol = document.getElementById('form-rec-positive-column');
+    var negCol = document.getElementById('form-rec-negative-column');
+    if (posCol && negCol) {
+      var allRecs = preset.recommendations || [];
+      var positive = allRecs.filter(function (rec) { return rec.tone === 'positive'; }).slice(0, formVisibleCount);
+      var negative = allRecs.filter(function (rec) { return rec.tone === 'negative'; }).slice(0, formVisibleCount);
+      posCol.innerHTML = '<h3>Keep doing</h3>' + (positive.length
+        ? positive.map(renderFormRec).join('')
+        : '<p class="rec-empty">No recent improvements flagged yet.</p>');
+      negCol.innerHTML = '<h3>Work on</h3>' + (negative.length
+        ? negative.map(renderFormRec).join('')
+        : '<p class="rec-empty">No regressions flagged in recent form.</p>');
+    }
+    setFigure('fig-form_rolling_wr', (preset.figures || {}).form_rolling_wr || '');
+    setFigure('fig-form_metric_delta_bar', (preset.figures || {}).form_metric_delta_bar || '');
+  }
+
   function applyView(queueKey, windowKey) {
     var view = reportViews[queueKey];
     if (!view) return;
@@ -797,6 +1052,7 @@
     });
     renderFigureHints(bundle);
     renderRecommendations(bundle);
+    renderFormProgression(queueKey);
 
     updateQueueButtons(queueKey);
     updateGameWindowButtons(queueKey);
@@ -861,17 +1117,111 @@
 </script>
 <script>
 (function () {
-  var filterBar = document.getElementById('report-filter-bar');
-  if (!filterBar) return;
+  var stickyHeader = document.getElementById('report-sticky-header');
+  if (!stickyHeader) return;
   function syncStickyOffset() {
-    var height = Math.ceil(filterBar.getBoundingClientRect().height) + 16;
+    var height = Math.ceil(stickyHeader.getBoundingClientRect().height) + 16;
     document.documentElement.style.setProperty('--report-sticky-offset', height + 'px');
   }
   syncStickyOffset();
   window.addEventListener('resize', syncStickyOffset);
   if (window.ResizeObserver) {
-    new ResizeObserver(syncStickyOffset).observe(filterBar);
+    new ResizeObserver(syncStickyOffset).observe(stickyHeader);
   }
+})();
+</script>
+<script>
+(function () {
+  var sectionCategory = {
+    overview: 'performance',
+    coaching: 'performance',
+    'form-tracker': 'performance',
+    lane: 'laning',
+    economy: 'laning',
+    vision: 'impact',
+    deaths: 'impact',
+    positioning: 'impact',
+    teamfights: 'impact',
+    objectives: 'impact',
+    items: 'champion',
+    runes: 'champion',
+    matchups: 'champion',
+    'rank-peers': 'analysis',
+    graphs: 'analysis',
+  };
+
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('.report-tab[data-category]'));
+  var panels = Array.prototype.slice.call(document.querySelectorAll('.report-category-panel[data-category]'));
+  var navGroups = Array.prototype.slice.call(document.querySelectorAll('.nav-group'));
+  if (!tabs.length || !panels.length) return;
+
+  var activeCategory = 'performance';
+
+  function categoryForSection(id) {
+    if (!id) return null;
+    if (sectionCategory[id]) return sectionCategory[id];
+    var el = document.getElementById(id);
+    if (!el) return null;
+    var panel = el.closest('.report-category-panel[data-category]');
+    return panel ? panel.getAttribute('data-category') : null;
+  }
+
+  function setActiveCategory(category, options) {
+    options = options || {};
+    if (!category || category === activeCategory) {
+      if (options.scrollTop && activeCategory) {
+        window.scrollTo({ top: 0, behavior: options.behavior || 'smooth' });
+      }
+      return;
+    }
+    activeCategory = category;
+    tabs.forEach(function (tab) {
+      var isActive = tab.getAttribute('data-category') === category;
+      tab.classList.toggle('is-active', isActive);
+      tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    });
+    panels.forEach(function (panel) {
+      var isActive = panel.getAttribute('data-category') === category;
+      panel.classList.toggle('is-active', isActive);
+      if (isActive) {
+        panel.removeAttribute('hidden');
+      } else {
+        panel.setAttribute('hidden', '');
+      }
+    });
+    navGroups.forEach(function (group) {
+      var groupCategory = group.className.match(/nav-group--(\w+)/);
+      var match = groupCategory ? groupCategory[1] : null;
+      group.classList.toggle('is-category-active', match === category);
+    });
+    if (options.persist !== false) {
+      try {
+        localStorage.setItem('reportActiveCategory', category);
+      } catch (e) {}
+    }
+    if (options.scrollTop) {
+      window.scrollTo({ top: 0, behavior: options.behavior || 'smooth' });
+    }
+    document.dispatchEvent(new CustomEvent('report-category-change', { detail: { category: category } }));
+  }
+
+  tabs.forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      setActiveCategory(tab.getAttribute('data-category'), { scrollTop: true });
+    });
+  });
+
+  var savedCategory = null;
+  try {
+    savedCategory = localStorage.getItem('reportActiveCategory');
+  } catch (e) {}
+  var initialCategory = (savedCategory && tabs.some(function (tab) {
+    return tab.getAttribute('data-category') === savedCategory;
+  })) ? savedCategory : 'performance';
+  setActiveCategory(initialCategory, { persist: false, scrollTop: false });
+
+  window.reportSetCategory = setActiveCategory;
+  window.reportCategoryForSection = categoryForSection;
 })();
 </script>
 <script>
@@ -909,7 +1259,13 @@
   function scrollToSection(id, behavior) {
     var el = document.getElementById(id);
     if (!el) return false;
-    el.scrollIntoView({ behavior: behavior || 'smooth', block: 'start' });
+    var category = window.reportCategoryForSection ? window.reportCategoryForSection(id) : null;
+    if (category && window.reportSetCategory) {
+      window.reportSetCategory(category, { scrollTop: false, persist: true });
+    }
+    requestAnimationFrame(function () {
+      el.scrollIntoView({ behavior: behavior || 'smooth', block: 'start' });
+    });
     return true;
   }
 
@@ -943,12 +1299,10 @@
 (function () {
   var navLinks = document.querySelectorAll('.nav-link[data-section]');
   if (!navLinks.length || !('IntersectionObserver' in window)) return;
-  var sections = Array.prototype.map.call(navLinks, function (link) {
-    return document.getElementById(link.getAttribute('data-section'));
-  }).filter(Boolean);
-  if (!sections.length) return;
 
-  var activeId = sections[0].id;
+  var observer = null;
+  var activeId = null;
+
   function setActiveNav(id) {
     if (!id || id === activeId) return;
     activeId = id;
@@ -957,14 +1311,23 @@
     });
   }
 
-  var observer = new IntersectionObserver(function (entries) {
-    entries.forEach(function (entry) {
-      if (entry.isIntersecting) setActiveNav(entry.target.id);
-    });
-  }, { rootMargin: '-18% 0px -62% 0px', threshold: 0 });
+  function observeSections() {
+    if (observer) observer.disconnect();
+    var activePanel = document.querySelector('.report-category-panel.is-active');
+    if (!activePanel) return;
+    var sections = Array.prototype.slice.call(activePanel.querySelectorAll('section[id]'));
+    if (!sections.length) return;
+    observer = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) setActiveNav(entry.target.id);
+      });
+    }, { rootMargin: '-18% 0px -62% 0px', threshold: 0 });
+    sections.forEach(function (section) { observer.observe(section); });
+    setActiveNav(sections[0].id);
+  }
 
-  sections.forEach(function (section) { observer.observe(section); });
-  setActiveNav(sections[0].id);
+  observeSections();
+  document.addEventListener('report-category-change', observeSections);
 })();
 </script>
 <script>

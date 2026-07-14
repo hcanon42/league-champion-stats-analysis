@@ -7,8 +7,10 @@ from pathlib import Path
 import pandas as pd
 
 from league_stats.core.config import AppConfig
+from league_stats.core.models import MetricDelta
 from league_stats.infra.ddragon_assets import DDragonAssets
 from league_stats.presentation.graphs import ChartIconResolver, GraphFactory
+from league_stats.presentation.metric_colors import LOSS_HEX
 
 
 def _config(tmp_path: Path) -> AppConfig:
@@ -54,3 +56,42 @@ def test_icon_bar_charts_embed_data_uris(tmp_path: Path) -> None:
     for html in (matchup_html, item_html, rune_html):
         assert "data:image" in html and "base64," in html
         assert "../../../assets/" not in html
+
+
+def test_form_metric_delta_bar_uses_normalized_bar_length_with_raw_labels(tmp_path: Path) -> None:
+    factory = GraphFactory(tmp_path / "graphs")
+    html = factory.form_metric_delta_bar(
+        [
+            MetricDelta(
+                metric="gd10",
+                label="Gold diff @10",
+                section="laning",
+                recent=90.0,
+                baseline=-58.0,
+                delta=148.0,
+                delta_pct=-254.8,
+                direction="higher",
+                verdict="improved",
+                significant=True,
+                recent_n=10,
+                baseline_n=30,
+            ),
+            MetricDelta(
+                metric="deaths",
+                label="Deaths/game",
+                section="overview",
+                recent=4.0,
+                baseline=5.0,
+                delta=-1.0,
+                delta_pct=-20.0,
+                direction="lower",
+                verdict="improved",
+                significant=True,
+                recent_n=10,
+                baseline_n=30,
+            ),
+        ]
+    )
+    assert '"x":[148,-20]' in html or '"x":[148.0,-20.0]' in html
+    assert '"text":["+148","-20%"]' in html
+    assert LOSS_HEX not in html

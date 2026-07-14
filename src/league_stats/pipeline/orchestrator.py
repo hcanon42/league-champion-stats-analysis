@@ -14,6 +14,7 @@ from league_stats.analysis.coach.engine import VISIBLE_RECOMMENDATIONS
 from league_stats.analysis.deaths import deaths_dataframe
 from league_stats.analysis.matchups import matchup_recommendation
 from league_stats.analysis.peer import build_peer_comparison, comparisons_dataframe
+from league_stats.core.champions import champion_display_name
 from league_stats.core.config import (
     GAME_WINDOW_OPTIONS,
     QUEUE_FILTER_OPTIONS,
@@ -22,7 +23,7 @@ from league_stats.core.config import (
     RANKED_SOLO_QUEUE_ID,
     AppConfig,
 )
-from league_stats.core.models import MatchRecord, PeerComparisonResult, RankedEntry
+from league_stats.core.models import MatchRecord, PeerComparisonResult, ProgressionComparison, RankedEntry
 from league_stats.infra.ddragon_assets import DDragonAssets
 from league_stats.infra.riot_api import RiotApiClient
 from league_stats.ingest.parser import discover_build_pools
@@ -39,6 +40,11 @@ from league_stats.pipeline.bundles import (
 )
 from league_stats.pipeline.fetch import fetch_matches, group_records, load_all_records, resolve_player_contexts
 from league_stats.pipeline.frames import build_analysis_frames
+from league_stats.pipeline.progression import (
+    build_progression_views,
+    progression_to_template_context,
+    write_progression_exports,
+)
 from league_stats.pipeline.services import PlayerContext, Services
 from league_stats.pipeline.summaries import (
     build_domain_summaries,
@@ -209,10 +215,23 @@ def run_analysis(
     default_bundle = report_views[default_queue]["windows"][default_window]
     default_peer = view_peers.get(default_queue, {}).get(default_window)
 
+    progression_views = build_progression_views(
+        config,
+        records,
+        graphs_dir,
+        assets=asset_catalog,
+    )
+    default_preset = progression_views[default_queue]["default_preset"]
+    default_progression = progression_views[default_queue]["presets"][default_preset]
+    progression_comparison: ProgressionComparison | None = None
+    if default_progression.get("comparison"):
+        progression_comparison = ProgressionComparison.model_validate(default_progression["comparison"])
+    write_progression_exports(run_dir, progression_comparison)
+
     context: dict[str, Any] = {
         **brand_context(from_dir=run_dir, output_dir=config.output_dir),
         "build_label": config.build_label,
-        "champion": config.champion,
+        "champion": champion_display_name(config.champion),
         "champion_icon": asset_catalog.champion_href(config.champion, from_dir=run_dir),
         "role_icon_href": asset_catalog.role_href(config.role, from_dir=run_dir),
         "role_display": config.role_display,
@@ -225,12 +244,15 @@ def run_analysis(
         "game_window_options": report_views[default_queue]["window_options"],
         "queue_label": default_bundle.get("queue_label", QUEUE_SUBTITLE_LABELS[default_queue]),
         "report_views_json": serialize_report_views_json(report_views),
+        "progression_views_json": serialize_report_views_json(progression_views),
+        "progression_default": default_preset,
         "chatbot_stats": summary,
         "gemini_api_key": config.gemini_api_key,
     }
     context.update(
         bundle_to_template_context(default_bundle, peer_comparison=default_peer)
     )
+    context.update(progression_to_template_context(default_progression))
     if player_builds:
         context["player_builds"] = build_player_builds_nav(
             player_builds,

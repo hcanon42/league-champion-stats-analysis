@@ -8,8 +8,11 @@ import pandas as pd
 import pytest
 
 from league_stats.analysis.coach.engine import CoachEngine
-from league_stats.analysis.economy import recall_gold_severity
+from league_stats.analysis.economy import economy_summary, recall_gold_severity
 from league_stats.analysis.statistics import StatisticsEngine
+from league_stats.core.role_metrics import MetricSpec, resolve_metric_value
+from league_stats.ingest.parser import ItemCatalog, MatchParser
+from tests.fixtures import FAKE_ITEMS, MY_PUUID, make_match, make_timeline
 
 
 @pytest.mark.parametrize(
@@ -58,3 +61,17 @@ def test_unspent_gold_rule_fires_for_hoarding(tmp_path: Path) -> None:
     rec = next(r for r in coach.generate() if r.title == "Too much gold sitting unspent")
     assert rec.effect_size == pytest.approx(0.429, abs=0.01)
     assert "1300" in rec.evidence
+
+
+def test_economy_summary_includes_first_recall_min() -> None:
+    """First recall is inferred per game and averaged in the economy bucket."""
+    parser = MatchParser(ItemCatalog(FAKE_ITEMS))
+    record = parser.parse(make_match(), make_timeline(), MY_PUUID)
+    assert record.timeline.first_recall_min == pytest.approx(5.0)
+
+    matches = pd.DataFrame([record.to_row()])
+    summary = economy_summary(matches)
+    assert summary["avg_first_recall_min"] == pytest.approx(5.0)
+
+    spec = MetricSpec("First recall", "economy", "avg_first_recall_min", suffix=" min")
+    assert resolve_metric_value(spec, {"economy": summary}) == pytest.approx(5.0)

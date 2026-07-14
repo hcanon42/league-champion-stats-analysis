@@ -90,11 +90,24 @@
 </div>
 {%- endmacro %}
 
-{% macro metric_label(label, icon=none, tone='muted', iconify_id=none, icon_href=none) -%}
+{% macro metric_label(label, icon=none, tone='muted', iconify_id=none, icon_href=none, tooltip=none) -%}
+{%- if tooltip -%}
+<span class="metric-label-with-tooltip">
+  <span class="metric-label">
+    {{ metric_icon(icon, tone, iconify_id, icon_href) }}
+    <span>{{ label }}</span>
+  </span>
+  <span class="metric-tooltip-wrap">
+    <button type="button" class="metric-tooltip-btn" aria-label="How {{ label }} is calculated" aria-expanded="false">?</button>
+    <span class="metric-tooltip-panel" role="tooltip">{{ tooltip }}</span>
+  </span>
+</span>
+{%- else -%}
 <span class="metric-label">
   {{ metric_icon(icon, tone, iconify_id, icon_href) }}
   <span>{{ label }}</span>
 </span>
+{%- endif -%}
 {%- endmacro %}
 
 {% macro section_title(label, icon=none, tone='accent', iconify_id=none, icon_href=none, category=none) -%}
@@ -162,17 +175,17 @@
   {% for card in headline %}
   {{ metric_card(card) }}
   {% endfor %}
+  {% if more %}
+  <details class="cards-more">
+    <summary>{{ more_label }}</summary>
+    <div class="cards cards--more">
+      {% for card in more %}
+      {{ metric_card(card) }}
+      {% endfor %}
+    </div>
+  </details>
+  {% endif %}
 </div>
-{% if more %}
-<details class="cards-more">
-  <summary>{{ more_label }}</summary>
-  <div class="cards cards--more">
-    {% for card in more %}
-    {{ metric_card(card) }}
-    {% endfor %}
-  </div>
-</details>
-{% endif %}
 {%- endmacro %}
 
 {% macro rec_card(rec) -%}

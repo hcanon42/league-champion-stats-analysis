@@ -65,6 +65,7 @@ def economy_summary(matches_df: pd.DataFrame) -> dict[str, Any]:
             else None
         ),
         "avg_unspent_gold_before_recall": mean_of(matches_df, "avg_unspent_gold", 0),
+        "avg_first_recall_min": mean_of(matches_df, "first_recall_min", 2),
         "avg_recalls_per_game": mean_of(matches_df, "recalls"),
         "avg_time_dead_s": mean_of(matches_df, "time_dead_s", 0),
         "gold_lost_to_death_timers_pct": (
@@ -89,11 +90,13 @@ def reset_quality(records: list[MatchRecord]) -> dict[str, Any]:
     Returns:
         Average first-recall timing and unspent gold distribution stats.
     """
-    first_recalls: list[float] = []
+    first_recalls = [
+        record.timeline.first_recall_min
+        for record in records
+        if record.timeline.first_recall_min is not None
+    ]
     unspent: list[int] = []
     for record in records:
-        if record.timeline.recalls:
-            first_recalls.append(record.timeline.recalls[0].minute)
         unspent.extend(r.unspent_gold for r in record.timeline.recalls)
     series = pd.Series(unspent, dtype=float)
     return {

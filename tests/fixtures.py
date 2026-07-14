@@ -234,6 +234,7 @@ def make_timeline(duration_s: int = 1200) -> dict[str, Any]:
         ev(200_000, type="WARD_PLACED", creatorId=1, wardType="YELLOW_TRINKET"),
         ev(400_000, type="WARD_PLACED", creatorId=1, wardType="CONTROL_WARD"),
         ev(760_000, type="WARD_PLACED", creatorId=4, wardType="CONTROL_WARD"),
+        ev(770_000, type="WARD_PLACED", creatorId=1, wardType="YELLOW_TRINKET"),
         ev(500_000, type="WARD_KILL", killerId=6, wardType="CONTROL_WARD"),
         # Player kills Syndra early (with shutdown collected).
         ev(

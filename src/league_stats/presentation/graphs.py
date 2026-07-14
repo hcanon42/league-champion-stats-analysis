@@ -21,6 +21,12 @@ matplotlib.use("Agg")  # headless rendering; must precede pyplot import
 import matplotlib.pyplot as plt
 
 from league_stats.analysis.statistics import ModelResult, feature_label
+from league_stats.core.champions import champion_display_name
+from league_stats.pipeline.view_models import (
+    _form_gap_display_and_score,
+    form_delta_chart_value,
+    form_delta_rank_magnitude,
+)
 from league_stats.presentation.metric_colors import (
     NEUTRAL_HEX,
     colors_for_winrates,
@@ -374,11 +380,12 @@ class GraphFactory:
         if matchups_df.empty:
             return _div(go.Figure().update_layout(title="Matchups (no data)"))
         frame = matchups_df[matchups_df["games"] >= min_games].sort_values("winrate")
-        labels = frame["opponent"].astype(str).tolist()
+        opponent_ids = frame["opponent"].astype(str).tolist()
+        labels = [champion_display_name(opponent) for opponent in opponent_ids]
         icon_hrefs = (
-            [self._icons.champion_href(label) for label in labels]
+            [self._icons.champion_href(opponent) for opponent in opponent_ids]
             if self._icons
-            else [None] * len(labels)
+            else [None] * len(opponent_ids)
         )
         fig = _horizontal_icon_bar(
             values=(frame["winrate"] * 100).tolist(),
@@ -487,5 +494,95 @@ class GraphFactory:
             title=f"Gap vs average {build_label} at your rank (% difference)",
             xaxis_title="% above (+) or below (-) peers",
             height=max(420, 28 * len(labels)),
+        )
+        return _div(fig)
+
+    def form_rolling_wr(self, matches_df: pd.DataFrame, *, recent_n: int) -> str:
+        """Rolling win rate with recent window highlighted and baseline band."""
+        if matches_df.empty:
+            return _div(go.Figure().update_layout(title="Form win rate (unavailable)"))
+        frame = matches_df.sort_values("game_creation_ms").reset_index(drop=True)
+        window = max(5, min(20, len(frame) // 5))
+        rolling = frame["win"].rolling(window, min_periods=3).mean() * 100
+        fig = go.Figure()
+        fig.add_scatter(
+            y=rolling,
+            mode="lines",
+            name=f"WR ({window}-game rolling)",
+            line=dict(color=ACCENT, width=3),
+        )
+        if len(frame) > recent_n:
+            baseline_wr = float(frame.iloc[:-recent_n]["win"].mean()) * 100
+            fig.add_hrect(
+                y0=baseline_wr - 5,
+                y1=baseline_wr + 5,
+                fillcolor="rgba(136,136,136,0.15)",
+                line_width=0,
+                annotation_text="Baseline band",
+                annotation_position="top left",
+            )
+        if recent_n > 0:
+            fig.add_vrect(
+                x0=max(0, len(frame) - recent_n),
+                x1=len(frame) - 1,
+                fillcolor="rgba(0, 200, 150, 0.08)",
+                line_width=0,
+            )
+        fig.add_hline(y=50, line_dash="dot", line_color="#888")
+        fig.update_layout(
+            title="Win rate trend (recent window shaded)",
+            xaxis_title="Game #",
+            yaxis_title="Win rate %",
+        )
+        return _div(fig)
+
+    def form_metric_delta_bar(self, deltas: list[Any]) -> str:
+        """Horizontal bar chart of top metric deltas (recent vs baseline)."""
+        if not deltas:
+            return _div(go.Figure().update_layout(title="Metric deltas (unavailable)"))
+        ranked = sorted(
+            deltas,
+            key=lambda delta: form_delta_rank_magnitude(
+                {
+                    "metric": delta.metric,
+                    "delta": delta.delta,
+                    "direction": delta.direction,
+                }
+            ),
+            reverse=True,
+        )[:8]
+        labels = [delta.label for delta in ranked]
+        values = []
+        colors = []
+        bar_text = []
+        for delta in ranked:
+            row = {
+                "metric": delta.metric,
+                "delta": delta.delta,
+                "direction": delta.direction,
+                "baseline": delta.baseline,
+                "delta_pct": delta.delta_pct,
+            }
+            gap_display, gap_score = _form_gap_display_and_score(row)
+            value = 0.0 if delta.verdict == "inline" else form_delta_chart_value(row)
+            values.append(value)
+            if delta.verdict == "inline":
+                colors.append(NEUTRAL_HEX)
+            else:
+                colors.append(interpolate_metric_color(gap_score) if gap_score is not None else NEUTRAL_HEX)
+            bar_text.append(gap_display)
+        fig = go.Figure(go.Bar(
+            x=values,
+            y=labels,
+            orientation="h",
+            marker_color=colors,
+            text=bar_text,
+            textposition="outside",
+        ))
+        fig.add_vline(x=0, line_color="#888", line_dash="dot")
+        fig.update_layout(
+            title="Largest recent vs baseline shifts",
+            xaxis_title="Change from baseline (% · lane diffs in raw units)",
+            height=max(320, 28 * len(labels)),
         )
         return _div(fig)

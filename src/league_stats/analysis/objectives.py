@@ -68,10 +68,10 @@ def extract_objectives(ctx: TimelineContext) -> list[ObjectiveRecord]:
         pos_before = ctx.position_at_ms(ctx.participant_id, max(0, ts - EARLY_LOOKBACK_MS))
         present = pos_now is not None and distance(pos_now, pit) <= PRESENCE_RADIUS
         early = pos_before is not None and distance(pos_before, pit) <= EARLY_RADIUS
-        team_wards = [
+        player_wards = [
             w
             for w in wards
-            if int(w.get("creatorId", 0)) in ctx.team_ids
+            if int(w.get("creatorId", 0)) == ctx.participant_id
             and 0 <= ts - int(w["timestamp"]) <= VISION_WINDOW_MS
         ]
         records.append(
@@ -83,9 +83,9 @@ def extract_objectives(ctx: TimelineContext) -> list[ObjectiveRecord]:
                 arrived_early=early,
                 arrived_late=present and not early,
                 dead_before=any(0 <= ts - t <= DEAD_BEFORE_WINDOW_MS for t in my_death_ts),
-                team_wards_before=len(team_wards),
+                wards_before=len(player_wards),
                 control_wards_before=sum(
-                    1 for w in team_wards if w.get("wardType") == "CONTROL_WARD"
+                    1 for w in player_wards if w.get("wardType") == "CONTROL_WARD"
                 ),
             )
         )
@@ -115,7 +115,7 @@ def objectives_dataframe(records: list[MatchRecord]) -> pd.DataFrame:
                     "arrived_early": obj.arrived_early,
                     "arrived_late": obj.arrived_late,
                     "dead_before": obj.dead_before,
-                    "team_wards_before": obj.team_wards_before,
+                    "wards_before": obj.wards_before,
                     "control_wards_before": obj.control_wards_before,
                 }
             )
@@ -141,7 +141,7 @@ def objective_summary(obj_df: pd.DataFrame) -> dict[str, Any]:
             "presence_rate": round(float(group["present"].mean()), 3),
             "early_rate": round(float(group["arrived_early"].mean()), 3),
             "dead_before_rate": round(float(group["dead_before"].mean()), 3),
-            "avg_wards_before": round(float(group["team_wards_before"].mean()), 2),
+            "avg_wards_before": round(float(group["wards_before"].mean()), 2),
             "avg_control_wards_before": round(float(group["control_wards_before"].mean()), 2),
         }
     return {

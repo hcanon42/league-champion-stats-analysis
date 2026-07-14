@@ -12,7 +12,7 @@ from typing import Any
 import requests
 from tqdm import tqdm
 
-from league_stats.core.champions import VALID_ROLES
+from league_stats.core.champions import VALID_ROLES, champion_display_name
 from league_stats.core.config import AppConfig
 from league_stats.ingest.parser import PERK_NAMES
 from league_stats.infra.riot_api import DDRAGON_BASE
@@ -339,7 +339,9 @@ class DDragonAssets:
         enriched: list[dict[str, Any]] = []
         for row in rows:
             item = dict(row)
-            item["opponent_icon"] = self.champion_href(str(row.get("opponent", "")), from_dir=from_dir)
+            riot_id = str(row.get("opponent", ""))
+            item["opponent_icon"] = self.champion_href(riot_id, from_dir=from_dir)
+            item["opponent"] = champion_display_name(riot_id)
             enriched.append(item)
         return enriched
 

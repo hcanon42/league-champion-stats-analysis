@@ -15,6 +15,27 @@ _DEATH_SHARE_MID = 37.5
 _DEATH_SHARE_SPAN = 12.5
 _PEER_GAP_SPAN = 25.0
 
+# Form Tracker: recent-vs-baseline bar impact (tuned separately from peer cards).
+_FORM_RATE_SPAN = 12.0  # pp shift that reaches full bar (15pp WR ~= max)
+_FORM_RAW_SPANS: dict[str, float] = {
+    "gd10": 300.0,
+    "cs10": 15.0,
+    "deaths": 2.5,
+    "deaths_pre14": 2.0,
+    "kda": 1.5,
+    "dpm": 200.0,
+    "ccpm": 0.6,
+    "cspm": 2.0,
+    "vspm": 1.5,
+    "vision_score": 15.0,
+    "kill_participation": 0.15,
+    "damage_share": 0.10,
+    "avg_unspent_gold": 400.0,
+    "control_wards": 2.0,
+    "roams_pre15": 2.0,
+    "early_ganks": 2.0,
+}
+
 _PEER_RAW_SPANS: dict[str, float] = {
     "gd10": 300.0,
     "cs10": 15.0,
@@ -102,6 +123,20 @@ def score_peer_gap(
     if direction == "lower":
         gap = -gap
     return _clamp(gap / _PEER_GAP_SPAN)
+
+
+def score_form_delta(metric: str, improvement: float) -> float | None:
+    """Signed recent-vs-baseline impact for Form Tracker bars and colors."""
+    if metric in {"gd10", "cs10", "gd15", "xpd10", "csd10"}:
+        return score_lane_diff(improvement)
+    if metric in {"win", "kill_participation", "damage_share", "objectives_present_rate"}:
+        return _clamp(improvement * 100 / _FORM_RATE_SPAN)
+    if metric.endswith("_rate"):
+        return _clamp(improvement * 100 / _FORM_RATE_SPAN)
+    span = _FORM_RAW_SPANS.get(metric)
+    if span is None:
+        return None
+    return _clamp(improvement / span)
 
 
 def color_winrate(rate: float) -> str:

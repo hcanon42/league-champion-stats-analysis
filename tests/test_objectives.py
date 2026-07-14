@@ -21,10 +21,10 @@ def test_objectives_extracted() -> None:
 
 
 def test_dragon_vision_setup() -> None:
-    """The support's control ward 20 s before the dragon is counted."""
+    """Only the player's wards in the 2-minute window count, not teammates'."""
     ctx = build_context(make_match(), make_timeline(), MY_PUUID)
     dragon = next(
         o for o in extract_objectives(ctx) if o.kind == ObjectiveKind.DRAGON
     )
-    assert dragon.team_wards_before >= 1
-    assert dragon.control_wards_before >= 1
+    assert dragon.wards_before == 1
+    assert dragon.control_wards_before == 0

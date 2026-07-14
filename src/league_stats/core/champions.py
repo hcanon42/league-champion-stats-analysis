@@ -32,6 +32,12 @@ ROLE_DISPLAY: Final[dict[str, str]] = {
     "UTILITY": "support",
 }
 
+# Riot match-v5 / Data Dragon ids that differ from the in-game display name.
+CHAMPION_DISPLAY_NAMES: Final[dict[str, str]] = {
+    "MonkeyKing": "Wukong",
+    "DrMundo": "Dr. Mundo",
+}
+
 
 def normalize_role(value: str) -> str:
     """Map a user-facing lane name to Riot's ``teamPosition`` value.
@@ -70,6 +76,18 @@ def role_display(role: str) -> str:
     return ROLE_DISPLAY.get(role.upper(), role.lower())
 
 
+def champion_display_name(riot_id: str) -> str:
+    """Map a Riot champion id to the player-facing name.
+
+    Args:
+        riot_id: Official champion id from match-v5 payloads.
+
+    Returns:
+        The display name (e.g. ``Wukong`` instead of ``MonkeyKing``).
+    """
+    return CHAMPION_DISPLAY_NAMES.get(str(riot_id), str(riot_id))
+
+
 def build_label(champion: str, role: str) -> str:
     """Display label for a champion + lane pair (e.g. ``Viktor mid``).
 
@@ -80,7 +98,7 @@ def build_label(champion: str, role: str) -> str:
     Returns:
         A short label for reports and logs.
     """
-    return f"{champion} {role_display(role)}"
+    return f"{champion_display_name(champion)} {role_display(role)}"
 
 
 def parse_riot_id(value: str) -> tuple[str, str]:
@@ -206,8 +224,11 @@ def build_champion_catalog(ddragon_champions: dict[str, dict]) -> dict[str, str]
     catalog: dict[str, str] = {}
     for champion_id, data in ddragon_champions.items():
         official = str(data.get("id", champion_id))
+        display_name = str(data.get("name", official))
         catalog[_champion_key(official)] = official
-        catalog[_champion_key(str(data.get("name", official)))] = official
+        catalog[_champion_key(display_name)] = official
         if " " in official:
             catalog[_champion_key(official.replace(" ", ""))] = official
+    for official, display_name in CHAMPION_DISPLAY_NAMES.items():
+        catalog[_champion_key(display_name)] = official
     return catalog

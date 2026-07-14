@@ -78,6 +78,15 @@ QUEUE_SUBTITLE_LABELS: Final[dict[str, str]] = {
     "all": "ranked",
 }
 
+FORM_RECENT_DEFAULT: Final[int] = 20
+FORM_BASELINE_DEFAULT: Final[int] = 80
+FORM_OVERLAP_DEFAULT: Final[bool] = False
+PROGRESSION_PRESETS_V1: Final[tuple[tuple[int, int], ...]] = ((20, 80),)
+PROGRESSION_PRESETS_V2: Final[tuple[tuple[int, int], ...]] = ((10, 50), (20, 80), (30, 100))
+FORM_MIN_RECENT: Final[int] = 10
+FORM_MIN_BASELINE: Final[int] = 25
+FORM_SIGNIFICANCE_ALPHA: Final[float] = 0.05
+
 
 class PlayerIdentity(BaseModel):
     """One tracked Riot account."""
@@ -121,6 +130,12 @@ class AppConfig(BaseModel):
     max_retries: int = Field(default=5, ge=0)
     request_timeout_s: float = Field(default=15.0, gt=0)
     verbose: bool = False
+    progression_recent_n: int = Field(default=FORM_RECENT_DEFAULT, ge=1)
+    progression_baseline_m: int = Field(default=FORM_BASELINE_DEFAULT, ge=1)
+    progression_overlap: bool = FORM_OVERLAP_DEFAULT
+    progression_min_recent: int = Field(default=FORM_MIN_RECENT, ge=1)
+    progression_min_baseline: int = Field(default=FORM_MIN_BASELINE, ge=1)
+    progression_alpha: float = Field(default=FORM_SIGNIFICANCE_ALPHA, gt=0, lt=1)
 
     @model_validator(mode="after")
     def _default_players(self) -> "AppConfig":
@@ -330,6 +345,19 @@ def load_config(config_file: Path | None = None, **overrides: Any) -> AppConfig:
         if inferred:
             data["platform"] = inferred
     data.update({k: v for k, v in overrides.items() if v is not None})
+    progression_table = data.pop("progression", None)
+    if isinstance(progression_table, dict):
+        mapping = {
+            "recent_n": "progression_recent_n",
+            "baseline_m": "progression_baseline_m",
+            "overlap": "progression_overlap",
+            "min_recent": "progression_min_recent",
+            "min_baseline": "progression_min_baseline",
+            "alpha": "progression_alpha",
+        }
+        for src, dest in mapping.items():
+            if src in progression_table:
+                data[dest] = progression_table[src]
     if not data.get("api_key"):
         raise ValueError(_missing_api_key_hint())
     return AppConfig(**data)

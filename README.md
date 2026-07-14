@@ -40,6 +40,10 @@ recommendations.
 - **Rank peer comparison**: your stats vs same-rank players on the same
   champion + lane, sampled live from league-v4 + match-v5 (cached for 7 days
   under `data/benchmarks/`).
+- **Form Tracker**: compares your last 20 games vs games 21–100 (personal
+  baseline) with statistical confidence, form score, behavioral shift detection,
+  and diff-specific coaching tips. Precomputed per queue filter; independent of
+  the Last 50/100 dashboard window toggle.
 - A dark, responsive, interactive **HTML dashboard** plus CSV/JSON/Markdown
   exports.
 
@@ -128,6 +132,8 @@ Open **`output/index.html`** to browse all saved reports, or open any
 | `output/reports/.../report.html` | Interactive dark dashboard for one build |
 | `output/reports/.../summary.json` | Every aggregate in machine-readable form |
 | `output/reports/.../recommendations.md` | Ranked coaching recommendations |
+| `output/reports/.../progression.json` | Form Tracker comparison (recent vs baseline) |
+| `output/reports/.../progression.md` | Form Tracker human-readable summary |
 | `output/reports/.../{matches,deaths,...}.csv` | Flat tables for your own analysis |
 | `output/reports/.../win_predictor.joblib` | Trained RandomForest model |
 | `output/reports/.../graphs/death_heatmap.png` | Static per-phase death heatmaps |

@@ -75,7 +75,7 @@ def analyze(
     if champion or role:
         updates: dict[str, str | None] = {}
         if champion:
-            updates["filter_champion"] = champion
+            updates["filter_champion"] = services.client.resolve_champion_name(champion)
         if role:
             updates["filter_role"] = normalize_role(role)
         services.config = services.config.model_copy(update=updates)
@@ -134,7 +134,7 @@ def report(
     if champion or role:
         updates: dict[str, str | None] = {}
         if champion:
-            updates["filter_champion"] = champion
+            updates["filter_champion"] = services.client.resolve_champion_name(champion)
         if role:
             updates["filter_role"] = normalize_role(role)
         services.config = services.config.model_copy(update=updates)

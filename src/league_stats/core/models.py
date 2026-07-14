@@ -11,7 +11,7 @@ cooldowns) are typed ``Optional`` and documented as heuristics or unknowns.
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -129,6 +129,7 @@ class TimelineStats(BaseModel):
     snapshots: SnapshotSet = Field(default_factory=SnapshotSet)
     recalls: list[RecallEvent] = Field(default_factory=list)
     roams: list[RoamEvent] = Field(default_factory=list)
+    first_recall_min: float | None = None
     avg_unspent_gold_before_recall: float | None = None
     time_dead_s: int = 0
     lane_priority: float | None = None
@@ -228,7 +229,7 @@ class ObjectiveRecord(BaseModel):
     arrived_early: bool = False
     arrived_late: bool = False
     dead_before: bool = False
-    team_wards_before: int = 0
+    wards_before: int = 0
     control_wards_before: int = 0
 
 
@@ -399,6 +400,7 @@ class MatchRecord(BaseModel):
             "shutdown_collected": self.shutdown_gold_collected,
             "shutdown_given": self.shutdown_gold_given,
             "recalls": len(self.timeline.recalls),
+            "first_recall_min": self.timeline.first_recall_min,
             "avg_unspent_gold": self.timeline.avg_unspent_gold_before_recall,
             "roams_pre15": len(self.timeline.roams),
             "time_dead_s": self.timeline.time_dead_s,
@@ -478,7 +480,7 @@ class MatchRecord(BaseModel):
             "vspm10": self.timeline.vspm10,
             "avg_wards_before_objective": (
                 round(
-                    sum(o.team_wards_before for o in self.objectives) / len(self.objectives), 1
+                    sum(o.wards_before for o in self.objectives) / len(self.objectives), 1
                 )
                 if self.objectives
                 else None
@@ -564,3 +566,56 @@ class PeerComparisonResult(BaseModel):
     comparisons: list[MetricComparison] = Field(default_factory=list)
     strengths: list[str] = Field(default_factory=list)
     weaknesses: list[str] = Field(default_factory=list)
+
+
+class MetricDelta(BaseModel):
+    """One metric compared between recent form and a personal baseline window."""
+
+    metric: str
+    label: str
+    section: str
+    recent: float
+    baseline: float
+    delta: float
+    delta_pct: float | None
+    direction: Literal["higher", "lower"]
+    verdict: Literal["improved", "regressed", "inline"]
+    p_value: float | None = None
+    effect_size: float | None = None
+    significant: bool = False
+    recent_n: int = 0
+    baseline_n: int = 0
+
+
+class FormSnapshot(BaseModel):
+    """Headline progression summary for the Form Tracker hero panel."""
+
+    form_score: float
+    trend: Literal["improving", "declining", "stable"]
+    confidence: Literal["high", "medium", "low", "insufficient"]
+    recent_games: int
+    baseline_games: int
+    recent_winrate: float
+    baseline_winrate: float
+    winrate_delta_pp: float
+    winrate_ci_low: float | None = None
+    winrate_ci_high: float | None = None
+    current_streak: str = ""
+    headline: str = ""
+
+
+class ProgressionComparison(BaseModel):
+    """Full recent-vs-baseline comparison for one build and preset."""
+
+    preset_key: str
+    overlap_mode: Literal["exclusive", "inclusive"]
+    recent_n: int
+    baseline_m: int
+    role: str
+    build_label: str
+    snapshot: FormSnapshot
+    deltas: list[MetricDelta] = Field(default_factory=list)
+    top_improved: list[MetricDelta] = Field(default_factory=list)
+    top_regressed: list[MetricDelta] = Field(default_factory=list)
+    behavioral_shifts: list[str] = Field(default_factory=list)
+    recommendations: list[Recommendation] = Field(default_factory=list)

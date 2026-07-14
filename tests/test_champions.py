@@ -7,6 +7,7 @@ import pytest
 from league_stats.core.champions import (
     build_champion_catalog,
     build_label,
+    champion_display_name,
     champion_slug,
     normalize_role,
     player_slug,
@@ -32,6 +33,15 @@ def test_build_label() -> None:
     """Build label combines champion and lane display."""
     assert build_label("Ahri", "MIDDLE") == "Ahri mid"
     assert build_label("LeeSin", "JUNGLE") == "LeeSin jungle"
+    assert build_label("MonkeyKing", "TOP") == "Wukong top"
+    assert build_label("DrMundo", "TOP") == "Dr. Mundo top"
+
+
+def test_champion_display_name() -> None:
+    """Riot ids with different display names are mapped for UI."""
+    assert champion_display_name("MonkeyKing") == "Wukong"
+    assert champion_display_name("DrMundo") == "Dr. Mundo"
+    assert champion_display_name("Ahri") == "Ahri"
 
 
 def test_champion_slug() -> None:
@@ -50,11 +60,15 @@ def test_resolve_champion_name_from_catalog() -> None:
         {
             "Ahri": {"id": "Ahri", "name": "Ahri"},
             "LeeSin": {"id": "LeeSin", "name": "Lee Sin"},
+            "MonkeyKing": {"id": "MonkeyKing", "name": "Wukong"},
+            "DrMundo": {"id": "DrMundo", "name": "Dr. Mundo"},
         }
     )
     assert resolve_champion_name("ahri", catalog) == "Ahri"
     assert resolve_champion_name("lee sin", catalog) == "LeeSin"
     assert resolve_champion_name("LeeSin", catalog) == "LeeSin"
+    assert resolve_champion_name("wukong", catalog) == "MonkeyKing"
+    assert resolve_champion_name("dr. mundo", catalog) == "DrMundo"
 
 
 def test_resolve_champion_name_unknown() -> None:

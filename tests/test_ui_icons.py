@@ -73,6 +73,13 @@ def test_tooltip_for_dist_to_role() -> None:
     assert "jungle" in tooltip
 
 
+def test_tooltip_for_wards_before() -> None:
+    tooltip = tooltip_for_label("Wards before")
+    assert tooltip is not None
+    assert "you placed" in tooltip
+    assert "2 minutes" in tooltip
+
+
 def test_tooltip_missing_for_unknown_label() -> None:
     assert tooltip_for_label("Unknown metric") is None
 

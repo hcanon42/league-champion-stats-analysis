@@ -187,6 +187,8 @@ METRIC_TOOLTIPS: dict[str, str] = {
     "CW lifetime": "Average seconds each control ward stayed alive until cleared or game end.",
     "VS/min in wins": "Vision score per minute averaged over wins only.",
     "VS/min in losses": "Vision score per minute averaged over losses only.",
+    # Objectives
+    "Wards before": "Average wards you placed in the 2 minutes before each objective take. Any ward type counts; map location is not filtered.",
     # Deaths
     "Total deaths": "Total death count across all games in the window (not an average).",
     "Solo deaths": "Share of deaths with no allies within 2200 map units.",

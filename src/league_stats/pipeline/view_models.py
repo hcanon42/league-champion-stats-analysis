@@ -19,9 +19,20 @@ from league_stats.presentation.metric_colors import (
     interpolate_metric_color,
     score_death_share,
     score_deaths_per_game,
+    score_form_delta,
     score_lane_diff,
     score_peer_gap,
     score_winrate,
+)
+
+_SIGNED_LANE_METRICS = frozenset({"gd10", "cs10", "gd15", "xpd10", "csd10"})
+_RATE_METRICS = frozenset(
+    {
+        "win",
+        "kill_participation",
+        "damage_share",
+        "objectives_present_rate",
+    }
 )
 from league_stats.presentation.ui_icons import icon_fields_for_label, with_icons
 
@@ -52,11 +63,14 @@ def pct(value: float | None) -> str | None:
     return None if value is None else f"{value * 100:.0f}%"
 
 
-def card_entries(pairs: list[tuple[str, str]]) -> list[dict[str, str]]:
+def card_entries(
+    pairs: list[tuple[str, str]], *, color_values: bool = True
+) -> list[dict[str, str]]:
     """Convert label/value card pairs to JSON-friendly dicts."""
     entries = with_icons([{"label": label, "value": value} for label, value in pairs])
-    for entry in entries:
-        enrich_value_semantics(entry)
+    if color_values:
+        for entry in entries:
+            enrich_value_semantics(entry)
     return entries
 
 
@@ -87,7 +101,7 @@ def cards_from_specs(
     for spec in specs:
         raw = resolve_metric_value(spec, summaries)
         pairs.append((spec.label, _format_metric_value(spec, raw)))
-    entries = card_entries(pairs)
+    entries = card_entries(pairs, color_values=section != "deaths")
     return annotate_card_tiers(
         entries,
         section,
@@ -261,6 +275,98 @@ def peer_row_display(row: dict[str, Any]) -> dict[str, str]:
     }
 
 
+def _improvement_delta(delta: float, direction: str) -> float:
+    """Positive value means the player improved on this metric."""
+    return delta if direction == "higher" else -delta
+
+
+def _form_gap_color_score(metric: str, improvement: float) -> float | None:
+    """Map an improvement delta to a [-1, 1] color score."""
+    return score_form_delta(metric, improvement)
+
+
+def _form_change_pct(row: dict[str, Any]) -> float | None:
+    """Percent change vs baseline; ``None`` for signed lane diffs or unusable baselines."""
+    metric = str(row.get("metric", ""))
+    if metric in _SIGNED_LANE_METRICS:
+        return None
+    if row.get("delta_pct") is not None:
+        return float(row["delta_pct"])
+    baseline = row.get("baseline")
+    delta = row.get("delta")
+    if baseline is None or delta is None or abs(float(baseline)) < 1e-6:
+        return None
+    return float(delta) / float(baseline) * 100
+
+
+def _form_gap_display_and_score(row: dict[str, Any]) -> tuple[str, float | None]:
+    """Direction-aware change label and color score for Form Tracker rows."""
+    metric = str(row.get("metric", ""))
+    delta = float(row.get("delta", 0.0))
+    direction = str(row.get("direction", "higher"))
+    improvement = _improvement_delta(delta, direction)
+    gap_score = _form_gap_color_score(metric, improvement)
+
+    if metric in _SIGNED_LANE_METRICS:
+        return f"{delta:+.0f}", gap_score
+    pct = _form_change_pct(row)
+    if pct is not None:
+        return f"{pct:+.0f}%", gap_score
+    if metric in {"deaths", "deaths_pre14"}:
+        return f"{delta:+.2f}", gap_score
+    return f"{delta:+.2f}", gap_score
+
+
+def form_delta_chart_value(row: dict[str, Any]) -> float:
+    """Bar magnitude: % change for most metrics, raw delta for signed lane diffs."""
+    metric = str(row.get("metric", ""))
+    if metric in _SIGNED_LANE_METRICS:
+        return float(row.get("delta", 0.0))
+    pct = _form_change_pct(row)
+    if pct is not None:
+        return pct
+    return float(row.get("delta", 0.0))
+
+
+def form_delta_rank_magnitude(row: dict[str, Any]) -> float:
+    """Absolute normalized impact used to rank chart movers."""
+    return abs(form_delta_chart_value(row))
+
+
+def form_row_display(row: dict[str, Any]) -> dict[str, str]:
+    """Format Form Tracker delta row values for HTML/JSON."""
+    metric = row.get("metric")
+    recent = row.get("recent")
+    baseline = row.get("baseline")
+    if metric in _RATE_METRICS or str(metric).endswith("_rate"):
+        recent_display = f"{float(recent) * 100:.0f}%"
+        baseline_display = f"{float(baseline) * 100:.0f}%"
+    elif metric in _SIGNED_LANE_METRICS:
+        recent_display = f"{float(recent):+.0f}"
+        baseline_display = f"{float(baseline):+.0f}"
+    else:
+        recent_display = f"{float(recent):.2f}" if isinstance(recent, float) else str(recent)
+        baseline_display = f"{float(baseline):.2f}" if isinstance(baseline, float) else str(baseline)
+
+    gap_display, gap_score = _form_gap_display_and_score(row)
+    verdict = str(row.get("verdict", "inline"))
+    if verdict == "inline":
+        gap_color = ""
+    else:
+        gap_color = interpolate_metric_color(gap_score) if gap_score is not None else ""
+    return {
+        "label": str(row.get("label", "")),
+        **icon_fields_for_label(str(row.get("label", ""))),
+        "recent": recent_display,
+        "baseline": baseline_display,
+        "gap": gap_display,
+        "gap_color": gap_color,
+        "verdict": verdict,
+        "significant": bool(row.get("significant")),
+        "section": str(row.get("section", "")),
+    }
+
+
 def peer_subtitle(peer: PeerComparisonResult) -> str:
     """Build the peer comparison subtitle with sample size and confidence."""
     confidence = peer.confidence.replace("_", " ")
@@ -268,4 +374,32 @@ def peer_subtitle(peer: PeerComparisonResult) -> str:
         f"Your averages vs {peer.build_label} at {peer.rank_label} · "
         f"{peer.source} · {peer.peer_games} peer games "
         f"({peer.peer_players} players, {confidence} confidence)"
+    )
+
+
+def _game_word(count: int) -> str:
+    return "game" if count == 1 else "games"
+
+
+def form_sample_subtitle(
+    *,
+    recent_games: int,
+    baseline_games: int,
+    overlap_mode: str = "exclusive",
+) -> str:
+    """Describe which game windows Form Tracker compares."""
+    recent = max(0, recent_games)
+    baseline = max(0, baseline_games)
+    if recent == 0 and baseline == 0:
+        return "Recent form vs your personal baseline."
+    if overlap_mode == "inclusive":
+        return (
+            f"Statistics from your last {recent} {_game_word(recent)} "
+            f"compared to your previous {baseline}-game baseline (overlapping windows)."
+        )
+    if baseline == 0:
+        return f"Statistics from your last {recent} {_game_word(recent)}."
+    return (
+        f"Statistics from your last {recent} {_game_word(recent)} "
+        f"compared to the {baseline} {_game_word(baseline)} before that."
     )

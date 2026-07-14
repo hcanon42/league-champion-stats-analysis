@@ -413,6 +413,7 @@ def extract_timeline_stats(ctx: TimelineContext, time_dead_s: int) -> TimelineSt
         snapshots=_snapshots(ctx),
         recalls=recalls,
         roams=extract_roams(ctx),
+        first_recall_min=recalls[0].minute if recalls else None,
         avg_unspent_gold_before_recall=(sum(unspent) / len(unspent)) if unspent else None,
         time_dead_s=time_dead_s,
         lane_priority=_lane_priority(ctx),

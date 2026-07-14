@@ -29,6 +29,20 @@ runs coaching analytics, and renders interactive HTML dashboards plus CSV/JSON e
 4. Coaching tip? Add a rule in `analysis/coach/engine.py`.
 5. Chatbot should know? Extend `pipeline/summaries.py` → `build_export_summary()`.
 
+## Form Tracker (progression diff)
+
+Compares **recent form** (default last 20 games) vs a **personal baseline** (default games 21–100, non-overlapping).
+
+1. Metric / delta logic? `analysis/progression/metrics.py`, `diff.py`, `stats.py`
+2. Behavioral shifts? `analysis/progression/shifts.py`
+3. Diff coaching tips? `analysis/progression/coach.py`
+4. Pipeline wiring? `pipeline/progression.py` → `build_progression_views()`; orchestrator embeds `progression_views_json`
+5. Dashboard section? `presentation/templates/report.html` `#form-tracker` + `renderFormProgression()` JS
+6. Charts? `presentation/graphs.py` → `form_rolling_wr`, `form_metric_delta_bar`
+7. Config? `core/config.py` `[progression]` table in `config.toml` or `progression_*` on `AppConfig`
+
+Form Tracker is **orthogonal** to the game-window toggle (Last 50/100/All) — it always slices from the full queue-filtered record list.
+
 ## Icons
 
 - Iconify keys in `presentation/ui_icons.py` → `ICONIFY_ICONS`

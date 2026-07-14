@@ -21,10 +21,15 @@ from league_stats.analysis.improvement import (
     relative_band_score,
     support_utility_impact,
 )
-from league_stats.core.champions import build_label, champion_slug, role_display
+from league_stats.core.champions import (
+    build_label,
+    champion_display_name,
+    champion_slug,
+    role_display,
+)
 from league_stats.core.models import Recommendation
 from league_stats.presentation.brand_assets import brand_context, refresh_saved_report_branding
-from league_stats.presentation.ui_icons import iconify_for_key
+from league_stats.presentation.ui_icons import iconify_for_key, tooltip_for_label
 from league_stats.utils import get_logger
 
 if TYPE_CHECKING:
@@ -255,6 +260,7 @@ class ReportBuilder:
             autoescape=select_autoescape(["html"]),
         )
         self._env.globals["iconify"] = iconify_for_key
+        self._env.globals["metric_tooltip"] = tooltip_for_label
         self._log = get_logger("report")
 
     def render(self, output_path: Path, context: dict[str, Any]) -> Path:
@@ -347,11 +353,11 @@ def build_player_builds_nav(
     for build in builds:
         slug = champion_slug(str(build["champion"]), str(build["role"]))
         winrate = float(build.get("winrate", 0.0))
-        champion = str(build["champion"])
+        riot_id = str(build["champion"])
         icon_href = None
         role_icon = None
         if assets is not None and from_dir is not None:
-            icon_href = assets.champion_href(champion, from_dir=from_dir)
+            icon_href = assets.champion_href(riot_id, from_dir=from_dir)
             role_icon = assets.role_href(str(build["role"]), from_dir=from_dir)
         nav.append(
             {
@@ -360,7 +366,7 @@ def build_player_builds_nav(
                     f"{winrate * 100:.0f}% WR"
                 ),
                 "build_label": str(build["build_label"]),
-                "champion": champion,
+                "champion": champion_display_name(riot_id),
                 "role": str(build["role"]),
                 "role_display": str(build.get("role_display", role_display(str(build["role"])))),
                 "games": int(build.get("games", 0)),
@@ -471,10 +477,12 @@ def refresh_player_hub(
     label = player_label or str(builds[0].get("player", ""))
     if assets is not None:
         for build in builds:
+            riot_id = str(build.get("champion", ""))
             build["champion_icon"] = assets.champion_href(
-                str(build.get("champion", "")),
+                riot_id,
                 from_dir=player_dir,
             )
+            build["champion"] = champion_display_name(riot_id)
             build["role_icon"] = assets.role_href(
                 str(build.get("role", "")),
                 from_dir=player_dir,
@@ -644,10 +652,12 @@ def refresh_report_index(
     reports = discover_reports(output_dir)
     if assets is not None:
         for report in reports:
+            riot_id = str(report.get("champion", ""))
             report["champion_icon"] = assets.champion_href(
-                str(report.get("champion", "")),
+                riot_id,
                 from_dir=output_dir,
             )
+            report["champion"] = champion_display_name(riot_id)
             report["role_icon"] = assets.role_href(
                 str(report.get("role", "")),
                 from_dir=output_dir,

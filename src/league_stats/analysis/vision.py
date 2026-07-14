@@ -63,7 +63,7 @@ def vision_dataframe(records: list[MatchRecord]) -> pd.DataFrame:
     """
     rows: list[dict[str, Any]] = []
     for record in records:
-        objective_wards = [o.team_wards_before for o in record.objectives]
+        objective_wards = [o.wards_before for o in record.objectives]
         rows.append(
             {
                 "match_id": record.match_id,

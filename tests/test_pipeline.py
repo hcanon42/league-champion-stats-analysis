@@ -87,6 +87,8 @@ def test_full_pipeline_generates_all_artifacts(tmp_path: Path) -> None:
     assert report_path == config.report_dir / "report.html"
     html = report_path.read_text(encoding="utf-8")
     assert "Improvement score" in html and "Recommendations" in html
+    assert "Form tracker" in html
+    assert 'id="progression-views-data"' in html
     assert "Rank peer comparison" in html
     assert "All players" in html
 
@@ -94,6 +96,7 @@ def test_full_pipeline_generates_all_artifacts(tmp_path: Path) -> None:
         "summary.json", "matches.csv", "deaths.csv", "timeline.csv", "matchups.csv",
         "vision.csv", "items.csv", "runes.csv", "objectives.csv", "teamfights.csv",
         "correlations.csv", "recommendations.md", "rank_comparison.csv", "meta.json",
+        "progression.json", "progression.md",
     ]
     for name in expected:
         assert (config.report_dir / name).exists(), f"missing export: {name}"

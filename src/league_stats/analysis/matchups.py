@@ -6,6 +6,7 @@ from typing import Any
 
 import pandas as pd
 
+from league_stats.core.champions import champion_display_name
 from league_stats.utils import wilson_lower_bound
 
 MIN_GAMES_FOR_VERDICT: int = 3
@@ -102,10 +103,10 @@ def matchup_summary(matchups_df: pd.DataFrame) -> dict[str, Any]:
     best = eligible.loc[eligible["wilson_lb"].idxmax()]
     worst = eligible.loc[(eligible["winrate"] + (1 - eligible["wilson_lb"])).idxmin()]
     return {
-        "best_matchup": str(best["opponent"]),
+        "best_matchup": champion_display_name(str(best["opponent"])),
         "best_matchup_winrate": float(best["winrate"]),
         "best_matchup_games": int(best["games"]),
-        "worst_matchup": str(worst["opponent"]),
+        "worst_matchup": champion_display_name(str(worst["opponent"])),
         "worst_matchup_winrate": float(worst["winrate"]),
         "worst_matchup_games": int(worst["games"]),
         "worst_matchup_deaths_pre14": (
