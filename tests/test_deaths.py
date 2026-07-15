@@ -64,10 +64,11 @@ def test_deaths_dataframe_shape(record: MatchRecord) -> None:
     frame = deaths_dataframe([record])
     assert len(frame) == 3
     assert set(
-        ["match_id", "win", "zone", "minute", "alone", "ult_available", "to_gank",
+        ["match_id", "side", "win", "zone", "minute", "alone", "ult_available", "to_gank",
          "under_own_tower_laning", "under_enemy_tower_laning", "current_gold",
          "avg_teammate_distance"]
     ).issubset(frame.columns)
+    assert (frame["side"] == "blue").all()
 
 
 def test_death_gold_and_teammate_distance(record: MatchRecord) -> None:

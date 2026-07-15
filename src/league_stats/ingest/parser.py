@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import Any, Iterable, Final
 
 from league_stats.analysis.deaths import extract_deaths
+from league_stats.analysis.key_moments import detect_key_moments
 from league_stats.analysis.objectives import extract_objectives
 from league_stats.analysis.positioning import extract_positioning
 from league_stats.analysis.teamfights import detect_teamfights
@@ -152,6 +153,69 @@ class ItemCatalog:
             return False
         gold_total = int(data.get("gold", {}).get("total", 0))
         return not data.get("into") and gold_total >= COMPLETED_GOLD_THRESHOLD and not self.is_boots(item_id)
+
+    def trackable_path_item(self, item_id: int) -> bool:
+        """Whether an item belongs on the chronological build path."""
+        return self.is_boots(item_id) or self.is_completed(item_id)
+
+    def build_path_from_timeline(
+        self,
+        ctx: TimelineContext,
+        *,
+        final_item_ids: Iterable[int] = (),
+    ) -> list[str]:
+        """Chronological legendary + boots order from purchase and undo events."""
+        path_ids: list[int] = []
+        boots_slot: int | None = None
+
+        def append_path(item_id: int) -> None:
+            nonlocal boots_slot
+            if not self.trackable_path_item(item_id):
+                return
+            if self.is_boots(item_id):
+                if boots_slot is not None:
+                    path_ids[boots_slot] = item_id
+                else:
+                    path_ids.append(item_id)
+                    boots_slot = len(path_ids) - 1
+            else:
+                path_ids.append(item_id)
+
+        def remove_from_path(item_id: int) -> None:
+            nonlocal boots_slot
+            if self.is_boots(item_id):
+                if boots_slot is not None and path_ids[boots_slot] == item_id:
+                    path_ids.pop(boots_slot)
+                    boots_slot = None
+                return
+            for index in range(len(path_ids) - 1, -1, -1):
+                if path_ids[index] == item_id:
+                    path_ids.pop(index)
+                    if boots_slot is not None and index < boots_slot:
+                        boots_slot -= 1
+                    elif boots_slot == index:
+                        boots_slot = None
+                    break
+
+        for event in ctx.events:
+            if int(event.get("participantId", 0)) != ctx.participant_id:
+                continue
+            event_type = event.get("type")
+            if event_type == "ITEM_PURCHASED":
+                append_path(int(event.get("itemId", 0)))
+            elif event_type == "ITEM_UNDO":
+                remove_from_path(int(event.get("beforeId", 0)))
+
+        final_boot_ids = [item_id for item_id in final_item_ids if self.is_boots(item_id)]
+        if final_boot_ids:
+            final_boot_id = final_boot_ids[-1]
+            if boots_slot is None:
+                path_ids.insert(0, final_boot_id)
+                boots_slot = 0
+            else:
+                path_ids[boots_slot] = final_boot_id
+
+        return [self.name(item_id) for item_id in path_ids]
 
 
 @dataclass(frozen=True)
@@ -320,6 +384,7 @@ class MatchParser:
         """
         info = match["info"]
         ctx = build_context(match, timeline, puuid)
+        key_moments = detect_key_moments(ctx, match)
         participants: list[dict[str, Any]] = info["participants"]
         me = next(p for p in participants if p["puuid"] == puuid)
         allies = [p for p in participants if p["teamId"] == me["teamId"]]
@@ -388,6 +453,14 @@ class MatchParser:
                 for i in range(6)
                 if int(me.get(f"item{i}", 0)) > 0
             ],
+            item_path=self._catalog.build_path_from_timeline(
+                ctx,
+                final_item_ids=[
+                    int(me.get(f"item{i}", 0))
+                    for i in range(6)
+                    if int(me.get(f"item{i}", 0)) > 0
+                ],
+            ),
             purchases=purchases,
             timings=timings,
             shutdown_gold_collected=shutdown_collected,
@@ -396,6 +469,7 @@ class MatchParser:
             deaths=deaths,
             teamfights=detect_teamfights(ctx),
             objectives=extract_objectives(ctx),
+            key_moments=key_moments,
         )
 
     # ------------------------------------------------------------ Sub-parts
@@ -406,6 +480,7 @@ class MatchParser:
         """Build combat statistics from the participant document."""
         minutes = max(1.0, ctx.duration_s / 60.0)
         team_damage = sum(int(p.get("totalDamageDealtToChampions", 0)) for p in allies)
+        team_damage_taken = sum(int(p.get("totalDamageTaken", 0)) for p in allies)
         team_kills = sum(int(p.get("kills", 0)) for p in allies)
         kills, deaths, assists = int(me["kills"]), int(me["deaths"]), int(me["assists"])
         challenges = me.get("challenges", {}) or {}
@@ -422,10 +497,12 @@ class MatchParser:
             damage_to_champions=int(me.get("totalDamageDealtToChampions", 0)),
             dpm=int(me.get("totalDamageDealtToChampions", 0)) / minutes,
             damage_share=safe_div(int(me.get("totalDamageDealtToChampions", 0)), team_damage),
+            damage_taken=int(me.get("totalDamageTaken", 0)),
+            damage_taken_share=safe_div(int(me.get("totalDamageTaken", 0)), team_damage_taken),
             true_damage=int(me.get("trueDamageDealtToChampions", 0)),
             physical_damage=int(me.get("physicalDamageDealtToChampions", 0)),
             magic_damage=int(me.get("magicDamageDealtToChampions", 0)),
-            healing=int(me.get("totalHealsOnTeammates", 0)) + int(me.get("totalHeal", 0)),
+            healing=int(me.get("totalHealsOnTeammates", 0)),
             shielding=int(me.get("totalDamageShieldedOnTeammates", 0)),
             cc_score=int(me.get("timeCCingOthers", 0)),
             largest_killing_spree=int(me.get("largestKillingSpree", 0)),

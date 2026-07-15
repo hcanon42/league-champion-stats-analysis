@@ -340,6 +340,7 @@
         <button type="button" class="game-review-tab" data-tab="deaths">Deaths</button>
         <button type="button" class="game-review-tab" data-tab="fights">Fights</button>
         <button type="button" class="game-review-tab" data-tab="objectives">Objectives</button>
+        <button type="button" class="game-review-tab" data-tab="key-moments">Key moments</button>
         <button type="button" class="game-review-tab" data-tab="build">Build</button>
       </div>
       <div class="game-review-panel" id="game-review-panel-summary"></div>
@@ -347,6 +348,7 @@
       <div class="game-review-panel" id="game-review-panel-deaths" hidden></div>
       <div class="game-review-panel" id="game-review-panel-fights" hidden></div>
       <div class="game-review-panel" id="game-review-panel-objectives" hidden></div>
+      <div class="game-review-panel" id="game-review-panel-key-moments" hidden></div>
       <div class="game-review-panel" id="game-review-panel-build" hidden></div>
     </div>
   </div>
@@ -400,7 +402,7 @@
   <div id="death-cards">{{ tiered_cards(death_cards, 'More death stats') }}</div>
   <div class="figure-block">
     <div class="figure" id="fig-death_heatmap">{{ figures.death_heatmap | safe }}</div>
-    <p class="figure-caption">Where you die on the map — hot zones without nearby team vision are prime gank or face-check risks.</p>
+    <p class="figure-caption">Where you die on the map — red-side games are mirrored across the river (perpendicular to mid) so bot-lane deaths stay on the bottom edge. Hot zones without nearby team vision are prime gank or face-check risks.</p>
   </div>
   <div class="figure-block">
     <div class="figure" id="fig-deaths_box">{{ figures.deaths_box | safe }}</div>
@@ -442,7 +444,7 @@
   <div class="table-scroll">
   <table>
     <thead>
-    <tr><th>Objective</th><th>Count</th><th>Taken</th><th>Present</th><th>Arrived early</th><th>Dead before</th><th>{{ metric_label("Wards before", tooltip=metric_tooltip("Wards before")) }}</th></tr>
+    <tr><th>Objective</th><th>Count</th><th>Taken</th><th>Present</th><th>Arrived early</th><th>{{ metric_label("Died in setup window (45s)", tooltip=metric_tooltip("Died in setup window (45s)")) }}</th><th>{{ metric_label("Wards before", tooltip=metric_tooltip("Wards before")) }}</th></tr>
     </thead>
     <tbody id="objective-table-body">
     {% for row in objective_rows %}
@@ -614,6 +616,7 @@
 <script type="application/json" id="report-views-data">{{ report_views_json | safe }}</script>
 <script type="application/json" id="progression-views-data">{{ progression_views_json | safe }}</script>
 <script type="application/json" id="game-review-data">{{ game_review_json | default('{}') | safe }}</script>
+<script type="application/json" id="game-review-tooltips">{{ game_review_tooltips_json | default('{}') | safe }}</script>
 <script>
 (function () {
   var buildLabel = {{ build_label | tojson }};
@@ -622,6 +625,7 @@
   var reportViews = {};
   var progressionViews = {};
   var gameReviewViews = {};
+  var gameReviewTooltips = {};
   try {
     reportViews = JSON.parse(document.getElementById('report-views-data').textContent || '{}');
   } catch (err) {
@@ -636,6 +640,11 @@
     gameReviewViews = JSON.parse(document.getElementById('game-review-data').textContent || '{}');
   } catch (err) {
     gameReviewViews = {};
+  }
+  try {
+    gameReviewTooltips = JSON.parse(document.getElementById('game-review-tooltips').textContent || '{}');
+  } catch (err) {
+    gameReviewTooltips = {};
   }
 
   var selectedGameId = {{ game_review_selected_match_id | default(none) | tojson }};
@@ -795,11 +804,24 @@
     return row.core;
   }
 
-  function iconCell(name, iconHref) {
+  function iconCell(name, iconHref, iconOnly) {
     if (iconHref) {
-      return '<span class="icon-cell"><img src="' + iconHref + '" alt="" class="game-icon game-icon--sm"><span>' + name + '</span></span>';
+      var title = escapeHtml(name || '');
+      if (iconOnly) {
+        return '<span class="icon-cell icon-cell--solo" title="' + title + '">' +
+          '<img src="' + iconHref + '" alt="' + title + '" class="game-icon game-icon--sm"></span>';
+      }
+      return '<span class="icon-cell" title="' + title + '"><img src="' + iconHref + '" alt="" class="game-icon game-icon--sm"><span>' + name + '</span></span>';
     }
-    return name;
+    return iconOnly ? '—' : name;
+  }
+
+  function boolIcon(value, options) {
+    options = options || {};
+    var positive = options.invert ? !value : !!value;
+    var icon = positive ? 'lucide:check' : 'lucide:x';
+    var tone = positive ? 'game-review-bool--yes' : 'game-review-bool--no';
+    return '<span class="game-review-bool ' + tone + '"><iconify-icon icon="' + icon + '" aria-hidden="true"></iconify-icon></span>';
   }
 
   function renderTableBody(id, rows, renderRow) {
@@ -1043,19 +1065,44 @@
     setFigure('fig-form_metric_delta_bar', (preset.figures || {}).form_metric_delta_bar || '');
   }
 
+  function formatGameTime(minutes) {
+    var totalSec = Math.max(0, Math.round(Number(minutes) * 60));
+    var min = Math.floor(totalSec / 60);
+    var sec = totalSec % 60;
+    return min + ':' + String(sec).padStart(2, '0');
+  }
+
+  function formatMetricValue(value) {
+    if (value === null || value === undefined) return '—';
+    var num = Number(value);
+    if (!Number.isFinite(num)) return String(value);
+    if (Math.abs(num - Math.round(num)) < 1e-9) return String(Math.round(num));
+    var rounded1 = Math.round(num * 10) / 10;
+    if (Math.abs(num - rounded1) < 1e-9) return rounded1.toFixed(1);
+    return (Math.round(num * 100) / 100).toFixed(2);
+  }
+
+  function fightManpower(row) {
+    if (row.allies_present != null && row.enemies_present != null) {
+      return row.allies_present + ' vs ' + row.enemies_present;
+    }
+    if (row.manpower_advantage != null) return String(row.manpower_advantage);
+    return '—';
+  }
+
   function scoreBar(label, value) {
     var pct = Math.max(0, Math.min(100, Number(value) || 0));
-    return '<div class="game-score-bar"><div class="game-score-bar-label"><span>' + escapeHtml(label) +
+    var hint = ((gameReviewTooltips.score || {})[label]) || '';
+    return '<div class="game-score-bar" title="' + escapeHtml(hint) + '"><div class="game-score-bar-label"><span>' + escapeHtml(label) +
       '</span><span>' + pct + '</span></div><div class="game-score-bar-track"><div class="game-score-bar-fill" style="width:' +
       pct + '%"></div></div></div>';
   }
 
   function renderGameReviewRunes(build) {
     build = build || {};
-    var primary = iconCell(build.primary_tree || 'Primary', build.primary_tree_icon);
-    var keystone = iconCell(build.keystone || 'Keystone', build.keystone_icon);
-    var secondary = iconCell(build.secondary_tree || 'Secondary', build.secondary_tree_icon);
-    return '<div class="game-review-runes">' + primary + keystone +
+    var keystone = iconCell(build.keystone || 'Keystone', build.keystone_icon, true);
+    var secondary = iconCell(build.secondary_tree || 'Secondary', build.secondary_tree_icon, true);
+    return '<div class="game-review-runes">' + keystone +
       '<span class="game-review-rune-sep" aria-hidden="true">+</span>' + secondary + '</div>';
   }
 
@@ -1065,20 +1112,254 @@
     var spells = build.summoners || [];
     if (!spells.length) return '—';
     return '<span class="game-review-summoners">' + spells.map(function (name, index) {
-      return iconCell(name, icons[index] || null);
+      return iconCell(name, icons[index] || null, true);
     }).join('<span class="game-review-summoner-sep" aria-hidden="true">+</span>') + '</span>';
   }
 
   function renderGameReviewComparisonTable(title, rows) {
     if (!rows || !rows.length) return '';
     var body = rows.map(function (row) {
-      return '<tr><td>' + escapeHtml(row.label) + '</td><td>' + row.game_value + '</td><td>' +
-        row.benchmark_value + '</td><td class="delta-' + row.verdict + '">' + row.delta + '</td><td class="delta-' +
+      return '<tr><td>' + escapeHtml(row.label) + '</td><td>' + formatMetricValue(row.game_value) + '</td><td>' +
+        formatMetricValue(row.benchmark_value) + '</td><td class="delta-' + row.verdict + '">' +
+        formatMetricValue(row.delta) + '</td><td class="delta-' +
         row.verdict + '">' + row.verdict + '</td></tr>';
     }).join('');
     return '<div class="card card--wide"><div class="label">' + escapeHtml(title) +
       '</div><div class="table-scroll"><table><thead><tr><th>Metric</th><th>This game</th><th>Benchmark</th><th>Delta</th><th>Verdict</th></tr></thead><tbody>' +
       body + '</tbody></table></div></div>';
+  }
+
+  function renderGameReviewComparisonTable(title, rows) {
+    if (!rows || !rows.length) return '';
+    var body = rows.map(function (row) {
+      return '<tr><td>' + escapeHtml(row.label) + '</td><td>' + formatMetricValue(row.game_value) + '</td><td>' +
+        formatMetricValue(row.benchmark_value) + '</td><td class="delta-' + row.verdict + '">' +
+        formatMetricValue(row.delta) + '</td><td class="delta-' +
+        row.verdict + '">' + row.verdict + '</td></tr>';
+    }).join('');
+    return '<div class="card card--wide"><div class="label">' + escapeHtml(title) +
+      '</div><div class="table-scroll"><table><thead><tr><th>Metric</th><th>This game</th><th>Benchmark</th><th>Delta</th><th>Verdict</th></tr></thead><tbody>' +
+      body + '</tbody></table></div></div>';
+  }
+
+  var MAP_SIZE = 14870;
+  var KEY_MOMENT_PLAY_MS = 2000;
+  var keyMomentPlayback = {
+    timer: null,
+    playing: false,
+    game: null,
+    momentIndex: 0,
+    frameIndex: 0
+  };
+  var selectedKeyMomentIndex = 0;
+
+  function stopKeyMomentScrubber() {
+    if (keyMomentPlayback.timer) {
+      clearInterval(keyMomentPlayback.timer);
+      keyMomentPlayback.timer = null;
+    }
+    keyMomentPlayback.playing = false;
+    var playBtn = document.getElementById('key-moment-play-btn');
+    if (playBtn) playBtn.textContent = 'Play';
+  }
+
+  function mapCoordToPct(x, y) {
+    return {
+      left: (x / MAP_SIZE) * 100,
+      top: (1 - y / MAP_SIZE) * 100
+    };
+  }
+
+  function participantIsAlly(participant, gameSide) {
+    var allyTeamId = gameSide === 'blue' ? 100 : 200;
+    return participant.team_id === allyTeamId;
+  }
+
+  function championPinHtml(participant, game) {
+    var coords = mapCoordToPct(participant.x, participant.y);
+    var ally = participantIsAlly(participant, game.side);
+    var deadClass = participant.dead ? ' map-pin--dead' : '';
+    var title = participant.dead
+      ? escapeHtml(participant.champion) + ' (dead)'
+      : escapeHtml(participant.champion);
+    return '<div class="map-pin map-pin--champion map-pin--' + (ally ? 'ally' : 'enemy') + deadClass +
+      '" data-participant-id="' + participant.participant_id + '" style="left:' +
+      coords.left + '%;top:' + coords.top + '%;" title="' + title + '">' +
+      iconCell(participant.champion, participant.champion_icon, true) + '</div>';
+  }
+
+  function objectivePinHtml(objective) {
+    var coords = mapCoordToPct(objective.x, objective.y);
+    var classes = 'map-pin map-pin--objective';
+    if (objective.highlighted) classes += ' map-pin--objective-highlight';
+    classes += objective.available ? ' map-pin--objective-up' : ' map-pin--objective-down';
+    var status = objective.available ? 'up' : 'down';
+    return '<div class="' + classes + '" data-objective-kind="' + escapeHtml(objective.kind) +
+      '" style="left:' + coords.left + '%;top:' + coords.top + '%;" title="' +
+      escapeHtml(objective.kind) + ' (' + status + ')">' +
+      iconCell(objective.kind, objective.objective_icon, true) + '</div>';
+  }
+
+  function buildKeyMomentMapShell(game, frame) {
+    var mapHost = document.getElementById('key-moment-map-host');
+    if (!mapHost || !frame) return;
+    var mapBg = game.map_background || '';
+    var bgStyle = mapBg ? 'background-image:url(' + mapBg + ');' : '';
+    var objectives = (frame.objectives || []).map(objectivePinHtml).join('');
+    var champions = (frame.participants || []).map(function (participant) {
+      return championPinHtml(participant, game);
+    }).join('');
+    mapHost.innerHTML = '<div class="key-moment-map" style="' + bgStyle + '">' + objectives + champions + '</div>';
+  }
+
+  function applyKeyMomentFrame(game, frame) {
+    buildKeyMomentMapShell(game, frame);
+  }
+
+  function showKeyMomentFrame(game, momentIndex, frameIndex) {
+    var moment = (game.key_moments || [])[momentIndex];
+    if (!moment || !moment.frames || !moment.frames.length) return;
+    frameIndex = Math.max(0, Math.min(moment.frames.length - 1, frameIndex));
+    keyMomentPlayback.frameIndex = frameIndex;
+    var frame = moment.frames[frameIndex];
+    applyKeyMomentFrame(game, frame);
+    var scrubber = document.getElementById('key-moment-scrubber');
+    if (scrubber) {
+      scrubber.max = String(Math.max(0, moment.frames.length - 1));
+      scrubber.value = String(frameIndex);
+    }
+    var timeReadout = document.getElementById('key-moment-time-readout');
+    if (timeReadout && frame.timestamp_ms != null) {
+      var label = frame.label ? ' · ' + frame.label : '';
+      timeReadout.textContent = (frameIndex + 1) + '/' + moment.frames.length +
+        ' · ' + formatGameTime(frame.timestamp_ms / 60000) + label;
+    }
+    var playBtn = document.getElementById('key-moment-play-btn');
+    if (playBtn) playBtn.textContent = keyMomentPlayback.playing ? 'Pause' : 'Play';
+  }
+
+  function tickKeyMomentPlayback() {
+    if (!keyMomentPlayback.playing || !keyMomentPlayback.game) return;
+    var moment = (keyMomentPlayback.game.key_moments || [])[keyMomentPlayback.momentIndex];
+    var frames = moment && moment.frames ? moment.frames : [];
+    if (frames.length < 2) {
+      stopKeyMomentScrubber();
+      return;
+    }
+    var nextIndex = keyMomentPlayback.frameIndex + 1;
+    if (nextIndex >= frames.length) {
+      showKeyMomentFrame(keyMomentPlayback.game, keyMomentPlayback.momentIndex, frames.length - 1);
+      stopKeyMomentScrubber();
+      return;
+    }
+    showKeyMomentFrame(keyMomentPlayback.game, keyMomentPlayback.momentIndex, nextIndex);
+  }
+
+  function startKeyMomentPlayback(game, momentIndex) {
+    var moment = game.key_moments && game.key_moments[momentIndex];
+    if (!moment || !moment.frames || moment.frames.length < 2) return;
+    keyMomentPlayback.game = game;
+    keyMomentPlayback.momentIndex = momentIndex;
+    var scrubber = document.getElementById('key-moment-scrubber');
+    var frameIndex = parseInt(scrubber && scrubber.value, 10) || 0;
+    if (frameIndex >= moment.frames.length - 1) frameIndex = 0;
+    keyMomentPlayback.frameIndex = frameIndex;
+    keyMomentPlayback.playing = true;
+    showKeyMomentFrame(game, momentIndex, frameIndex);
+    keyMomentPlayback.timer = setInterval(tickKeyMomentPlayback, KEY_MOMENT_PLAY_MS);
+  }
+
+  function bindKeyMomentScrubber(game, momentIndex) {
+    stopKeyMomentScrubber();
+    keyMomentPlayback.game = game;
+    keyMomentPlayback.momentIndex = momentIndex;
+    keyMomentPlayback.frameIndex = 0;
+    var moment = game.key_moments && game.key_moments[momentIndex];
+    if (!moment || !moment.frames || !moment.frames.length) return;
+    buildKeyMomentMapShell(game, moment.frames[0]);
+    showKeyMomentFrame(game, momentIndex, 0);
+    var scrubber = document.getElementById('key-moment-scrubber');
+    if (scrubber) {
+      scrubber.oninput = function () {
+        stopKeyMomentScrubber();
+        showKeyMomentFrame(game, momentIndex, parseInt(scrubber.value, 10) || 0);
+      };
+    }
+    var playBtn = document.getElementById('key-moment-play-btn');
+    if (playBtn) {
+      playBtn.onclick = function () {
+        if (keyMomentPlayback.playing) {
+          stopKeyMomentScrubber();
+          return;
+        }
+        startKeyMomentPlayback(game, momentIndex);
+      };
+    }
+  }
+
+  function keyMomentReason(moment) {
+    var reasons = {
+      baron: 'Baron secured — major map control',
+      elder: 'Elder Dragon secured',
+      dragon_soul: 'Dragon soul point',
+      dragon: 'Dragon take',
+      herald: 'Rift Herald secured',
+      grubs: 'Void grubs secured',
+      first_tower: 'First tower — early map lead',
+      split_push: 'Split push structure',
+      inhibitor: 'Inhibitor destroyed',
+      nexus: 'Game-ending push',
+      teamfight: 'Multi-kill teamfight',
+      gold_swing: 'Large team gold swing'
+    };
+    var parts = [];
+    var reason = reasons[moment.kind] || (moment.kind || '').replace(/_/g, ' ');
+    if (reason) parts.push(reason);
+    if (moment.gold_swing) parts.push('+' + Math.round(moment.gold_swing / 100) / 10 + 'k gold');
+    return parts.join(' · ');
+  }
+
+  function renderGameReviewKeyMoments(game) {
+    var panel = document.getElementById('game-review-panel-key-moments');
+    if (!panel) return;
+    stopKeyMomentScrubber();
+    var moments = game.key_moments || [];
+    var hints = gameReviewTooltips.key_moments || {};
+    if (!moments.length) {
+      panel.innerHTML = '<p class="sub">No high-impact team moments detected for this game.</p>';
+      return;
+    }
+    selectedKeyMomentIndex = 0;
+    keyMomentPlayback.game = game;
+    var listHtml = moments.map(function (moment, index) {
+      var badgeClass = moment.beneficiary === 'ally' ? 'key-moment-badge--ally' : 'key-moment-badge--enemy';
+      var subtitle = keyMomentReason(moment);
+      return '<button type="button" class="key-moment-card' + (index === 0 ? ' is-selected' : '') +
+        '" data-moment-index="' + index + '"><span class="key-moment-time">' +
+        formatGameTime(moment.anchor_minute) + '</span><span class="key-moment-headline">' +
+        escapeHtml(moment.headline) + '</span><span class="key-moment-badge ' + badgeClass + '">' +
+        escapeHtml(moment.beneficiary) + '</span><span class="key-moment-sub">' +
+        escapeHtml(subtitle) + '</span></button>';
+    }).join('');
+    panel.innerHTML = '<p class="sub key-moment-note" title="' + escapeHtml(hints.interpolation || '') +
+      '">' + escapeHtml(hints.interpolation || 'Positions update on kills, wards, and minute snapshots.') +
+      '</p><div class="key-moment-layout"><div class="key-moment-list">' + listHtml +
+      '</div><div class="key-moment-viewer"><div id="key-moment-map-host"></div>' +
+      '<div class="key-moment-controls"><button type="button" id="key-moment-play-btn" class="key-moment-play">Play</button>' +
+      '<input type="range" id="key-moment-scrubber" class="key-moment-scrubber" min="0" max="0" value="0" />' +
+      '<span id="key-moment-time-readout" class="key-moment-time-readout">0:00</span></div></div></div>';
+    panel.querySelectorAll('.key-moment-card').forEach(function (card) {
+      card.addEventListener('click', function () {
+        panel.querySelectorAll('.key-moment-card').forEach(function (node) {
+          node.classList.remove('is-selected');
+        });
+        card.classList.add('is-selected');
+        var index = parseInt(card.getAttribute('data-moment-index'), 10) || 0;
+        selectedKeyMomentIndex = index;
+        bindKeyMomentScrubber(game, index);
+      });
+    });
+    bindKeyMomentScrubber(game, 0);
   }
 
   function renderGameReviewDetail(game) {
@@ -1090,11 +1371,11 @@
     if (matchup) {
       matchup.innerHTML =
         '<div class="game-review-matchup-inner">' +
-        iconCell('', game.champion_icon) +
+        iconCell(game.champion || 'You', game.champion_icon, true) +
         '<span class="game-review-matchup-vs">vs</span>' +
-        iconCell(game.opponent, game.opponent_icon) +
+        iconCell(game.opponent || 'Opponent', game.opponent_icon, true) +
         '<div class="game-review-matchup-meta">' +
-        '<strong>' + escapeHtml(game.date) + '</strong> · ' + game.duration_min + 'm · ' +
+        '<strong>' + escapeHtml(game.date) + '</strong> · ' + formatGameTime(game.duration_min) + ' · ' +
         escapeHtml(game.kda) + ' · ' + escapeHtml(game.side) +
         '</div></div>';
     }
@@ -1102,16 +1383,17 @@
     var hero = document.getElementById('game-review-score-hero');
     if (hero) {
       var build = game.build || {};
-      hero.innerHTML = '<div class="card form-score-card"><div class="label">Game score</div><div class="form-score-value">' +
+      var gameScoreHint = ((gameReviewTooltips.score || {})['Game score']) || '';
+      hero.innerHTML = '<div class="card form-score-card" title="' + escapeHtml(gameScoreHint) + '"><div class="label">Game score</div><div class="form-score-value">' +
         (score.overall || 0) + '</div><div class="form-meta"><span class="form-badge form-badge--stable">' +
         escapeHtml(score.tier || '—') + '</span><span class="form-badge">' + escapeHtml(game.archetype || '') +
         '</span></div>' +
-        (build.keystone_icon || build.primary_tree_icon || build.secondary_tree_icon
+        (build.keystone_icon || build.secondary_tree_icon
           ? '<div class="game-review-keystone">' + renderGameReviewRunes(build) + '</div>'
           : '') +
         '</div><div class="card card--wide game-score-bars">' +
         scoreBar('Laning', score.laning) + scoreBar('Survival', score.survival) + scoreBar('Impact', score.impact) +
-        scoreBar('Vision', score.vision) + scoreBar('Objectives', score.objectives) + scoreBar('Economy', score.economy) +
+        scoreBar('Vision', score.vision) + scoreBar('Objectives', score.objectives) +
         '</div>';
     }
     var behaviors = document.getElementById('game-review-behaviors');
@@ -1128,18 +1410,20 @@
     }
     var compare = document.getElementById('game-review-compare');
     if (compare) {
-      compare.innerHTML = renderGameReviewComparisonTable('vs You (baseline)', game.vs_baseline) +
-        (game.vs_peers && game.vs_peers.length
-          ? renderGameReviewComparisonTable('vs Peers', game.vs_peers)
-          : '');
+      compare.innerHTML = renderGameReviewComparisonTable('vs You (baseline)', game.vs_baseline);
     }
     var summaryPanel = document.getElementById('game-review-panel-summary');
     if (summaryPanel) {
       var stats = game.key_stats || {};
+      var statLabels = gameReviewTooltips.key_stats_labels || {};
+      var statHints = gameReviewTooltips.key_stats || {};
       summaryPanel.innerHTML = '<div class="cards">' + Object.keys(stats).map(function (key) {
         var val = stats[key];
         if (val === null || val === undefined) return '';
-        return '<div class="card"><div class="label">' + escapeHtml(key) + '</div><div class="value">' + val + '</div></div>';
+        var label = statLabels[key] || key;
+        var hint = statHints[key] || '';
+        return '<div class="card" title="' + escapeHtml(hint) + '"><div class="label">' + escapeHtml(label) +
+          '</div><div class="value">' + val + '</div></div>';
       }).join('') + '</div>';
     }
     var timelinePanel = document.getElementById('game-review-panel-timeline');
@@ -1153,9 +1437,9 @@
     var deathsPanel = document.getElementById('game-review-panel-deaths');
     if (deathsPanel) {
       deathsPanel.innerHTML = (game.deaths || []).length
-        ? '<div class="table-scroll"><table><thead><tr><th>Min</th><th>Zone</th><th>Killer</th><th>Flags</th></tr></thead><tbody>' +
+        ? '<div class="table-scroll"><table><thead><tr><th>Time</th><th>Zone</th><th>Killer</th><th>Flags</th></tr></thead><tbody>' +
           game.deaths.map(function (row) {
-            return '<tr><td>' + row.minute + '</td><td>' + escapeHtml(row.zone) + '</td><td>' +
+            return '<tr><td>' + formatGameTime(row.minute) + '</td><td>' + escapeHtml(row.zone) + '</td><td>' +
               iconCell(row.killer || '—', row.killer_icon) + '</td><td>' + escapeHtml((row.flags || []).join(', ') || '—') + '</td></tr>';
           }).join('') + '</tbody></table></div>'
         : '<p class="sub">No deaths recorded.</p>';
@@ -1163,32 +1447,43 @@
     var fightsPanel = document.getElementById('game-review-panel-fights');
     if (fightsPanel) {
       fightsPanel.innerHTML = (game.fights || []).length
-        ? '<div class="table-scroll"><table><thead><tr><th>Min</th><th>K/D/A</th><th>Damage</th><th>Won</th><th>Manpower</th></tr></thead><tbody>' +
+        ? '<div class="table-scroll"><table><thead><tr><th>Time</th><th>K/D/A</th><th>Damage</th><th>Won</th><th>Manpower</th></tr></thead><tbody>' +
           game.fights.map(function (row) {
-            return '<tr><td>' + row.start_minute + '</td><td>' + row.kills + '/' + row.deaths + '/' + row.assists +
-              '</td><td>' + row.damage + '</td><td>' + (row.fight_won ? 'Yes' : 'No') + '</td><td>' +
-              (row.manpower_advantage != null ? row.manpower_advantage : '—') + '</td></tr>';
+            var rowClass = row.fight_won ? 'game-review-fight-row--won' : 'game-review-fight-row--lost';
+            return '<tr class="' + rowClass + '"><td>' + formatGameTime(row.start_minute) + '</td><td>' +
+              row.kills + '/' + row.deaths + '/' + row.assists +
+              '</td><td>' + row.damage + '</td><td>' + boolIcon(row.fight_won) + '</td><td>' +
+              fightManpower(row) + '</td></tr>';
           }).join('') + '</tbody></table></div>'
         : '<p class="sub">No teamfights joined.</p>';
     }
     var objectivesPanel = document.getElementById('game-review-panel-objectives');
     if (objectivesPanel) {
+      var objectiveHints = gameReviewTooltips.objectives || {};
       objectivesPanel.innerHTML = (game.objectives || []).length
-        ? '<div class="table-scroll"><table><thead><tr><th>Objective</th><th>Min</th><th>Present</th><th>Dead before</th><th>Wards before</th></tr></thead><tbody>' +
+        ? '<div class="table-scroll"><table><thead><tr>' +
+          '<th title="' + escapeHtml(objectiveHints.Taken || '') + '">Taken</th>' +
+          '<th>Objective</th><th>Time</th>' +
+          '<th title="' + escapeHtml(objectiveHints.Present || '') + '">Present</th>' +
+          '<th title="' + escapeHtml(objectiveHints['Died in setup window (45s)'] || '') + '">Died in setup window (45s)</th>' +
+          '<th title="' + escapeHtml(objectiveHints['Wards before'] || '') + '">Wards before</th></tr></thead><tbody>' +
           game.objectives.map(function (row) {
             var kindLabel = row.kind.charAt(0).toUpperCase() + row.kind.slice(1);
-            return '<tr><td>' + iconCell(kindLabel, row.objective_icon) + '</td><td>' + row.minute + '</td><td>' +
-              (row.present ? 'Yes' : 'No') + '</td><td>' + (row.dead_before ? 'Yes' : 'No') + '</td><td>' +
+            var rowClass = row.taken_by_team ? 'game-review-obj-row--taken' : 'game-review-obj-row--missed';
+            return '<tr class="' + rowClass + '"><td>' + boolIcon(row.taken_by_team) + '</td><td>' +
+              iconCell(kindLabel, row.objective_icon, true) + '</td><td>' + formatGameTime(row.minute) + '</td><td>' +
+              boolIcon(row.present) + '</td><td>' + boolIcon(row.dead_before) + '</td><td>' +
               row.wards_before + '</td></tr>';
           }).join('') + '</tbody></table></div>'
         : '<p class="sub">No objectives tracked.</p>';
     }
+    renderGameReviewKeyMoments(game);
     var buildPanel = document.getElementById('game-review-panel-build');
     if (buildPanel) {
       var build = game.build || {};
       var itemIcons = build.item_icons || [];
       var itemsHtml = (build.items || []).map(function (itemName, index) {
-        return iconCell(itemName, itemIcons[index] || null);
+        return iconCell(itemName, itemIcons[index] || null, true);
       }).join('<span class="core-arrow" aria-hidden="true">→</span>');
       buildPanel.innerHTML = '<div class="cards"><div class="card card--wide"><div class="label">Runes</div><div class="value">' +
         renderGameReviewRunes(build) + '</div></div><div class="card"><div class="label">Summoners</div><div class="value">' +
@@ -1222,19 +1517,25 @@
     if (list) {
       list.innerHTML = bundle.games.map(function (game) {
         var resultClass = game.result === 'win' ? 'game-review-result--win' : 'game-review-result--loss';
-        var flags = (game.behaviors_bad || []).slice(0, 2).map(function (b) { return b.title; }).join(' · ');
+        var goodTags = (game.behaviors_good || []).slice(0, 2).map(function (b) {
+          return '<span class="game-review-tag game-review-tag--good">' + escapeHtml(b.title) + '</span>';
+        }).join('');
+        var badTags = (game.behaviors_bad || []).slice(0, 2).map(function (b) {
+          return '<span class="game-review-tag game-review-tag--bad">' + escapeHtml(b.title) + '</span>';
+        }).join('');
+        var flags = goodTags + badTags;
         return '<button type="button" class="game-review-row' +
           (game.match_id === selectedGameId ? ' is-selected' : '') +
           '" data-match-id="' + escapeHtml(game.match_id) + '">' +
           '<span class="game-review-result ' + resultClass + '">' + (game.result === 'win' ? 'W' : 'L') + '</span>' +
-          '<span class="game-review-icons">' + iconCell('', game.champion_icon) +
-          '<span class="game-review-vs">vs</span>' + iconCell(game.opponent, game.opponent_icon) + '</span>' +
-          '<span class="game-review-meta">' + escapeHtml(game.date) + ' · ' + game.duration_min + 'm</span>' +
+          '<span class="game-review-icons">' + iconCell(game.champion || 'You', game.champion_icon, true) +
+          '<span class="game-review-vs">vs</span>' + iconCell(game.opponent || 'Opponent', game.opponent_icon, true) + '</span>' +
+          '<span class="game-review-meta">' + escapeHtml(game.date) + ' · ' + formatGameTime(game.duration_min) + '</span>' +
           '<span class="game-review-kda">' + escapeHtml(game.kda) + '</span>' +
           '<span class="game-review-score">' + ((game.score && game.score.overall) || 0) +
           ' <small>(' + escapeHtml((game.score && game.score.tier) || '') + ')</small></span>' +
           '<span class="game-review-archetype">' + escapeHtml(game.archetype || '') + '</span>' +
-          '<span class="game-review-flags">' + escapeHtml(flags) + '</span></button>';
+          '<span class="game-review-flags">' + flags + '</span></button>';
       }).join('');
       list.querySelectorAll('.game-review-row').forEach(function (btn) {
         btn.addEventListener('click', function () {
@@ -1257,6 +1558,12 @@
       document.querySelectorAll('.game-review-panel').forEach(function (panel) {
         panel.hidden = panel.id !== 'game-review-panel-' + name;
       });
+      if (name !== 'key-moments') {
+        stopKeyMomentScrubber();
+      } else if (keyMomentPlayback.game && keyMomentPlayback.game.key_moments &&
+          keyMomentPlayback.game.key_moments.length) {
+        bindKeyMomentScrubber(keyMomentPlayback.game, selectedKeyMomentIndex);
+      }
       if (name === 'timeline') {
         requestAnimationFrame(function () {
           var panel = document.getElementById('game-review-panel-timeline');

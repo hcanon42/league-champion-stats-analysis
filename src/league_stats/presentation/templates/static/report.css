@@ -484,6 +484,8 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
 .game-window-btn.is-active { background: var(--accent); border-color: var(--accent); color: #fff; }
 .game-window-btn:disabled { opacity: .45; cursor: not-allowed; }
 .icon-cell { display: inline-flex; align-items: center; gap: 8px; }
+.icon-cell--solo { gap: 0; }
+.icon-cell--solo .game-icon { display: block; }
 .core-cell { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .core-arrow { color: var(--muted); font-size: 0.9rem; }
 .game-icon {
@@ -589,6 +591,13 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
 .game-review-result--win { color: var(--win); background: rgba(63, 182, 139, 0.12); }
 .game-review-result--loss { color: var(--loss); background: rgba(224, 85, 99, 0.12); }
 .game-review-meta, .game-review-flags { font-size: 13px; color: var(--muted); }
+.game-review-flags { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.game-review-tag {
+  display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
+  line-height: 1.4; white-space: nowrap;
+}
+.game-review-tag--good { color: var(--win); background: rgba(63, 182, 139, 0.12); }
+.game-review-tag--bad { color: var(--loss); background: rgba(224, 85, 99, 0.12); }
 .game-review-kda, .game-review-score, .game-review-archetype { font-size: 14px; font-weight: 600; }
 .game-review-detail { margin-top: 8px; }
 .game-review-score-hero { display: grid; grid-template-columns: 220px 1fr; gap: 16px; margin-bottom: 16px; }
@@ -599,6 +608,69 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
   border-radius: 999px; padding: 8px 14px; cursor: pointer; font-size: 13px;
 }
 .game-review-tab.is-active { border-color: var(--accent); color: var(--accent); }
+.game-review-obj-row--taken { background: rgba(63, 182, 139, 0.08); }
+.game-review-obj-row--missed { background: rgba(224, 85, 99, 0.08); }
+.game-review-fight-row--won { background: rgba(63, 182, 139, 0.08); }
+.game-review-fight-row--lost { background: rgba(224, 85, 99, 0.08); }
+.game-review-bool {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border-radius: 999px;
+}
+.game-review-bool iconify-icon { width: 14px; height: 14px; }
+.game-review-bool--yes { color: var(--win); background: rgba(63, 182, 139, 0.15); }
+.game-review-bool--no { color: var(--loss); background: rgba(224, 85, 99, 0.15); }
+.key-moment-layout { display: grid; grid-template-columns: minmax(220px, 280px) auto; gap: 16px; align-items: start; }
+.key-moment-viewer { width: min(100%, 300px); }
+.key-moment-list { display: flex; flex-direction: column; gap: 8px; }
+.key-moment-card {
+  display: grid; grid-template-columns: 56px 1fr auto; gap: 6px 10px; align-items: center;
+  text-align: left; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--panel); color: var(--text); cursor: pointer; font: inherit;
+  appearance: none; -webkit-appearance: none;
+}
+.key-moment-card:hover { background: var(--panel-2); border-color: rgba(124, 108, 240, 0.35); }
+.key-moment-card.is-selected {
+  border-color: var(--accent); background: var(--panel-2);
+  box-shadow: 0 0 0 1px rgba(124, 108, 240, 0.35);
+}
+.key-moment-time { font-size: 12px; font-weight: 700; color: var(--muted); }
+.key-moment-headline { grid-column: 2 / 4; font-size: 14px; font-weight: 600; color: var(--text); line-height: 1.35; }
+.key-moment-sub { grid-column: 2 / 4; font-size: 12px; color: var(--muted); line-height: 1.35; }
+.key-moment-badge { font-size: 11px; font-weight: 700; text-transform: uppercase; padding: 2px 6px; border-radius: 6px; }
+.key-moment-badge--ally { color: var(--win); background: rgba(63, 182, 139, 0.12); }
+.key-moment-badge--enemy { color: var(--loss); background: rgba(224, 85, 99, 0.12); }
+.key-moment-note {
+  margin-bottom: 12px; padding: 10px 12px; border-radius: 10px;
+  background: var(--panel); border: 1px solid var(--border); color: var(--muted);
+}
+.key-moment-map {
+  position: relative; width: 100%; max-width: 300px; aspect-ratio: 1; border-radius: 12px; overflow: hidden;
+  background-color: #1a2332; background-size: 100% 100%; background-position: center;
+  background-repeat: no-repeat; border: 1px solid var(--border);
+}
+.map-pin { position: absolute; transform: translate(-50%, -50%); z-index: 2; }
+.map-pin--champion { will-change: left, top; }
+.map-pin--champion .icon-cell { width: 22px; height: 22px; }
+.map-pin--champion .game-icon { width: 22px; height: 22px; border-radius: 50%; border: 2px solid transparent; }
+.map-pin--ally .game-icon { border-color: #3fb68b; box-shadow: 0 0 0 1px rgba(63, 182, 139, 0.45); }
+.map-pin--enemy .game-icon { border-color: #e05563; box-shadow: 0 0 0 1px rgba(224, 85, 99, 0.45); }
+.map-pin--dead .game-icon {
+  border-color: #8b93a7 !important;
+  box-shadow: 0 0 0 1px rgba(139, 147, 167, 0.55) !important;
+  opacity: 0.55;
+  filter: grayscale(0.85);
+}
+.map-pin--objective .icon-cell { width: 18px; height: 18px; opacity: 0.85; }
+.map-pin--objective-up .icon-cell { opacity: 1; filter: none; }
+.map-pin--objective-down .icon-cell { opacity: 0.35; filter: grayscale(0.9); }
+.map-pin--objective-highlight .icon-cell { filter: drop-shadow(0 0 6px rgba(255, 214, 102, 0.95)); opacity: 1; }
+.key-moment-controls { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+.key-moment-play {
+  border: 1px solid var(--border); background: var(--panel); color: var(--text);
+  border-radius: 8px; padding: 6px 12px; font-weight: 600; cursor: pointer;
+}
+.key-moment-scrubber { flex: 1; }
+.key-moment-time-readout { font-size: 12px; font-weight: 600; color: var(--muted); min-width: 0; flex: 1; text-align: right; line-height: 1.3; }
 .game-score-bars { display: grid; gap: 10px; }
 .game-score-bar-label { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px; color: var(--muted); }
 .game-score-bar-track { height: 8px; border-radius: 999px; background: var(--panel); overflow: hidden; }
@@ -606,4 +678,5 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
 @media (max-width: 860px) {
   .game-review-row { grid-template-columns: 1fr; gap: 6px; }
   .game-review-score-hero, .game-review-behaviors, .game-review-compare { grid-template-columns: 1fr; }
+  .key-moment-layout { grid-template-columns: 1fr; }
 }

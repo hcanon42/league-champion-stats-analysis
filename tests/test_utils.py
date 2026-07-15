@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from league_stats.core.models import Position, Zone
 from league_stats.utils import (
+    MAP_SIZE,
     classify_zone,
     distance,
+    normalize_coords_to_blue_side,
     push_progress,
     safe_div,
     wilson_lower_bound,
@@ -38,6 +40,25 @@ def test_push_progress_sides() -> None:
     forward = Position(x=9000, y=9000)
     assert push_progress(forward, blue_side=True) > 0
     assert push_progress(forward, blue_side=False) < 0
+
+
+def test_normalize_coords_to_blue_side() -> None:
+    """Red-side deaths reflect across the river; blue-side coords stay put."""
+    x, y = 1000.0, 2000.0
+    assert normalize_coords_to_blue_side(x, y, side="blue") == (x, y)
+    assert normalize_coords_to_blue_side(x, y, side="red") == (MAP_SIZE - y, MAP_SIZE - x)
+
+
+def test_normalize_coords_to_blue_side_bot_lane() -> None:
+    """Red-side bot-lane positions land on the bottom edge like blue-side bot."""
+    from league_stats.core.models import Position
+    from league_stats.utils import classify_zone
+
+    blue_bot = Position(x=10504, y=1029)
+    red_bot = Position(x=13866, y=4505)
+    nx, ny = normalize_coords_to_blue_side(red_bot.x, red_bot.y, side="red")
+    assert ny < 1650
+    assert classify_zone(Position(x=nx, y=ny)) == classify_zone(blue_bot)
 
 
 def test_distance() -> None:

@@ -7,6 +7,7 @@ from pathlib import Path
 import pandas as pd
 
 from league_stats.analysis.game_review.behaviors import evaluate_behaviors
+from league_stats.analysis.game_review.compare import compare_to_baseline
 from league_stats.analysis.game_review.export import game_review_chatbot_export
 from league_stats.analysis.game_review.score import compute_game_score
 from league_stats.analysis.game_review.views import build_game_review_views
@@ -109,7 +110,7 @@ def test_game_score_personal_baseline() -> None:
 def test_game_score_fallback_small_sample() -> None:
     records = _make_records(2)
     frames = build_analysis_frames(records)
-    payload = build_game_review_views(_make_config(), records, frames, None)
+    payload = build_game_review_views(_make_config(), records, frames)
     game = payload.queues["all"].games[0]
     assert game.score.overall >= 0
 
@@ -161,15 +162,36 @@ def test_behaviors_cap_at_five() -> None:
 def test_comparisons_cap_at_five() -> None:
     records = _make_records(10)
     frames = build_analysis_frames(records)
-    detail = build_game_review_views(_make_config(), records, frames, None).queues["all"].games[0]
+    detail = build_game_review_views(_make_config(), records, frames).queues["all"].games[0]
     assert len(detail.vs_baseline) <= GAME_REVIEW_MAX_COMPARISONS
-    assert len(detail.vs_peers) <= GAME_REVIEW_MAX_COMPARISONS
+
+
+def test_compare_values_share_precision() -> None:
+    record = _parse_record()
+    row = record.to_row()
+    baseline = {key: float(value) for key, value in row.items() if isinstance(value, (int, float))}
+    baseline["gd10"] = float(row["gd10"]) + 123.456
+    rows = compare_to_baseline(row, baseline, role="MIDDLE")
+    gd10 = next(item for item in rows if item.metric == "gd10")
+    assert gd10.game_value == round(float(row["gd10"]), 0)
+    assert gd10.benchmark_value == round(baseline["gd10"], 0)
+    assert gd10.delta == round(float(row["gd10"]) - baseline["gd10"], 0)
+
+
+def test_death_flags_use_readable_labels() -> None:
+    records = _make_records(3)
+    frames = build_analysis_frames(records)
+    detail = build_game_review_views(_make_config(), records, frames).queues["all"].games[0]
+    for death in detail.deaths:
+        for flag in death.flags:
+            assert flag[0].isupper()
+            assert "_" not in flag
 
 
 def test_build_game_review_views_serializes() -> None:
     records = _make_records(8)
     frames = build_analysis_frames(records)
-    payload = build_game_review_views(_make_config(), records, frames, None)
+    payload = build_game_review_views(_make_config(), records, frames)
     dumped = payload.model_dump()
     assert dumped["recent_n"] == GAME_REVIEW_RECENT_N
     assert len(dumped["queues"]["all"]["games"]) == 5
@@ -180,7 +202,7 @@ def test_build_export_summary_includes_recent_games(tmp_path: Path) -> None:
     records = _make_records(8)
     frames = build_analysis_frames(records)
     stats = compute_report_stats(frames, tmp_path)
-    game_review = build_game_review_views(_make_config(), records, frames, None)
+    game_review = build_game_review_views(_make_config(), records, frames)
     summary = build_export_summary(
         _make_config(),
         frames,
@@ -200,7 +222,7 @@ def test_build_export_summary_includes_recent_games(tmp_path: Path) -> None:
 def test_game_review_available_with_one_game() -> None:
     records = _make_records(1)
     frames = build_analysis_frames(records)
-    bundle = build_game_review_views(_make_config(), records, frames, None).queues["all"]
+    bundle = build_game_review_views(_make_config(), records, frames).queues["all"]
     assert bundle.available is True
     assert bundle.games_count == 1
     assert bundle.games[0].index == 1
@@ -209,7 +231,7 @@ def test_game_review_available_with_one_game() -> None:
 def test_chatbot_export_omits_full_timeline() -> None:
     records = _make_records(3)
     frames = build_analysis_frames(records)
-    payload = pipeline_build_game_review(_make_config(), records, frames, None, graphs_dir=Path("."))
+    payload = pipeline_build_game_review(_make_config(), records, frames, graphs_dir=Path("."))
     exported = game_review_chatbot_export(payload, queue_key="all")
     game = exported["games"][0]
     assert "timeline" not in game
@@ -242,6 +264,8 @@ def test_pipeline_enriches_game_review_icons(tmp_path: Path) -> None:
         "Zhonya's Hourglass": 3157,
         "Sorcerer's Shoes": 3020,
     }
+    assets._map_dir.mkdir(parents=True)
+    (assets._map_dir / "summoners_rift.png").write_bytes(b"png-map")
 
     report_dir = config.report_dir
     report_dir.mkdir(parents=True)
@@ -249,7 +273,6 @@ def test_pipeline_enriches_game_review_icons(tmp_path: Path) -> None:
         config,
         records,
         frames,
-        None,
         assets=assets,
         from_dir=report_dir,
     )
@@ -261,6 +284,11 @@ def test_pipeline_enriches_game_review_icons(tmp_path: Path) -> None:
     assert game.build.secondary_tree_icon is not None
     assert any(icon is not None for icon in game.build.summoner_icons)
     assert any(icon is not None for icon in game.build.item_icons)
+    assert isinstance(game.key_moments, list)
+    if game.key_moments:
+        participant = game.key_moments[0].frames[0].participants[0]
+        assert participant.champion_icon is not None
+    assert game.map_background is not None
 
 
 def test_report_has_game_review_category_tab(tmp_path: Path) -> None:
@@ -273,4 +301,5 @@ def test_report_has_game_review_category_tab(tmp_path: Path) -> None:
     assert 'data-category="games"' in html
     assert 'id="game-review-data"' in html
     assert 'id="game-review-matchup"' in html
+    assert 'data-tab="key-moments"' in html
     assert 'nav-group--games' in html

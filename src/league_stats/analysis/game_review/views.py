@@ -15,7 +15,7 @@ from league_stats.core.config import (
     QUEUE_FILTER_OPTIONS,
     AppConfig,
 )
-from league_stats.core.models import GameReviewPayload, GameReviewQueueBundle, MatchRecord, PeerComparisonResult
+from league_stats.core.models import GameReviewPayload, GameReviewQueueBundle, MatchRecord
 from league_stats.pipeline.bundles import filter_records_by_queue
 from league_stats.pipeline.frames import AnalysisFrames, build_analysis_frames
 
@@ -55,7 +55,6 @@ def build_game_review_views(
     config: AppConfig,
     records: list[MatchRecord],
     frames: AnalysisFrames,
-    peer_comparison: PeerComparisonResult | None,
 ) -> GameReviewPayload:
     """Build last-N game review bundles for each queue filter."""
     recent_n = GAME_REVIEW_RECENT_N
@@ -73,7 +72,6 @@ def build_game_review_views(
             for match_id, label in zip(queue_frames.matches_df["match_id"], labels, strict=False):
                 label_map[str(match_id)] = str(label)
 
-        queue_peer = peer_comparison if queue_key in {"solo", "all"} else None
         games = []
         for index, record in enumerate(recent_records, start=1):
             baseline = _baseline_for_game(
@@ -86,7 +84,6 @@ def build_game_review_views(
                 record,
                 queue_frames,
                 baseline_means=baseline,
-                peer_comparison=queue_peer,
                 archetype=label_map.get(record.match_id, "Unknown"),
                 index=index,
                 role=config.role,

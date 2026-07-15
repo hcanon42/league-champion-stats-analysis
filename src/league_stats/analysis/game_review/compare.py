@@ -1,4 +1,4 @@
-"""Per-game comparison rows vs personal baseline and rank peers."""
+"""Per-game comparison rows vs personal baseline."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from typing import Any
 
 from league_stats.analysis.progression.metrics import progression_metrics_for_role
 from league_stats.core.config import GAME_REVIEW_MAX_COMPARISONS
-from league_stats.core.models import GameComparisonRow, PeerComparisonResult
+from league_stats.core.models import GameComparisonRow
 
 
 def _verdict(delta: float, direction: str) -> str:
@@ -20,6 +20,36 @@ def _verdict(delta: float, direction: str) -> str:
 def _top_rows(rows: list[GameComparisonRow]) -> list[GameComparisonRow]:
     ranked = sorted(rows, key=lambda row: abs(row.delta), reverse=True)
     return ranked[:GAME_REVIEW_MAX_COMPARISONS]
+
+
+def _comparison_decimals(metric: str) -> int:
+    if metric in {
+        "win",
+        "kill_participation",
+        "damage_share",
+        "objectives_present_rate",
+        "lane_priority",
+    } or metric.endswith("_rate"):
+        return 2
+    if metric in {
+        "deaths",
+        "deaths_pre14",
+        "control_wards",
+        "gd10",
+        "gd15",
+        "cs10",
+        "early_ganks",
+        "roams_pre15",
+        "avg_unspent_gold",
+        "solo_deaths",
+        "greed_deaths",
+    }:
+        return 0
+    return 1
+
+
+def _round_comparison(metric: str, value: float) -> float:
+    return round(value, _comparison_decimals(metric))
 
 
 def compare_to_baseline(
@@ -44,38 +74,10 @@ def compare_to_baseline(
             GameComparisonRow(
                 metric=spec.metric,
                 label=spec.label,
-                game_value=round(game_f, 3),
-                benchmark_value=round(base_f, 3),
-                delta=round(delta, 3),
+                game_value=_round_comparison(spec.metric, game_f),
+                benchmark_value=_round_comparison(spec.metric, base_f),
+                delta=_round_comparison(spec.metric, delta),
                 verdict=_verdict(delta, spec.direction),
-            )
-        )
-    return _top_rows(rows)
-
-
-def compare_to_peers(
-    game_row: dict[str, Any],
-    peer_comparison: PeerComparisonResult | None,
-) -> list[GameComparisonRow]:
-    """Compare one game to rank-peer averages (display only)."""
-    if peer_comparison is None:
-        return []
-    rows: list[GameComparisonRow] = []
-    for comp in peer_comparison.comparisons:
-        game_value = game_row.get(comp.metric)
-        if game_value is None:
-            continue
-        game_f = float(game_value)
-        peer_f = float(comp.peer_avg)
-        delta = game_f - peer_f
-        rows.append(
-            GameComparisonRow(
-                metric=comp.metric,
-                label=comp.label,
-                game_value=round(game_f, 3),
-                benchmark_value=round(peer_f, 3),
-                delta=round(delta, 3),
-                verdict=_verdict(delta, comp.direction),
             )
         )
     return _top_rows(rows)

@@ -318,6 +318,8 @@ def build_window_bundle(
             champion_href=assets.champion_chart_source,
             item_href=assets.item_chart_source,
             keystone_href=assets.keystone_chart_source,
+            map_source=assets.map_chart_source,
+            map_path=assets.map_icon_path(),
         )
     graphs = GraphFactory(graphs_dir, icon_resolver=icon_resolver)
     series = [(r.win, r.timeline.gold_series, r.timeline.opp_gold_series) for r in records]

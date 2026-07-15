@@ -25,8 +25,9 @@ _SCORE_NAME_TO_DIMENSION: dict[str, str] = {
     "Vision": "vision",
     "Objectives": "objectives",
     "Map control": "objectives",
-    "Resets": "economy",
 }
+
+_SCORE_DIMENSIONS = ("laning", "survival", "impact", "vision", "objectives")
 
 _LOWER_IS_BETTER = frozenset({"deaths", "avg_unspent_gold", "deaths_pre14"})
 
@@ -53,12 +54,19 @@ def _metric_direction(column: str) -> str:
     return "lower" if column in _LOWER_IS_BETTER else "higher"
 
 
-def _component_score(column: str, game_value: float | None, baseline: float | None) -> int:
+def _component_score(
+    column: str,
+    game_value: float | None,
+    baseline: float | None,
+    *,
+    game_row: dict[str, Any],
+) -> int:
     if game_value is None:
         return 50
     if baseline is None:
         if column == "deaths":
-            return _to_percent_score(score_deaths_per_game(float(game_value)))
+            duration = float(game_row.get("duration_min") or 30.0)
+            return _to_percent_score(score_deaths_per_game(float(game_value), duration_min=duration))
         return 50
 
     direction = _metric_direction(column)
@@ -70,7 +78,8 @@ def _component_score(column: str, game_value: float | None, baseline: float | No
         improvement = float(baseline) - float(game_value)
 
     if column == "deaths":
-        return _to_percent_score(score_deaths_per_game(float(game_value)))
+        duration = float(game_row.get("duration_min") or 30.0)
+        return _to_percent_score(score_deaths_per_game(float(game_value), duration_min=duration))
 
     return _to_percent_score(score_form_delta(column, improvement))
 
@@ -83,35 +92,25 @@ def compute_game_score(
 ) -> GameScoreBreakdown:
     """Score one game against personal baseline means."""
     profile = role_profile(role)
-    dimension_scores: dict[str, list[int]] = {
-        "laning": [],
-        "survival": [],
-        "impact": [],
-        "vision": [],
-        "objectives": [],
-        "economy": [],
-    }
+    dimension_scores: dict[str, list[int]] = {key: [] for key in _SCORE_DIMENSIONS}
 
     for spec in profile.score_components:
         dimension = _SCORE_NAME_TO_DIMENSION.get(spec.name, "impact")
+        if dimension not in dimension_scores:
+            continue
         game_value = game_row.get(spec.column)
         if game_value is None:
             continue
         baseline = baseline_means.get(spec.column)
-        dimension_scores[dimension].append(_component_score(spec.column, float(game_value), baseline))
+        dimension_scores[dimension].append(
+            _component_score(spec.column, float(game_value), baseline, game_row=game_row)
+        )
 
     def dim_avg(key: str) -> int:
         values = dimension_scores[key]
         return round(sum(values) / len(values)) if values else 50
 
-    breakdown = {
-        "laning": dim_avg("laning"),
-        "survival": dim_avg("survival"),
-        "impact": dim_avg("impact"),
-        "vision": dim_avg("vision"),
-        "objectives": dim_avg("objectives"),
-        "economy": dim_avg("economy"),
-    }
+    breakdown = {key: dim_avg(key) for key in _SCORE_DIMENSIONS}
     overall = round(sum(breakdown.values()) / len(breakdown))
     return GameScoreBreakdown(
         overall=overall,

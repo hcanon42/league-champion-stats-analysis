@@ -418,7 +418,7 @@ def _utility_score() -> tuple[ScoreSpec, ...]:
         ScoreSpec(
             "Utility",
             "utility_impact",
-            "CC, poke damage, healing and shielding to allies",
+            "CC, poke damage, damage taken, healing and shielding to allies",
             "{v}",
         ),
         ScoreSpec("Vision", "vspm", "Vision score per minute", "{v:.2f} VS/min"),

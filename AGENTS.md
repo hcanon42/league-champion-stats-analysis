@@ -54,6 +54,7 @@ Last **5 games** per queue filter with personal-baseline game scores, behavior b
 5. Charts? `presentation/graphs.py` → `game_gold_timeline`
 6. Chatbot? `analysis/game_review/export.py` → `build_export_summary()` `recent_games` key
 7. Config? `GAME_REVIEW_*` in `core/config.py`
+8. Key moments (team-impact map scrubber)? `analysis/key_moments.py` at parse time; tab in `report.html`; map asset via `DDragonAssets.map_href()`
 
 Game Review is **orthogonal** to the game-window toggle — it follows the queue filter only.
 

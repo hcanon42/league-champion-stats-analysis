@@ -8,7 +8,8 @@ from typing import Any
 import pandas as pd
 
 from league_stats.analysis.game_review.behaviors import evaluate_behaviors
-from league_stats.analysis.game_review.compare import compare_to_baseline, compare_to_peers
+from league_stats.analysis.game_review.compare import compare_to_baseline
+from league_stats.analysis.game_review.hints import GAME_REVIEW_KEY_STATS
 from league_stats.analysis.game_review.score import compute_game_score
 from league_stats.analysis.timeline import timeline_dataframe_rows
 from league_stats.core.config import RANKED_FLEX_QUEUE_ID, RANKED_SOLO_QUEUE_ID
@@ -19,7 +20,6 @@ from league_stats.core.models import (
     GameFightRow,
     GameObjectiveRow,
     MatchRecord,
-    PeerComparisonResult,
 )
 from league_stats.pipeline.frames import AnalysisFrames
 
@@ -37,17 +37,20 @@ def _iso_date(game_creation_ms: int) -> str:
     return dt.strftime("%Y-%m-%d")
 
 
+_DEATH_FLAG_LABELS: dict[str, str] = {
+    "alone": "Solo death",
+    "after_greed": "Greed death",
+    "before_neutral_objective": "Dead before objective",
+    "to_gank": "Gank death",
+    "outnumbered": "Outnumbered",
+    "before_dragon": "Dead before dragon",
+    "before_baron": "Dead before baron",
+}
+
+
 def _death_flags(row: dict[str, Any]) -> list[str]:
     flags: list[str] = []
-    for column, label in (
-        ("alone", "alone"),
-        ("after_greed", "after_greed"),
-        ("before_neutral_objective", "before_neutral_objective"),
-        ("to_gank", "to_gank"),
-        ("outnumbered", "outnumbered"),
-        ("before_dragon", "before_dragon"),
-        ("before_baron", "before_baron"),
-    ):
+    for column, label in _DEATH_FLAG_LABELS.items():
         if row.get(column):
             flags.append(label)
     return flags
@@ -60,22 +63,7 @@ def _filter_frame(df: pd.DataFrame, match_id: str) -> pd.DataFrame:
 
 
 def _key_stats(game_row: dict[str, Any]) -> dict[str, float | int | None]:
-    keys = (
-        "gd10",
-        "gd15",
-        "deaths",
-        "deaths_pre14",
-        "dpm",
-        "kill_participation",
-        "damage_share",
-        "gold_share",
-        "vspm",
-        "control_wards",
-        "objectives_present_rate",
-        "solo_deaths",
-        "greed_deaths",
-        "fights_disadvantaged",
-    )
+    keys = tuple(GAME_REVIEW_KEY_STATS)
     return {key: game_row.get(key) for key in keys}
 
 
@@ -84,7 +72,6 @@ def assemble_game_detail(
     frames: AnalysisFrames,
     *,
     baseline_means: dict[str, float],
-    peer_comparison: PeerComparisonResult | None,
     archetype: str,
     index: int,
     role: str,
@@ -126,7 +113,13 @@ def assemble_game_detail(
             deaths=1 if row.get("died") else 0,
             assists=int(row.get("assists") or 0),
             damage=int(row.get("damage_dealt") or 0),
-            fight_won=bool(row.get("fight_won")),
+            fight_won=bool(row.get("fight_won")) if pd.notna(row.get("fight_won")) else False,
+            allies_present=(
+                int(row["allies_present"]) if pd.notna(row.get("allies_present")) else None
+            ),
+            enemies_present=(
+                int(row["enemies_present"]) if pd.notna(row.get("enemies_present")) else None
+            ),
             manpower_advantage=(
                 int(row["manpower_advantage"]) if pd.notna(row.get("manpower_advantage")) else None
             ),
@@ -142,6 +135,7 @@ def assemble_game_detail(
         GameObjectiveRow(
             kind=str(row.get("kind") or "unknown"),
             minute=float(row.get("minute") or 0),
+            taken_by_team=bool(row.get("taken_by_team")),
             present=bool(row.get("present")),
             dead_before=bool(row.get("dead_before")),
             wards_before=int(row.get("wards_before") or 0),
@@ -149,13 +143,17 @@ def assemble_game_detail(
         for row in (objectives_df.to_dict("records") if not objectives_df.empty else [])
     ]
 
+    item_path = [item for item in record.item_path if item]
+    if not item_path:
+        item_path = [item for item in record.final_items if item]
+
     build = GameBuildInfo(
         keystone=record.runes.keystone,
         primary_tree=record.runes.primary_tree,
         secondary_tree=record.runes.secondary_tree,
         summoners=list(record.summoners),
         skill_order=record.skill_order,
-        items=[item for item in record.final_items if item],
+        items=item_path,
     )
 
     return GameDetail(
@@ -174,7 +172,6 @@ def assemble_game_detail(
         behaviors_good=good,
         behaviors_bad=bad,
         vs_baseline=compare_to_baseline(game_row, baseline_means, role=role),
-        vs_peers=compare_to_peers(game_row, peer_comparison),
         key_stats=_key_stats(game_row),
         deaths=deaths,
         fights=fights,
@@ -182,5 +179,6 @@ def assemble_game_detail(
         build=build,
         timeline=timeline,
         timeline_figure="",
+        key_moments=list(record.key_moments),
         ai_recap=None,
     )

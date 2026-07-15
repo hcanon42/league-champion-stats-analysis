@@ -243,6 +243,8 @@ class CombatStats(BaseModel):
     damage_to_champions: int
     dpm: float
     damage_share: float
+    damage_taken: int
+    damage_taken_share: float
     true_damage: int
     physical_damage: int
     magic_damage: int
@@ -306,6 +308,7 @@ class MatchRecord(BaseModel):
     skill_sequence: list[str] = Field(default_factory=list)
 
     final_items: list[str] = Field(default_factory=list)
+    item_path: list[str] = Field(default_factory=list)
     purchases: list[ItemPurchase] = Field(default_factory=list)
     timings: BuildTimings = Field(default_factory=BuildTimings)
     shutdown_gold_collected: int = 0
@@ -315,6 +318,7 @@ class MatchRecord(BaseModel):
     deaths: list[DeathEvent] = Field(default_factory=list)
     teamfights: list[TeamfightRecord] = Field(default_factory=list)
     objectives: list[ObjectiveRecord] = Field(default_factory=list)
+    key_moments: list[KeyMoment] = Field(default_factory=list)
 
     @property
     def duration_min(self) -> float:
@@ -357,6 +361,8 @@ class MatchRecord(BaseModel):
             "dpm": round(self.combat.dpm, 1),
             "damage": self.combat.damage_to_champions,
             "damage_share": round(self.combat.damage_share, 4),
+            "damage_taken": self.combat.damage_taken,
+            "damage_taken_share": round(self.combat.damage_taken_share, 4),
             "kill_participation": round(self.combat.kill_participation, 4),
             "cc_score": self.combat.cc_score,
             "ccpm": round(self.combat.cc_score / max(1.0, self.duration_min), 2),
@@ -631,7 +637,6 @@ class GameScoreBreakdown(BaseModel):
     impact: int
     vision: int
     objectives: int
-    economy: int
 
 
 class GameBehavior(BaseModel):
@@ -673,6 +678,8 @@ class GameFightRow(BaseModel):
     assists: int
     damage: int
     fight_won: bool
+    allies_present: int | None = None
+    enemies_present: int | None = None
     manpower_advantage: int | None = None
 
 
@@ -681,6 +688,7 @@ class GameObjectiveRow(BaseModel):
 
     kind: str
     minute: float
+    taken_by_team: bool
     present: bool
     dead_before: bool
     wards_before: int
@@ -703,6 +711,53 @@ class GameBuildInfo(BaseModel):
     item_icons: list[str | None] = Field(default_factory=list)
 
 
+class MapParticipantPin(BaseModel):
+    """One champion pin on the minimap scrubber."""
+
+    participant_id: int
+    champion: str
+    team_id: int
+    x: float
+    y: float
+    dead: bool = False
+    champion_icon: str | None = None
+
+
+class MapObjectivePin(BaseModel):
+    """Objective pit marker on the minimap scrubber."""
+
+    kind: str
+    x: float
+    y: float
+    highlighted: bool = False
+    available: bool = True
+    objective_icon: str | None = None
+
+
+class KeyMomentFrame(BaseModel):
+    """One discrete map snapshot at a known timeline timestamp."""
+
+    timestamp_ms: int
+    label: str = ""
+    participants: list[MapParticipantPin] = Field(default_factory=list)
+    objectives: list[MapObjectivePin] = Field(default_factory=list)
+
+
+class KeyMoment(BaseModel):
+    """A high-impact team moment with an interactive map scrub window."""
+
+    id: str
+    kind: str
+    headline: str
+    beneficiary: Literal["ally", "enemy"]
+    gold_swing: int | None = None
+    anchor_ms: int
+    anchor_minute: float
+    window_start_ms: int
+    window_end_ms: int
+    frames: list[KeyMomentFrame] = Field(default_factory=list)
+
+
 class GameDetail(BaseModel):
     """Full deep-dive payload for one ranked game."""
 
@@ -723,7 +778,6 @@ class GameDetail(BaseModel):
     behaviors_good: list[GameBehavior] = Field(default_factory=list)
     behaviors_bad: list[GameBehavior] = Field(default_factory=list)
     vs_baseline: list[GameComparisonRow] = Field(default_factory=list)
-    vs_peers: list[GameComparisonRow] = Field(default_factory=list)
     key_stats: dict[str, float | int | None] = Field(default_factory=dict)
     deaths: list[GameDeathRow] = Field(default_factory=list)
     fights: list[GameFightRow] = Field(default_factory=list)
@@ -731,6 +785,8 @@ class GameDetail(BaseModel):
     build: GameBuildInfo
     timeline: list[dict[str, float]] = Field(default_factory=list)
     timeline_figure: str = ""
+    key_moments: list[KeyMoment] = Field(default_factory=list)
+    map_background: str | None = None
     ai_recap: str | None = None
 
 

@@ -205,6 +205,18 @@ def push_progress(pos: Position, blue_side: bool) -> float:
     return projection if blue_side else -projection
 
 
+def normalize_coords_to_blue_side(x: float, y: float, *, side: str) -> tuple[float, float]:
+    """Mirror map coordinates so every game reads from the blue-side perspective.
+
+    Red-side deaths are reflected across the river diagonal (``x + y = MAP_SIZE``),
+    the line perpendicular to mid lane. That keeps bot-lane deaths on the bottom
+    edge instead of rotating them to the opposite corner.
+    """
+    if side.lower() == "red":
+        return MAP_SIZE - y, MAP_SIZE - x
+    return x, y
+
+
 def safe_div(numerator: float, denominator: float, default: float = 0.0) -> float:
     """Divide two numbers, returning ``default`` on a zero denominator.
 

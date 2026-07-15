@@ -187,7 +187,7 @@ def improvement_score(
         "Utility": (
             utility_score,
             utility_value,
-            "CC, poke damage, healing and shielding to allies",
+            "CC, poke damage, damage taken, healing and shielding to allies",
         ),
         "Vision": (
             _clamp_score(mean("vspm"), vision_floor, vision_ceiling),

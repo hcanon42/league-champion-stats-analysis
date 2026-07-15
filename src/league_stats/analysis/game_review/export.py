@@ -43,7 +43,6 @@ def _slim_game(detail: GameDetail) -> dict[str, Any]:
         },
         "key_stats": detail.key_stats,
         "vs_baseline": [row.model_dump() for row in detail.vs_baseline],
-        "vs_peers": [row.model_dump() for row in detail.vs_peers],
         "events_summary": {
             "deaths_count": len(detail.deaths),
             "notable_deaths": _notable_deaths(detail),

@@ -58,7 +58,7 @@ def participant_row(participant: dict[str, Any], duration_min: float) -> dict[st
     )
     challenges = participant.get("challenges", {}) or {}
     cc_score = int(participant.get("timeCCingOthers", 0))
-    healing = int(participant.get("totalHealsOnTeammates", 0)) + int(participant.get("totalHeal", 0))
+    healing = int(participant.get("totalHealsOnTeammates", 0))
     shielding = int(participant.get("totalDamageShieldedOnTeammates", 0))
     return {
         "puuid": str(participant.get("puuid", "")),

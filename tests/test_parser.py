@@ -130,6 +130,35 @@ def test_parse_build_timings(record: MatchRecord) -> None:
     assert timings.trinket_swaps == 1
 
 
+def test_parse_item_path(record: MatchRecord) -> None:
+    """Completed items and boots follow purchase order, not end-game slot order."""
+    assert record.item_path == [
+        "Sorcerer's Shoes",
+        "Luden's Companion",
+        "Zhonya's Hourglass",
+    ]
+
+
+def test_item_path_keeps_boots_after_upgrade_destroy() -> None:
+    """Boots stay on the path when the basic pair is destroyed during an upgrade."""
+    from tests.fixtures import MY_PUUID, make_match, make_timeline
+
+    match = make_match()
+    timeline = make_timeline()
+    events = timeline["info"]["frames"][0]["events"]
+    events.extend(
+        [
+            {"timestamp": 300_000, "type": "ITEM_PURCHASED", "participantId": 1, "itemId": 1001},
+            {"timestamp": 540_000, "type": "ITEM_DESTROYED", "participantId": 1, "itemId": 1001},
+            {"timestamp": 541_000, "type": "ITEM_PURCHASED", "participantId": 1, "itemId": 3020},
+            {"timestamp": 900_000, "type": "ITEM_PURCHASED", "participantId": 1, "itemId": 6655},
+        ]
+    )
+    record = MatchParser(ItemCatalog(FAKE_ITEMS)).parse(match, timeline, MY_PUUID)
+    assert record.item_path[0] == "Sorcerer's Shoes"
+    assert "Luden's Companion" in record.item_path
+
+
 def test_parse_skill_order(record: MatchRecord) -> None:
     """Q is maxed first in the synthetic skill sequence."""
     assert record.skill_order.startswith("Q")

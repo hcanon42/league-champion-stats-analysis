@@ -189,6 +189,10 @@ METRIC_TOOLTIPS: dict[str, str] = {
     "VS/min in wins": "Vision score per minute averaged over wins only.",
     "VS/min in losses": "Vision score per minute averaged over losses only.",
     # Objectives
+    "Died in setup window (45s)": (
+        "Share of epic objectives where you died within 45 seconds before the take "
+        "(even if you respawned and were present when it died)."
+    ),
     "Wards before": "Average wards you placed in the 2 minutes before each objective take. Any ward type counts; map location is not filtered.",
     # Deaths
     "Total deaths": "Total death count across all games in the window (not an average).",
@@ -215,12 +219,12 @@ METRIC_TOOLTIPS: dict[str, str] = {
     # Improvement score dimensions
     "Laning": "0–100 score from average gold diff @10, mapped between −800g and +800g vs your lane opponent.",
     "Farming": "0–100 score from CS @10 against a role-specific benchmark band.",
-    "Survival": "0–100 score from deaths per game; fewer deaths score higher.",
+    "Survival": "0–100 score from deaths normalized to a 30-minute game; fewer deaths score higher.",
     "Damage": "0–100 score from your average share of team damage to champions.",
     "Vision": "0–100 score from vision score per minute against role benchmarks.",
     "Objectives": "0–100 score from your presence rate at epic monster takes.",
     "Resets": "0–100 score from gold banked before recalls; hoarding 1500g+ before backing scores lower.",
-    "Utility": "0–100 composite of CC/min, damage share, healing/min and shielding/min vs support benchmarks.",
+    "Utility": "0–100 composite of CC/min, damage share, damage taken share, and ally healing/shielding per minute vs support benchmarks. Low CC/heal/shield output is omitted to avoid noise.",
     "Impact": "0–100 score from kill participation vs role benchmarks.",
     "Map control": "0–100 score from objective presence at epic monster takes.",
     "Clear @10": "0–100 score from jungle CS @10 vs role clear-speed benchmarks.",

@@ -5,6 +5,7 @@ from __future__ import annotations
 from league_stats.presentation.metric_colors import (
     color_winrate,
     interpolate_metric_color,
+    normalize_deaths_for_duration,
     score_deaths_per_game,
     score_lane_diff,
     score_winrate,
@@ -34,6 +35,13 @@ def test_score_lane_diff_scales_signed_gold() -> None:
 def test_score_deaths_prefers_fewer_deaths() -> None:
     assert score_deaths_per_game(3.0) == 1.0
     assert score_deaths_per_game(6.0) == -1.0
+
+
+def test_score_deaths_scales_with_game_length() -> None:
+    short_game = score_deaths_per_game(4.0, duration_min=20.0)
+    long_game = score_deaths_per_game(4.0, duration_min=40.0)
+    assert short_game < long_game
+    assert normalize_deaths_for_duration(4.0, 20.0) == 6.0
 
 
 def test_color_winrate_graduates_near_fifty() -> None:

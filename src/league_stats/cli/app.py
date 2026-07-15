@@ -186,6 +186,19 @@ def download_assets(
     force: bool = typer.Option(False, "--force", help="Re-download icons even when cached."),
 ) -> None:
     """Download champion and keystone icons from Data Dragon for report UI."""
+    _run_download_assets(verbose=verbose, force=force)
+
+
+@app.command("assets", hidden=True)
+def assets_alias(
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+    force: bool = typer.Option(False, "--force", help="Re-download icons even when cached."),
+) -> None:
+    """Alias for download-assets."""
+    _run_download_assets(verbose=verbose, force=force)
+
+
+def _run_download_assets(*, verbose: bool, force: bool) -> None:
     from league_stats.core.config import load_paths_config
 
     setup_logging(verbose)

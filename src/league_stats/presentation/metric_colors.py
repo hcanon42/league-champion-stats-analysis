@@ -11,6 +11,7 @@ _WINRATE_SPAN = 20.0
 _LANE_DIFF_SPAN = 300.0
 _DEATHS_MID = 4.5
 _DEATHS_SPAN = 1.5
+_REFERENCE_GAME_MIN = 30.0
 _DEATH_SHARE_MID = 37.5
 _DEATH_SHARE_SPAN = 12.5
 _PEER_GAP_SPAN = 25.0
@@ -95,9 +96,15 @@ def score_lane_diff(value: float) -> float:
     return _clamp(value / _LANE_DIFF_SPAN)
 
 
-def score_deaths_per_game(value: float) -> float:
-    """Average deaths per game where lower is better."""
-    return _clamp((_DEATHS_MID - value) / _DEATHS_SPAN)
+def normalize_deaths_for_duration(deaths: float, duration_min: float) -> float:
+    """Express deaths as equivalent deaths in a 30-minute game."""
+    return float(deaths) * _REFERENCE_GAME_MIN / max(float(duration_min), 1.0)
+
+
+def score_deaths_per_game(value: float, *, duration_min: float = _REFERENCE_GAME_MIN) -> float:
+    """Death count where lower is better, scaled to a 30-minute game."""
+    normalized = normalize_deaths_for_duration(value, duration_min)
+    return _clamp((_DEATHS_MID - normalized) / _DEATHS_SPAN)
 
 
 def score_death_share(pct: float) -> float:

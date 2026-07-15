@@ -39,6 +39,9 @@ MATCH_HISTORY_BASE = (
     f"{COMMUNITY_DRAGON_BASE}/plugins/rcp-fe-lol-match-history/global/default"
 )
 MINIMAP_ICONS_BASE = f"{COMMUNITY_DRAGON_BASE}/game/assets/ux/minimap/icons"
+MAP_IMAGE_URL = (
+    f"{COMMUNITY_DRAGON_BASE}/game/assets/maps/info/map11/2dlevelminimap_base_baron1.png"
+)
 UI_ICON_URLS: dict[str, str] = {
     "minions.png": (
         "{base}/plugins/rcp-fe-lol-match-history/global/default/icon_minions.png"
@@ -88,6 +91,7 @@ class DDragonAssets:
         self._roles_dir = self._assets_root / "roles"
         self._ui_dir = self._assets_root / "ui"
         self._objectives_dir = self._assets_root / "objectives"
+        self._map_dir = self._assets_root / "map"
         self._manifest_path = config.cache_dir / "static" / "manifest.json"
         self._session = session or requests.Session()
         self._log = get_logger("ddragon_assets")
@@ -125,10 +129,12 @@ class DDragonAssets:
         self._roles_dir.mkdir(parents=True, exist_ok=True)
         self._ui_dir.mkdir(parents=True, exist_ok=True)
         self._objectives_dir.mkdir(parents=True, exist_ok=True)
+        self._map_dir.mkdir(parents=True, exist_ok=True)
         self._manifest_path.parent.mkdir(parents=True, exist_ok=True)
         self._ensure_role_icons(force=force)
         self._ensure_ui_icons(force=force)
         self._ensure_objective_icons(force=force)
+        self._ensure_map_image(force=force)
         self._ensure_summoner_icons(force=force)
         self._ensure_rune_tree_icons(force=force)
 
@@ -295,6 +301,22 @@ class DDragonAssets:
     def objective_href(self, kind: str, *, from_dir: Path) -> str | None:
         """Relative URL from an HTML directory to an objective scoreboard icon."""
         path = self.objective_icon_path(kind)
+        if path is None:
+            return None
+        return _relative_href(from_dir, path)
+
+    def map_icon_path(self) -> Path | None:
+        """Return the on-disk Summoner's Rift minimap background when cached."""
+        path = self._map_dir / "summoners_rift.png"
+        return path if path.is_file() else None
+
+    def map_chart_source(self) -> str | None:
+        """Base64 data URI for embedding the minimap in Plotly charts."""
+        return path_to_data_uri(self.map_icon_path())
+
+    def map_href(self, *, from_dir: Path) -> str | None:
+        """Relative URL from an HTML directory to the minimap background."""
+        path = self.map_icon_path()
         if path is None:
             return None
         return _relative_href(from_dir, path)
@@ -594,6 +616,15 @@ class DDragonAssets:
             ):
                 continue
             self._download_binary(url, destination)
+
+    def _ensure_map_image(self, *, force: bool = False) -> None:
+        destination = self._map_dir / "summoners_rift.png"
+        if destination.is_file() and not force:
+            return
+        try:
+            self._download_binary(MAP_IMAGE_URL, destination)
+        except requests.RequestException as exc:
+            self._log.warning("Could not download minimap background: %s", exc)
 
     def _summoners_cached(self) -> bool:
         return self._summoners_dir.is_dir() and any(self._summoners_dir.glob("*.png"))

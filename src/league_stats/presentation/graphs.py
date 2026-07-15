@@ -33,6 +33,7 @@ from league_stats.presentation.metric_colors import (
     interpolate_metric_color,
     score_peer_gap,
 )
+from league_stats.analysis.deaths import death_heatmap_coords
 from league_stats.utils import MAP_SIZE, get_logger
 
 PLOTLY_TEMPLATE = "plotly_dark"
@@ -55,12 +56,14 @@ def _div(fig: go.Figure) -> str:
 
 @dataclass
 class ChartIconResolver:
-    """Resolve champion, item and rune icon URLs for Plotly charts."""
+    """Resolve champion, item, rune and map assets for Plotly charts."""
 
     from_dir: Path
     champion_href: Callable[[str], str | None]
     item_href: Callable[[str], str | None]
     keystone_href: Callable[[str], str | None]
+    map_source: Callable[[], str | None] | None = None
+    map_path: Path | None = None
 
 
 def _horizontal_icon_bar(
@@ -139,6 +142,32 @@ def _horizontal_icon_bar(
     return fig
 
 
+def _summoners_rift_layout_image(source: str) -> dict[str, Any]:
+    """Plotly layout image covering the full Riot map coordinate space."""
+    return dict(
+        source=source,
+        xref="x",
+        yref="y",
+        x=0,
+        y=0,
+        sizex=MAP_SIZE,
+        sizey=MAP_SIZE,
+        xanchor="left",
+        yanchor="bottom",
+        sizing="stretch",
+        opacity=1.0,
+        layer="below",
+    )
+
+
+_DEATH_HEATMAP_COLORSCALE: list[list[Any]] = [
+    [0.0, "rgba(0,0,0,0)"],
+    [0.15, "rgba(255,60,0,0.40)"],
+    [0.45, "rgba(255,140,0,0.60)"],
+    [1.0, "rgba(255,240,180,0.82)"],
+]
+
+
 class GraphFactory:
     """Builds every chart of the report from the aggregated dataframes."""
 
@@ -157,6 +186,16 @@ class GraphFactory:
         self._graphs_dir = graphs_dir
         self._icons = icon_resolver
         self._log = get_logger("graphs")
+
+    def _map_chart_source(self) -> str | None:
+        if self._icons and self._icons.map_source:
+            return self._icons.map_source()
+        return None
+
+    def _map_image_path(self) -> Path | None:
+        if self._icons and self._icons.map_path and self._icons.map_path.is_file():
+            return self._icons.map_path
+        return None
 
     # -------------------------------------------------------------- Trends
 
@@ -259,25 +298,30 @@ class GraphFactory:
     # ----------------------------------------------------------- Death maps
 
     def death_heatmap(self, deaths_df: pd.DataFrame) -> str:
-        """Interactive 2-D death density heatmap on map coordinates."""
+        """Interactive 2-D death density heatmap on Summoner's Rift coordinates."""
         fig = go.Figure()
+        map_source = self._map_chart_source()
+        if map_source:
+            fig.add_layout_image(_summoners_rift_layout_image(map_source))
         if not deaths_df.empty:
+            hx, hy = death_heatmap_coords(deaths_df)
             fig.add_histogram2d(
-                x=deaths_df["x"], y=deaths_df["y"],
+                x=hx, y=hy,
                 xbins=dict(start=0, end=MAP_SIZE, size=MAP_SIZE / 24),
                 ybins=dict(start=0, end=MAP_SIZE, size=MAP_SIZE / 24),
-                colorscale="Inferno", showscale=False,
+                colorscale=_DEATH_HEATMAP_COLORSCALE,
+                showscale=False,
             )
             fig.add_scatter(
-                x=deaths_df["x"], y=deaths_df["y"], mode="markers",
-                marker=dict(size=4, color="rgba(255,255,255,0.45)"),
+                x=hx, y=hy, mode="markers",
+                marker=dict(size=5, color="rgba(255,255,255,0.75)", line=dict(width=1, color="#111")),
                 text=[f"min {m:.0f} by {k}" for m, k in zip(deaths_df["minute"], deaths_df["killer"])],
                 hoverinfo="text", name="Deaths",
             )
         fig.update_layout(
-            title="Death heatmap (blue base bottom-left, red top-right)",
-            xaxis=dict(range=[0, MAP_SIZE], showgrid=False, title="x"),
-            yaxis=dict(range=[0, MAP_SIZE], showgrid=False, scaleanchor="x", title="y"),
+            title="Death heatmap (normalized to blue side)",
+            xaxis=dict(range=[0, MAP_SIZE], showgrid=False, visible=False),
+            yaxis=dict(range=[0, MAP_SIZE], showgrid=False, scaleanchor="x", visible=False),
             height=560,
         )
         return _div(fig)
@@ -294,21 +338,34 @@ class GraphFactory:
         """
         if deaths_df.empty:
             return None
+        hx, hy = death_heatmap_coords(deaths_df)
+        map_path = self._map_image_path()
+        map_image = plt.imread(map_path) if map_path else None
         phases = [("Early (<14)", deaths_df["minute"] < 14),
                   ("Mid (14-25)", (deaths_df["minute"] >= 14) & (deaths_df["minute"] < 25)),
                   ("Late (25+)", deaths_df["minute"] >= 25)]
         fig, axes = plt.subplots(1, 3, figsize=(15, 5), facecolor="#111")
         for ax, (title, mask) in zip(axes, phases):
-            subset = deaths_df[mask]
+            subset_x = hx[mask]
+            subset_y = hy[mask]
             ax.set_facecolor("#181825")
-            if not subset.empty:
-                ax.hexbin(subset["x"], subset["y"], gridsize=18, cmap="inferno",
-                          extent=(0, MAP_SIZE, 0, MAP_SIZE))
-            ax.plot([0, MAP_SIZE], [0, MAP_SIZE], color="#444", lw=1, ls="--")
+            if map_image is not None:
+                ax.imshow(
+                    map_image,
+                    extent=(0, MAP_SIZE, 0, MAP_SIZE),
+                    origin="lower",
+                    aspect="equal",
+                    zorder=0,
+                )
+            if not subset_x.empty:
+                ax.hexbin(
+                    subset_x, subset_y, gridsize=18, cmap="inferno",
+                    extent=(0, MAP_SIZE, 0, MAP_SIZE), alpha=0.72, mincnt=1, zorder=1,
+                )
             ax.set_xlim(0, MAP_SIZE)
             ax.set_ylim(0, MAP_SIZE)
             ax.set_title(f"{title} - {int(mask.sum())} deaths", color="white")
-            ax.tick_params(colors="#888")
+            ax.tick_params(colors="#888", labelbottom=False, labelleft=False)
         path = self._graphs_dir / filename
         fig.tight_layout()
         fig.savefig(path, dpi=110, facecolor="#111")

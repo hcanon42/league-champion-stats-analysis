@@ -8,9 +8,11 @@ import pandas as pd
 
 from league_stats.core.config import AppConfig
 from league_stats.core.models import MetricDelta
+from league_stats.analysis.deaths import death_heatmap_coords
 from league_stats.infra.ddragon_assets import DDragonAssets
 from league_stats.presentation.graphs import ChartIconResolver, GraphFactory
 from league_stats.presentation.metric_colors import LOSS_HEX
+from league_stats.utils import MAP_SIZE
 
 
 def _config(tmp_path: Path) -> AppConfig:
@@ -28,6 +30,8 @@ def test_icon_bar_charts_embed_data_uris(tmp_path: Path) -> None:
     assets._champions_dir.mkdir(parents=True)
     assets._runes_dir.mkdir(parents=True)
     assets._items_dir.mkdir(parents=True)
+    assets._map_dir.mkdir(parents=True)
+    (assets._map_dir / "summoners_rift.png").write_bytes(b"png-map")
     assets._item_name_to_id = {"Lich Bane": 3100}
     (assets._champions_dir / "Ahri.png").write_bytes(b"png-champion")
     (assets._runes_dir / "8112.png").write_bytes(b"png-rune")
@@ -56,6 +60,40 @@ def test_icon_bar_charts_embed_data_uris(tmp_path: Path) -> None:
     for html in (matchup_html, item_html, rune_html):
         assert "data:image" in html and "base64," in html
         assert "../../../assets/" not in html
+
+
+def test_death_heatmap_embeds_map_background(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    assets = DDragonAssets(config)
+    assets._map_dir.mkdir(parents=True)
+    map_path = assets._map_dir / "summoners_rift.png"
+    map_path.write_bytes(b"png-map")
+
+    graphs_dir = config.output_dir / "reports" / "player" / "ahri_mid" / "graphs"
+    graphs_dir.mkdir(parents=True)
+    resolver = ChartIconResolver(
+        from_dir=graphs_dir.parent,
+        champion_href=assets.champion_chart_source,
+        item_href=assets.item_chart_source,
+        keystone_href=assets.keystone_chart_source,
+        map_source=assets.map_chart_source,
+        map_path=map_path,
+    )
+    factory = GraphFactory(graphs_dir, icon_resolver=resolver)
+    deaths = pd.DataFrame({"x": [7000], "y": [7000], "minute": [12.0], "killer": ["Syndra"]})
+    html = factory.death_heatmap(deaths)
+    assert '"images":[' in html
+    assert '"sizex":14870' in html
+
+
+def test_death_heatmap_coords_mirror_red_side() -> None:
+    deaths = pd.DataFrame({"x": [1000.0, 13866.0], "y": [2000.0, 4505.0], "side": ["blue", "red"]})
+    hx, hy = death_heatmap_coords(deaths)
+    assert hx.iloc[0] == 1000.0
+    assert hy.iloc[0] == 2000.0
+    assert hx.iloc[1] == MAP_SIZE - 4505.0
+    assert hy.iloc[1] == MAP_SIZE - 13866.0
+    assert hy.iloc[1] < 1650
 
 
 def test_form_metric_delta_bar_uses_normalized_bar_length_with_raw_labels(tmp_path: Path) -> None:

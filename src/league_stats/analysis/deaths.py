@@ -14,6 +14,7 @@ from league_stats.analysis.timeline import TimelineContext, avg_teammate_distanc
 from league_stats.core.models import DeathEvent, MatchRecord, Position, RecallEvent, Zone
 from league_stats.utils import (
     LANING_PHASE_END_MIN,
+    MAP_SIZE,
     classify_zone,
     is_side_lane,
     ms_to_min,
@@ -204,6 +205,7 @@ def deaths_dataframe(records: list[MatchRecord]) -> pd.DataFrame:
             rows.append(
                 {
                     "match_id": record.match_id,
+                    "side": record.side.value,
                     "win": int(record.win),
                     "opponent": record.lane_opponent or "Unknown",
                     "patch": record.patch,
@@ -240,6 +242,18 @@ def deaths_dataframe(records: list[MatchRecord]) -> pd.DataFrame:
                 }
             )
     return pd.DataFrame(rows)
+
+
+def death_heatmap_coords(deaths_df: pd.DataFrame) -> tuple[pd.Series, pd.Series]:
+    """Return x/y series for heatmap plotting, normalized to blue-side perspective."""
+    if deaths_df.empty:
+        return deaths_df["x"], deaths_df["y"]
+    x = deaths_df["x"].astype(float)
+    y = deaths_df["y"].astype(float)
+    if "side" not in deaths_df.columns:
+        return x, y
+    red = deaths_df["side"].astype(str).str.lower() == "red"
+    return x.where(~red, MAP_SIZE - y), y.where(~red, MAP_SIZE - x)
 
 
 def death_summary(deaths_df: pd.DataFrame) -> dict[str, Any]:

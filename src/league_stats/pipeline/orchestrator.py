@@ -45,6 +45,7 @@ from league_stats.pipeline.progression import (
     progression_to_template_context,
     write_progression_exports,
 )
+from league_stats.analysis.game_review.hints import game_review_tooltips
 from league_stats.pipeline.game_review import build_game_review_views, game_review_to_template_context
 from league_stats.pipeline.services import PlayerContext, Services
 from league_stats.pipeline.summaries import (
@@ -55,7 +56,7 @@ from league_stats.pipeline.summaries import (
 )
 from league_stats.presentation.brand_assets import brand_context
 from league_stats.presentation.export import Exporter
-from league_stats.presentation.graphs import GraphFactory
+from league_stats.presentation.graphs import ChartIconResolver, GraphFactory
 from league_stats.presentation.report import (
     ReportBuilder,
     build_manifest_entry,
@@ -168,7 +169,6 @@ def run_analysis(
         config,
         records,
         full_frames,
-        peer_comparison,
         graphs_dir=graphs_dir,
         assets=asset_catalog,
         from_dir=run_dir,
@@ -184,7 +184,17 @@ def run_analysis(
         report_stats=report_stats,
         game_review=game_review,
     )
-    GraphFactory(graphs_dir).death_heatmap_png(deaths_dataframe(records))
+    GraphFactory(
+        graphs_dir,
+        icon_resolver=ChartIconResolver(
+            from_dir=run_dir,
+            champion_href=asset_catalog.champion_chart_source,
+            item_href=asset_catalog.item_chart_source,
+            keystone_href=asset_catalog.keystone_chart_source,
+            map_source=asset_catalog.map_chart_source,
+            map_path=asset_catalog.map_icon_path(),
+        ),
+    ).death_heatmap_png(deaths_dataframe(records))
 
     window_specs: list[tuple[str, int | None]] = [
         (str(size), size) for size in GAME_WINDOW_OPTIONS
@@ -266,6 +276,7 @@ def run_analysis(
         "progression_views_json": serialize_report_views_json(progression_views),
         "progression_default": default_preset,
         "game_review_json": serialize_report_views_json(game_review_views),
+        "game_review_tooltips_json": serialize_report_views_json(game_review_tooltips()),
         "chatbot_stats": summary,
         "gemini_api_key": config.gemini_api_key,
     }

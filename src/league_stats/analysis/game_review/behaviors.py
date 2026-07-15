@@ -7,6 +7,7 @@ from typing import Any, Literal
 
 from league_stats.core.config import GAME_REVIEW_MAX_BEHAVIORS
 from league_stats.core.models import GameBehavior, MatchRecord
+from league_stats.presentation.metric_colors import normalize_deaths_for_duration
 
 _DEATH_FLAG_COLUMNS: tuple[tuple[str, str], ...] = (
     ("alone", "Solo death"),
@@ -63,6 +64,9 @@ def evaluate_behaviors(
 
     base_gd10 = _baseline(baseline_means, "gd10")
     base_deaths = _baseline(baseline_means, "deaths", 4.0)
+    base_duration = _baseline(baseline_means, "duration_min", duration)
+    norm_deaths = normalize_deaths_for_duration(deaths, duration)
+    norm_base_deaths = normalize_deaths_for_duration(base_deaths, base_duration)
     base_vspm = _baseline(baseline_means, "vspm", 1.0)
     base_obj = _baseline(baseline_means, "objectives_present_rate", 0.5)
 
@@ -87,24 +91,24 @@ def evaluate_behaviors(
             )
         )
 
-    if solo_deaths == 0 and deaths <= max(1, int(base_deaths) - 1):
+    if solo_deaths == 0 and norm_deaths <= max(1.0, norm_base_deaths - 1.0):
         candidates.append(
             _Candidate(
                 "positive",
                 "Clean survival",
-                f"{deaths} deaths with no solo deaths.",
+                f"{deaths} deaths in {duration:.0f}m with no solo deaths.",
                 7.0,
                 "deaths",
             )
         )
 
-    if deaths >= int(base_deaths) + 2:
+    if norm_deaths >= norm_base_deaths + 2.0:
         candidates.append(
             _Candidate(
                 "negative",
                 "High death count",
-                f"{deaths} deaths vs your avg {base_deaths:.1f}/game.",
-                7.5 + deaths - base_deaths,
+                f"{deaths} deaths in {duration:.0f}m vs your avg {base_deaths:.1f}/game.",
+                7.5 + norm_deaths - norm_base_deaths,
                 "deaths",
             )
         )
@@ -227,8 +231,8 @@ def evaluate_behaviors(
         candidates.append(
             _Candidate(
                 "negative",
-                "Dead before objectives",
-                f"Died before objective spawn at {label}.",
+                "Died in setup window",
+                f"Died within 45s before an objective at {label}.",
                 8.5 + len(objective_minutes),
                 "objectives",
             )
