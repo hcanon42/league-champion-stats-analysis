@@ -403,3 +403,26 @@ def form_sample_subtitle(
         f"Statistics from your last {recent} {_game_word(recent)} "
         f"compared to the {baseline} {_game_word(baseline)} before that."
     )
+
+
+def game_list_row_display(detail: dict[str, Any]) -> dict[str, Any]:
+    """Format one game review list row for HTML/JSON."""
+    score = detail.get("score") or {}
+    flags: list[str] = []
+    for behavior in (detail.get("behaviors_bad") or [])[:2]:
+        flags.append(str(behavior.get("title", "")))
+    if not flags and detail.get("archetype"):
+        flags.append(str(detail.get("archetype")))
+    return {
+        "match_id": detail.get("match_id"),
+        "index": detail.get("index"),
+        "date": detail.get("date"),
+        "result": detail.get("result"),
+        "opponent": detail.get("opponent"),
+        "duration_min": detail.get("duration_min"),
+        "kda": detail.get("kda"),
+        "archetype": detail.get("archetype"),
+        "score_overall": score.get("overall"),
+        "score_tier": score.get("tier"),
+        "flags": [flag for flag in flags if flag],
+    }

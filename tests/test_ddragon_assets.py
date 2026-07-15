@@ -47,6 +47,28 @@ def test_champion_and_keystone_hrefs(tmp_path: Path) -> None:
     assert assets.champion_href("Missing", from_dir=report_dir) is None
 
 
+def test_summoner_and_rune_tree_hrefs(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    assets = DDragonAssets(config)
+    assets._summoners_dir.mkdir(parents=True)
+    assets._rune_trees_dir.mkdir(parents=True)
+    (assets._summoners_dir / "Flash.png").write_bytes(b"png")
+    (assets._summoners_dir / "Teleport.png").write_bytes(b"png")
+    (assets._rune_trees_dir / "Sorcery.png").write_bytes(b"png")
+    (assets._rune_trees_dir / "Inspiration.png").write_bytes(b"png")
+    report_dir = config.output_dir / "reports" / "player" / "viktor_middle"
+    report_dir.mkdir(parents=True)
+
+    assert assets.summoner_href("Flash", from_dir=report_dir) == "../../../assets/summoners/Flash.png"
+    assert assets.rune_tree_href("Sorcery", from_dir=report_dir) == "../../../assets/rune_trees/Sorcery.png"
+
+    rune_rows = assets.enrich_rune_rows(
+        [{"keystone": "Arcane Comet", "secondary_tree": "Inspiration"}],
+        from_dir=report_dir,
+    )
+    assert rune_rows[0]["secondary_tree_icon"].endswith("assets/rune_trees/Inspiration.png")
+
+
 def test_needs_grub_refresh_detects_legacy_sprite(tmp_path: Path) -> None:
     objectives_dir = tmp_path / "objectives"
     objectives_dir.mkdir()
@@ -172,3 +194,5 @@ def test_download_assets_from_ddragon(tmp_path: Path) -> None:
     assert version
     assert assets.champion_icon_path("Ahri") is not None
     assert assets.keystone_icon_path("Electrocute") is not None
+    assert assets.summoner_icon_path("Flash") is not None
+    assert assets.rune_tree_icon_path("Domination") is not None

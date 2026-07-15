@@ -227,6 +227,8 @@ METRIC_TOOLTIPS: dict[str, str] = {
     "Setup": "0–100 score from early roams before 15 minutes.",
     "Early ganks": "0–100 score from successful early ganks before minute 15.",
     "CC impact": "0–100 score from crowd control time per minute.",
+    "Game score": "Personal performance vs your baseline for this single game (0–100, letter tier). Independent of win/loss.",
+    "Economy": "0–100 score from recall efficiency and item timing vs your personal baseline.",
 }
 
 DIST_TO_TOOLTIP = (

@@ -87,6 +87,11 @@ FORM_MIN_RECENT: Final[int] = 10
 FORM_MIN_BASELINE: Final[int] = 25
 FORM_SIGNIFICANCE_ALPHA: Final[float] = 0.05
 
+GAME_REVIEW_RECENT_N: Final[int] = 5
+GAME_REVIEW_BASELINE_M: Final[int] = 80
+GAME_REVIEW_MAX_BEHAVIORS: Final[int] = 5
+GAME_REVIEW_MAX_COMPARISONS: Final[int] = 5
+
 
 class PlayerIdentity(BaseModel):
     """One tracked Riot account."""

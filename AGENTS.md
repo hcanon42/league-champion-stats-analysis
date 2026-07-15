@@ -43,10 +43,26 @@ Compares **recent form** (default last 20 games) vs a **personal baseline** (def
 
 Form Tracker is **orthogonal** to the game-window toggle (Last 50/100/All) — it always slices from the full queue-filtered record list.
 
+## Game Review (per-match deep dive)
+
+Last **5 games** per queue filter with personal-baseline game scores, behavior bullets, and event tabs.
+
+1. Score / behavior rules? `analysis/game_review/score.py`, `behaviors.py`
+2. Per-game assembly? `analysis/game_review/assemble.py`, `views.py`
+3. Pipeline wiring? `pipeline/game_review.py` → orchestrator embeds `game_review_json`
+4. Dashboard section? `presentation/templates/report.html` `#game-review` + `renderGameReview()` JS (dedicated **Game Review** category tab)
+5. Charts? `presentation/graphs.py` → `game_gold_timeline`
+6. Chatbot? `analysis/game_review/export.py` → `build_export_summary()` `recent_games` key
+7. Config? `GAME_REVIEW_*` in `core/config.py`
+
+Game Review is **orthogonal** to the game-window toggle — it follows the queue filter only.
+
 ## Icons
 
 - Iconify keys in `presentation/ui_icons.py` → `ICONIFY_ICONS`
 - Local PNG assets via `DDragonAssets.ui_icon_href` → `ICON_ASSET_FILES`
+- Summoner spells → `output/assets/summoners/{SpellName}.png`
+- Rune style trees → `output/assets/rune_trees/{TreeName}.png` (Precision, Domination, …)
 
 ## Security
 

@@ -11,7 +11,12 @@ from league_stats.core.champions import player_slug
 from league_stats.core.config import AppConfig
 from league_stats.cli.app import run_analysis
 from league_stats.core.models import MatchRecord, PeerComparisonResult, RankedEntry
-from league_stats.presentation.report import discover_reports, group_reports_by_player, refresh_report_indexes
+from league_stats.presentation.report import (
+    discover_reports,
+    enrich_index_report,
+    group_reports_by_player,
+    refresh_report_indexes,
+)
 from tests.fixtures import FAKE_ITEMS, MY_PUUID, make_match, make_timeline
 from league_stats.ingest.parser import ItemCatalog, MatchParser
 
@@ -132,12 +137,13 @@ def test_refresh_index_lists_all_reports(tmp_path: Path) -> None:
     assert "Viktor mid" in html or "Viktor" in html
     assert "Ahri" in html
     assert "reports/" in html
-    assert "player-group" in html
-    assert 'class="sortable"' in html
+    assert "player-card" in html
+    assert "build-grid--catalog" in html
+    assert 'id="build-catalog"' in html
 
 
 def test_group_reports_by_player(tmp_path: Path) -> None:
-    """Reports are grouped by player with hub links and default build order."""
+    """Reports are grouped by player with default build links and games-based order."""
     reports = [
         {
             "player": "Beta#EUW",
@@ -167,8 +173,9 @@ def test_group_reports_by_player(tmp_path: Path) -> None:
             "href": "reports/beta_euw/viktor_top/report.html",
         },
     ]
-    groups = group_reports_by_player(reports)
-    assert [group["player"] for group in groups] == ["Alpha#EUW", "Beta#EUW"]
-    assert groups[1]["hub_href"] == "reports/beta_euw/index.html"
-    assert groups[1]["build_count"] == 2
-    assert [build["champion"] for build in groups[1]["reports"]] == ["Ahri", "Viktor"]
+    enriched = [enrich_index_report(dict(report)) for report in reports]
+    groups = group_reports_by_player(enriched)
+    assert [group["player"] for group in groups] == ["Beta#EUW", "Alpha#EUW"]
+    assert groups[0]["default_href"] == "reports/beta_euw/ahri_middle/report.html"
+    assert groups[0]["build_count"] == 2
+    assert [build["champion"] for build in groups[0]["reports"]] == ["Ahri", "Viktor"]

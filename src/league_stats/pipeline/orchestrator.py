@@ -23,7 +23,7 @@ from league_stats.core.config import (
     RANKED_SOLO_QUEUE_ID,
     AppConfig,
 )
-from league_stats.core.models import MatchRecord, PeerComparisonResult, ProgressionComparison, RankedEntry
+from league_stats.core.models import MatchRecord, PeerComparisonResult, ProgressionComparison, RankedEntry, GameReviewPayload, GameReviewQueueBundle
 from league_stats.infra.ddragon_assets import DDragonAssets
 from league_stats.infra.riot_api import RiotApiClient
 from league_stats.ingest.parser import discover_build_pools
@@ -45,6 +45,7 @@ from league_stats.pipeline.progression import (
     progression_to_template_context,
     write_progression_exports,
 )
+from league_stats.pipeline.game_review import build_game_review_views, game_review_to_template_context
 from league_stats.pipeline.services import PlayerContext, Services
 from league_stats.pipeline.summaries import (
     build_domain_summaries,
@@ -74,6 +75,7 @@ def write_full_exports(
     ranked: RankedEntry | None,
     frames=None,
     report_stats=None,
+    game_review: GameReviewPayload | None = None,
 ) -> dict[str, Any]:
     """Write CSV/JSON exports from the full (all games) dataset."""
     analysis_frames = frames or build_analysis_frames(records)
@@ -88,6 +90,7 @@ def write_full_exports(
         peer_comparison=peer_comparison,
         ranked=ranked,
         records_count=len(records),
+        game_review=game_review,
     )
 
     matchups_export = analysis_frames.matchups_df.copy()
@@ -161,6 +164,15 @@ def run_analysis(
 
     full_frames = build_analysis_frames(records)
     report_stats = compute_report_stats(full_frames, run_dir)
+    game_review = build_game_review_views(
+        config,
+        records,
+        full_frames,
+        peer_comparison,
+        graphs_dir=graphs_dir,
+        assets=asset_catalog,
+        from_dir=run_dir,
+    )
 
     summary = write_full_exports(
         config,
@@ -170,6 +182,7 @@ def run_analysis(
         ranked=ranked,
         frames=full_frames,
         report_stats=report_stats,
+        game_review=game_review,
     )
     GraphFactory(graphs_dir).death_heatmap_png(deaths_dataframe(records))
 
@@ -228,6 +241,12 @@ def run_analysis(
         progression_comparison = ProgressionComparison.model_validate(default_progression["comparison"])
     write_progression_exports(run_dir, progression_comparison)
 
+    default_game_review = game_review.queues.get(default_queue) or game_review.queues.get("all")
+    game_review_views = {
+        queue_key: bundle.model_dump()
+        for queue_key, bundle in game_review.queues.items()
+    }
+
     context: dict[str, Any] = {
         **brand_context(from_dir=run_dir, output_dir=config.output_dir),
         "build_label": config.build_label,
@@ -246,6 +265,7 @@ def run_analysis(
         "report_views_json": serialize_report_views_json(report_views),
         "progression_views_json": serialize_report_views_json(progression_views),
         "progression_default": default_preset,
+        "game_review_json": serialize_report_views_json(game_review_views),
         "chatbot_stats": summary,
         "gemini_api_key": config.gemini_api_key,
     }
@@ -253,6 +273,17 @@ def run_analysis(
         bundle_to_template_context(default_bundle, peer_comparison=default_peer)
     )
     context.update(progression_to_template_context(default_progression))
+    if default_game_review is not None:
+        context.update(
+            game_review_to_template_context(default_game_review, recent_n=game_review.recent_n)
+        )
+    else:
+        context.update(
+            game_review_to_template_context(
+                GameReviewQueueBundle(available=False, games_count=0),
+                recent_n=game_review.recent_n,
+            )
+        )
     if player_builds:
         context["player_builds"] = build_player_builds_nav(
             player_builds,

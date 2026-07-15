@@ -2,6 +2,7 @@
   --bg: #0f1118; --panel: #171a24; --panel-2: #1e2230; --border: #2a2f40;
   --text: #e8eaf2; --muted: #9aa0b5; --accent: #7c6cf0; --win: #3fb68b; --loss: #e05563;
   --cat-performance: #e0b155;
+  --cat-games: #6ec9a8;
   --cat-laning: #4db8c4;
   --cat-impact: #e8784a;
   --cat-champion: #b48cff;
@@ -58,6 +59,7 @@ nav h1 { font-size: 18px; padding: 0 20px 16px; color: var(--accent); }
 .nav-link.is-active { color: var(--text); background: var(--panel-2); border-left-color: var(--accent); }
 .nav-link-icon { width: 15px; height: 15px; flex-shrink: 0; opacity: .85; }
 .nav-group--performance .nav-link.is-active { border-left-color: var(--cat-performance); }
+.nav-group--games .nav-link.is-active { border-left-color: var(--cat-games); }
 .nav-group--laning .nav-link.is-active { border-left-color: var(--cat-laning); }
 .nav-group--impact .nav-link.is-active { border-left-color: var(--cat-impact); }
 .nav-group--champion .nav-link.is-active { border-left-color: var(--cat-champion); }
@@ -77,6 +79,7 @@ section { margin-bottom: 56px; scroll-margin-top: var(--report-sticky-offset); }
 .report-section { border-radius: 12px; padding: 4px 0 8px; }
 .rec[id] { scroll-margin-top: var(--report-sticky-offset); }
 .report-section--performance { background: linear-gradient(180deg, rgba(224, 177, 85, 0.04) 0%, transparent 120px); }
+.report-section--games { background: linear-gradient(180deg, rgba(110, 201, 168, 0.04) 0%, transparent 120px); }
 .report-section--laning { background: linear-gradient(180deg, rgba(77, 184, 196, 0.04) 0%, transparent 120px); }
 .report-section--impact { background: linear-gradient(180deg, rgba(232, 120, 74, 0.04) 0%, transparent 120px); }
 .report-section--champion { background: linear-gradient(180deg, rgba(180, 140, 255, 0.04) 0%, transparent 120px); }
@@ -91,11 +94,13 @@ section { margin-bottom: 56px; scroll-margin-top: var(--report-sticky-offset); }
 }
 .category-divider::after { content: ""; flex: 1; height: 1px; background: var(--border); opacity: .6; }
 .category-divider--performance .category-divider-label { color: var(--cat-performance); }
+.category-divider--games .category-divider-label { color: var(--cat-games); }
 .category-divider--laning .category-divider-label { color: var(--cat-laning); }
 .category-divider--impact .category-divider-label { color: var(--cat-impact); }
 .category-divider--champion .category-divider-label { color: var(--cat-champion); }
 .category-divider--analysis .category-divider-label { color: var(--cat-analysis); }
 .section-title--performance { border-left: 3px solid var(--cat-performance); padding-left: 12px; }
+.section-title--games { border-left: 3px solid var(--cat-games); padding-left: 12px; }
 .section-title--laning { border-left: 3px solid var(--cat-laning); padding-left: 12px; }
 .section-title--impact { border-left: 3px solid var(--cat-impact); padding-left: 12px; }
 .section-title--champion { border-left: 3px solid var(--cat-champion); padding-left: 12px; }
@@ -455,6 +460,7 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
   border-bottom-color: var(--accent);
 }
 .report-tab--performance.is-active { border-bottom-color: var(--cat-performance); }
+.report-tab--games.is-active { border-bottom-color: var(--cat-games); }
 .report-tab--laning.is-active { border-bottom-color: var(--cat-laning); }
 .report-tab--impact.is-active { border-bottom-color: var(--cat-impact); }
 .report-tab--champion.is-active { border-bottom-color: var(--cat-champion); }
@@ -463,6 +469,7 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
 .report-category-panel.is-active { display: block; }
 .nav-group.is-category-active .nav-group-label { color: var(--text); }
 .nav-group--performance.is-category-active .nav-group-label { color: var(--cat-performance); }
+.nav-group--games.is-category-active .nav-group-label { color: var(--cat-games); }
 .nav-group--laning.is-category-active .nav-group-label { color: var(--cat-laning); }
 .nav-group--impact.is-category-active .nav-group-label { color: var(--cat-impact); }
 .nav-group--champion.is-category-active .nav-group-label { color: var(--cat-champion); }
@@ -537,4 +544,66 @@ footer { color: var(--muted); font-size: 13px; padding: 24px 0; border-top: 1px 
 .form-empty { padding: 24px; color: var(--muted); background: var(--panel-2); border-radius: 12px; border: 1px dashed var(--border); }
 @media (max-width: 860px) {
   .form-hero, .form-movers { grid-template-columns: 1fr; }
+}
+
+.game-review-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+.game-review-row {
+  display: grid; grid-template-columns: 36px 140px 1fr 80px 90px 1fr 1fr; gap: 12px; align-items: center;
+  width: 100%; text-align: left; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--border);
+  background: var(--panel-2); color: var(--text); cursor: pointer;
+}
+.game-review-icons { display: inline-flex; align-items: center; gap: 6px; }
+.game-review-vs { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.game-review-matchup { margin-bottom: 16px; }
+.game-review-matchup-inner {
+  display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-radius: 12px;
+  border: 1px solid var(--border); background: var(--panel-2);
+}
+.game-review-matchup-vs { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; }
+.game-review-matchup-meta { margin-left: auto; font-size: 13px; color: var(--muted); text-align: right; }
+.game-review-keystone { margin-top: 10px; display: flex; justify-content: center; }
+.game-review-runes,
+.game-review-summoners {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.game-review-rune-sep,
+.game-review-summoner-sep {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.game-review-runes .icon-cell,
+.game-review-summoners .icon-cell {
+  gap: 6px;
+}
+.game-review-runes .game-icon,
+.game-review-summoners .game-icon {
+  width: 28px;
+  height: 28px;
+}
+.game-review-row.is-selected { border-color: var(--accent); box-shadow: 0 0 0 1px rgba(124, 108, 240, 0.35); }
+.game-review-result { font-weight: 700; text-align: center; border-radius: 8px; padding: 4px 0; }
+.game-review-result--win { color: var(--win); background: rgba(63, 182, 139, 0.12); }
+.game-review-result--loss { color: var(--loss); background: rgba(224, 85, 99, 0.12); }
+.game-review-meta, .game-review-flags { font-size: 13px; color: var(--muted); }
+.game-review-kda, .game-review-score, .game-review-archetype { font-size: 14px; font-weight: 600; }
+.game-review-detail { margin-top: 8px; }
+.game-review-score-hero { display: grid; grid-template-columns: 220px 1fr; gap: 16px; margin-bottom: 16px; }
+.game-review-behaviors, .game-review-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+.game-review-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.game-review-tab {
+  border: 1px solid var(--border); background: var(--panel-2); color: var(--text);
+  border-radius: 999px; padding: 8px 14px; cursor: pointer; font-size: 13px;
+}
+.game-review-tab.is-active { border-color: var(--accent); color: var(--accent); }
+.game-score-bars { display: grid; gap: 10px; }
+.game-score-bar-label { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px; color: var(--muted); }
+.game-score-bar-track { height: 8px; border-radius: 999px; background: var(--panel); overflow: hidden; }
+.game-score-bar-fill { height: 100%; background: linear-gradient(90deg, var(--loss), var(--neutral, #c4aa6a), var(--win)); border-radius: 999px; }
+@media (max-width: 860px) {
+  .game-review-row { grid-template-columns: 1fr; gap: 6px; }
+  .game-review-score-hero, .game-review-behaviors, .game-review-compare { grid-template-columns: 1fr; }
 }

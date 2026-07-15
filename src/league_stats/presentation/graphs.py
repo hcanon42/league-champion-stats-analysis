@@ -586,3 +586,46 @@ class GraphFactory:
             height=max(320, 28 * len(labels)),
         )
         return _div(fig)
+
+    def game_gold_timeline(
+        self,
+        timeline_points: list[dict[str, float]],
+        death_minutes: list[float],
+    ) -> str:
+        """Gold, XP, and CS curves for one game with death markers."""
+        if not timeline_points:
+            return _div(go.Figure().update_layout(title="Game timeline (unavailable)"))
+        minutes = [point.get("minute", 0) for point in timeline_points]
+        fig = go.Figure()
+        fig.add_scatter(
+            x=minutes,
+            y=[point.get("gold", 0) for point in timeline_points],
+            mode="lines",
+            name="Gold",
+            line=dict(color=ACCENT, width=2),
+        )
+        fig.add_scatter(
+            x=minutes,
+            y=[point.get("xp", 0) for point in timeline_points],
+            mode="lines",
+            name="XP",
+            line=dict(color=WIN_COLOR, width=2),
+            visible="legendonly",
+        )
+        fig.add_scatter(
+            x=minutes,
+            y=[point.get("cs", 0) for point in timeline_points],
+            mode="lines",
+            name="CS",
+            line=dict(color=NEUTRAL_HEX, width=2),
+            visible="legendonly",
+        )
+        for minute in death_minutes:
+            fig.add_vline(x=minute, line_color=LOSS_COLOR, line_dash="dot", line_width=1)
+        fig.update_layout(
+            title="Gold timeline (death markers in red)",
+            xaxis_title="Minute",
+            yaxis_title="Gold",
+            height=360,
+        )
+        return _div(fig)

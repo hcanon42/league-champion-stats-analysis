@@ -24,7 +24,7 @@ from league_stats.analysis.teamfights import teamfight_summary
 from league_stats.analysis.vision import vision_summary
 from league_stats.core.config import AppConfig
 from league_stats.core.role_metrics import role_profile
-from league_stats.core.models import MatchRecord, PeerComparisonResult, RankedEntry, Recommendation
+from league_stats.core.models import MatchRecord, PeerComparisonResult, RankedEntry, Recommendation, GameReviewPayload
 from league_stats.pipeline.frames import AnalysisFrames, build_overview
 
 
@@ -116,6 +116,7 @@ def build_export_summary(
     peer_comparison: PeerComparisonResult | None,
     ranked: RankedEntry | None,
     records_count: int,
+    game_review: GameReviewPayload | None = None,
 ) -> dict[str, Any]:
     """Build the machine-readable summary embedded in exports and the chatbot."""
     summary: dict[str, Any] = {
@@ -156,4 +157,8 @@ def build_export_summary(
         }
     if peer_comparison is not None:
         summary["peer_comparison"] = peer_comparison.model_dump()
+    if game_review is not None:
+        from league_stats.analysis.game_review.export import game_review_chatbot_export
+
+        summary["recent_games"] = game_review_chatbot_export(game_review, queue_key="all")
     return summary

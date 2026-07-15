@@ -619,3 +619,133 @@ class ProgressionComparison(BaseModel):
     top_regressed: list[MetricDelta] = Field(default_factory=list)
     behavioral_shifts: list[str] = Field(default_factory=list)
     recommendations: list[Recommendation] = Field(default_factory=list)
+
+
+class GameScoreBreakdown(BaseModel):
+    """Per-game score across role-aware dimensions (0–100 each)."""
+
+    overall: int
+    tier: str
+    laning: int
+    survival: int
+    impact: int
+    vision: int
+    objectives: int
+    economy: int
+
+
+class GameBehavior(BaseModel):
+    """One positive or negative per-game coaching bullet."""
+
+    tone: Literal["positive", "negative"]
+    title: str
+    detail: str
+    anchor: str | None = None
+
+
+class GameComparisonRow(BaseModel):
+    """One metric compared for a single game."""
+
+    metric: str
+    label: str
+    game_value: float
+    benchmark_value: float
+    delta: float
+    verdict: str
+
+
+class GameDeathRow(BaseModel):
+    """One death event in a game review detail panel."""
+
+    minute: float
+    zone: str
+    killer: str | None
+    killer_icon: str | None = None
+    flags: list[str] = Field(default_factory=list)
+
+
+class GameFightRow(BaseModel):
+    """One teamfight the player participated in."""
+
+    start_minute: float
+    kills: int
+    deaths: int
+    assists: int
+    damage: int
+    fight_won: bool
+    manpower_advantage: int | None = None
+
+
+class GameObjectiveRow(BaseModel):
+    """One epic objective spawn and player presence."""
+
+    kind: str
+    minute: float
+    present: bool
+    dead_before: bool
+    wards_before: int
+    objective_icon: str | None = None
+
+
+class GameBuildInfo(BaseModel):
+    """Build snapshot for one game."""
+
+    keystone: str
+    primary_tree: str = ""
+    secondary_tree: str
+    summoners: list[str] = Field(default_factory=list)
+    skill_order: str = ""
+    items: list[str] = Field(default_factory=list)
+    keystone_icon: str | None = None
+    primary_tree_icon: str | None = None
+    secondary_tree_icon: str | None = None
+    summoner_icons: list[str | None] = Field(default_factory=list)
+    item_icons: list[str | None] = Field(default_factory=list)
+
+
+class GameDetail(BaseModel):
+    """Full deep-dive payload for one ranked game."""
+
+    match_id: str
+    index: int
+    date: str
+    queue: str
+    result: Literal["win", "loss"]
+    duration_min: float
+    patch: str
+    opponent: str
+    side: str
+    kda: str
+    archetype: str
+    champion_icon: str | None = None
+    opponent_icon: str | None = None
+    score: GameScoreBreakdown
+    behaviors_good: list[GameBehavior] = Field(default_factory=list)
+    behaviors_bad: list[GameBehavior] = Field(default_factory=list)
+    vs_baseline: list[GameComparisonRow] = Field(default_factory=list)
+    vs_peers: list[GameComparisonRow] = Field(default_factory=list)
+    key_stats: dict[str, float | int | None] = Field(default_factory=dict)
+    deaths: list[GameDeathRow] = Field(default_factory=list)
+    fights: list[GameFightRow] = Field(default_factory=list)
+    objectives: list[GameObjectiveRow] = Field(default_factory=list)
+    build: GameBuildInfo
+    timeline: list[dict[str, float]] = Field(default_factory=list)
+    timeline_figure: str = ""
+    ai_recap: str | None = None
+
+
+class GameReviewQueueBundle(BaseModel):
+    """Last-N games for one queue filter."""
+
+    available: bool
+    games_count: int
+    games: list[GameDetail] = Field(default_factory=list)
+
+
+class GameReviewPayload(BaseModel):
+    """Per-queue game review bundles embedded in the report."""
+
+    recent_n: int = 5
+    baseline_m: int = 80
+    scoring: Literal["personal"] = "personal"
+    queues: dict[str, GameReviewQueueBundle] = Field(default_factory=dict)

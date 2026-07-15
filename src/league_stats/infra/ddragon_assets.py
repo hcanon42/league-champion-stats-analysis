@@ -82,6 +82,8 @@ class DDragonAssets:
         self._assets_root = config.output_dir / "assets"
         self._champions_dir = self._assets_root / "champions"
         self._runes_dir = self._assets_root / "runes"
+        self._rune_trees_dir = self._assets_root / "rune_trees"
+        self._summoners_dir = self._assets_root / "summoners"
         self._items_dir = self._assets_root / "items"
         self._roles_dir = self._assets_root / "roles"
         self._ui_dir = self._assets_root / "ui"
@@ -100,7 +102,7 @@ class DDragonAssets:
 
     @property
     def assets_root(self) -> Path:
-        """Root directory containing ``champions/``, ``runes/``, ``items/`` and ``roles/``."""
+        """Root directory containing ``champions/``, ``runes/``, ``rune_trees/``, ``summoners/``, ``items/`` and ``roles/``."""
         return self._assets_root
 
     def _roles_cached(self) -> bool:
@@ -117,6 +119,8 @@ class DDragonAssets:
         self._assets_root.mkdir(parents=True, exist_ok=True)
         self._champions_dir.mkdir(parents=True, exist_ok=True)
         self._runes_dir.mkdir(parents=True, exist_ok=True)
+        self._rune_trees_dir.mkdir(parents=True, exist_ok=True)
+        self._summoners_dir.mkdir(parents=True, exist_ok=True)
         self._items_dir.mkdir(parents=True, exist_ok=True)
         self._roles_dir.mkdir(parents=True, exist_ok=True)
         self._ui_dir.mkdir(parents=True, exist_ok=True)
@@ -125,6 +129,8 @@ class DDragonAssets:
         self._ensure_role_icons(force=force)
         self._ensure_ui_icons(force=force)
         self._ensure_objective_icons(force=force)
+        self._ensure_summoner_icons(force=force)
+        self._ensure_rune_tree_icons(force=force)
 
         manifest = self._read_manifest()
         if (
@@ -188,6 +194,8 @@ class DDragonAssets:
         self._download_champion_icons(version, champions, force=force)
         self._download_rune_icons(version, rune_icons, force=force)
         self._download_item_icons(version, items, force=force)
+        self._download_summoner_icons(version, self._fetch_summoner_icons(version), force=force)
+        self._download_rune_tree_icons(version, self._fetch_rune_tree_icons(version), force=force)
 
         self._item_name_to_id = {
             str(data.get("name", "")): int(item_id)
@@ -201,6 +209,8 @@ class DDragonAssets:
             "keystones": len(rune_icons),
             "items": len(items),
             "roles": len(ROLE_ICON_FILES),
+            "summoners": len(list(self._summoners_dir.glob("*.png"))) if self._summoners_dir.is_dir() else 0,
+            "rune_trees": len(list(self._rune_trees_dir.glob("*.png"))) if self._rune_trees_dir.is_dir() else 0,
             "item_names": self._item_name_to_id,
         }
         self._manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
@@ -225,6 +235,22 @@ class DDragonAssets:
         if perk_id is None:
             return None
         path = self._runes_dir / f"{perk_id}.png"
+        return path if path.is_file() else None
+
+    def rune_tree_icon_path(self, tree_name: str) -> Path | None:
+        """Return the on-disk rune style tree icon path when it exists."""
+        normalized = tree_name.strip()
+        if not normalized:
+            return None
+        path = self._rune_trees_dir / f"{normalized}.png"
+        return path if path.is_file() else None
+
+    def summoner_icon_path(self, spell_name: str) -> Path | None:
+        """Return the on-disk summoner spell icon path when it exists."""
+        normalized = spell_name.strip()
+        if not normalized:
+            return None
+        path = self._summoners_dir / f"{normalized}.png"
         return path if path.is_file() else None
 
     def item_icon_path(self, item_id: int) -> Path | None:
@@ -325,12 +351,30 @@ class DDragonAssets:
             return None
         return _relative_href(from_dir, path)
 
+    def rune_tree_href(self, tree_name: str, *, from_dir: Path) -> str | None:
+        """Relative URL from an HTML directory to a rune style tree icon."""
+        path = self.rune_tree_icon_path(tree_name)
+        if path is None:
+            return None
+        return _relative_href(from_dir, path)
+
+    def summoner_href(self, spell_name: str, *, from_dir: Path) -> str | None:
+        """Relative URL from an HTML directory to a summoner spell icon."""
+        path = self.summoner_icon_path(spell_name)
+        if path is None:
+            return None
+        return _relative_href(from_dir, path)
+
     def enrich_rune_rows(self, rows: list[dict[str, Any]], *, from_dir: Path) -> list[dict[str, Any]]:
-        """Attach ``keystone_icon`` hrefs to rune table rows."""
+        """Attach ``keystone_icon`` and ``secondary_tree_icon`` hrefs to rune table rows."""
         enriched: list[dict[str, Any]] = []
         for row in rows:
             item = dict(row)
             item["keystone_icon"] = self.keystone_href(str(row.get("keystone", "")), from_dir=from_dir)
+            item["secondary_tree_icon"] = self.rune_tree_href(
+                str(row.get("secondary_tree", "")),
+                from_dir=from_dir,
+            )
             enriched.append(item)
         return enriched
 
@@ -393,6 +437,35 @@ class DDragonAssets:
                     icons[rune_id] = str(rune["icon"])
         return icons
 
+    def _fetch_rune_tree_icons(self, version: str) -> dict[str, str]:
+        response = self._session.get(
+            f"{DDRAGON_BASE}/cdn/{version}/data/en_US/runesReforged.json",
+            timeout=15,
+        )
+        response.raise_for_status()
+        icons: dict[str, str] = {}
+        for style in response.json():
+            tree_name = str(style.get("key", "")).strip()
+            icon_path = style.get("icon")
+            if tree_name and icon_path:
+                icons[tree_name] = str(icon_path)
+        return icons
+
+    def _fetch_summoner_icons(self, version: str) -> dict[str, str]:
+        response = self._session.get(
+            f"{DDRAGON_BASE}/cdn/{version}/data/en_US/summoner.json",
+            timeout=15,
+        )
+        response.raise_for_status()
+        icons: dict[str, str] = {}
+        for data in response.json()["data"].values():
+            spell_name = str(data.get("name", "")).strip()
+            image = data.get("image") or {}
+            filename = str(image.get("full", "")).strip()
+            if spell_name and filename:
+                icons[spell_name] = filename
+        return icons
+
     def _fetch_items(self, version: str) -> dict[int, dict[str, Any]]:
         response = self._session.get(
             f"{DDRAGON_BASE}/cdn/{version}/data/en_US/item.json",
@@ -430,6 +503,34 @@ class DDragonAssets:
             if destination.is_file() and not force:
                 continue
             url = f"{DDRAGON_BASE}/cdn/img/{icon_path}"
+            self._download_binary(url, destination)
+
+    def _download_rune_tree_icons(
+        self,
+        version: str,
+        tree_icons: dict[str, str],
+        *,
+        force: bool,
+    ) -> None:
+        for tree_name, icon_path in tqdm(tree_icons.items(), desc="Rune tree icons", unit="icon"):
+            destination = self._rune_trees_dir / f"{tree_name}.png"
+            if destination.is_file() and not force:
+                continue
+            url = f"{DDRAGON_BASE}/cdn/img/{icon_path}"
+            self._download_binary(url, destination)
+
+    def _download_summoner_icons(
+        self,
+        version: str,
+        spell_icons: dict[str, str],
+        *,
+        force: bool,
+    ) -> None:
+        for spell_name, filename in tqdm(spell_icons.items(), desc="Summoner icons", unit="icon"):
+            destination = self._summoners_dir / f"{spell_name}.png"
+            if destination.is_file() and not force:
+                continue
+            url = f"{DDRAGON_BASE}/cdn/{version}/img/spell/{filename}"
             self._download_binary(url, destination)
 
     def _download_item_icons(
@@ -493,6 +594,53 @@ class DDragonAssets:
             ):
                 continue
             self._download_binary(url, destination)
+
+    def _summoners_cached(self) -> bool:
+        return self._summoners_dir.is_dir() and any(self._summoners_dir.glob("*.png"))
+
+    def _rune_trees_cached(self) -> bool:
+        return self._rune_trees_dir.is_dir() and any(self._rune_trees_dir.glob("*.png"))
+
+    def _ensure_summoner_icons(self, *, force: bool = False) -> None:
+        if self._summoners_cached() and not force:
+            return
+        version = self._resolve_asset_version()
+        if not version:
+            return
+        try:
+            spell_icons = self._fetch_summoner_icons(version)
+        except requests.RequestException as exc:
+            self._log.warning("Could not download summoner spell icons: %s", exc)
+            return
+        self._download_summoner_icons(version, spell_icons, force=force)
+
+    def _ensure_rune_tree_icons(self, *, force: bool = False) -> None:
+        if self._rune_trees_cached() and not force:
+            return
+        version = self._resolve_asset_version()
+        if not version:
+            return
+        try:
+            tree_icons = self._fetch_rune_tree_icons(version)
+        except requests.RequestException as exc:
+            self._log.warning("Could not download rune tree icons: %s", exc)
+            return
+        self._download_rune_tree_icons(version, tree_icons, force=force)
+
+    def _resolve_asset_version(self) -> str:
+        if self._version:
+            return self._version
+        manifest = self._read_manifest()
+        cached = str(manifest.get("version", "")).strip()
+        if cached:
+            self._version = cached
+            return cached
+        try:
+            version = self._fetch_latest_version()
+        except requests.RequestException:
+            return ""
+        self._version = version
+        return version
 
     def _download_binary(self, url: str, destination: Path) -> None:
         try:
