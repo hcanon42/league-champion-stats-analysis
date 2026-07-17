@@ -97,13 +97,21 @@ class MetricSpec:
 
 
 @dataclass(frozen=True)
+class ScoreMetricSpec:
+    """One ingredient inside a category improvement score."""
+
+    column: str
+    weight: float = 1.0
+    direction: MetricDirection = "higher"
+
+
+@dataclass(frozen=True)
 class ScoreSpec:
-    """One improvement-score dimension."""
+    """One improvement-score category (composite of lane-relevant metrics)."""
 
     name: str
-    column: str
     hint: str
-    value_fmt: str  # format string with one `{v}` placeholder
+    metrics: tuple[ScoreMetricSpec, ...]
 
 
 @dataclass(frozen=True)
@@ -223,13 +231,53 @@ def _standard_teamfights() -> tuple[MetricSpec, ...]:
 
 def _laner_score() -> tuple[ScoreSpec, ...]:
     return (
-        ScoreSpec("Laning", "gd10", "Average gold diff vs lane opponent at 10 min", "{v:+.0f} gold @10"),
-        ScoreSpec("Farming", "cs10", "Role benchmark band for CS @10", "{v:.0f} CS @10"),
-        ScoreSpec("Survival", "deaths", "Fewer deaths score higher", "{v:.1f} deaths/game"),
-        ScoreSpec("Damage", "damage_share", "Share of team damage to champions", "{v:.0%} team damage"),
-        ScoreSpec("Vision", "vspm", "Vision score per minute", "{v:.2f} VS/min"),
-        ScoreSpec("Objectives", "objectives_present_rate", "Presence at epic monster takes", "{v:.0%} presence"),
-        ScoreSpec("Resets", "avg_unspent_gold", "Gold banked before recalls", "{v:.0f}g banked"),
+        ScoreSpec(
+            "Laning",
+            "Gold/CS diff @10 and early-lane deaths",
+            (
+                ScoreMetricSpec("gd10", 1.0),
+                ScoreMetricSpec("csd10", 0.75),
+                ScoreMetricSpec("deaths_pre14", 0.75, "lower"),
+            ),
+        ),
+        ScoreSpec(
+            "Economy",
+            "CS @10, gold share, gold usage before recalls, and first-item timing",
+            (
+                ScoreMetricSpec("cs10", 1.0),
+                ScoreMetricSpec("gold_share", 0.85),
+                ScoreMetricSpec("avg_unspent_gold", 0.85, "lower"),
+                ScoreMetricSpec("first_item_min", 0.85, "lower"),
+            ),
+        ),
+        ScoreSpec(
+            "Fight",
+            "Damage/CC share, kill participation, and fight presence/win rate",
+            (
+                ScoreMetricSpec("damage_share", 1.15),
+                ScoreMetricSpec("kill_participation", 1.0),
+                ScoreMetricSpec("tf_participation", 0.55),
+                ScoreMetricSpec("tf_won_share", 0.55),
+            ),
+        ),
+        ScoreSpec(
+            "Survival",
+            "Fewer deaths score higher",
+            (ScoreMetricSpec("deaths", 1.0, "lower"),),
+        ),
+        ScoreSpec(
+            "Vision",
+            "Vision score per minute and control-ward buys",
+            (
+                ScoreMetricSpec("vspm", 1.0),
+                ScoreMetricSpec("control_wards", 0.7),
+            ),
+        ),
+        ScoreSpec(
+            "Objectives",
+            "Presence at epic monster takes",
+            (ScoreMetricSpec("objectives_present_rate", 1.0),),
+        ),
     )
 
 
@@ -315,13 +363,52 @@ def _jungle_teamfights() -> tuple[MetricSpec, ...]:
 
 def _jungle_score() -> tuple[ScoreSpec, ...]:
     return (
-        ScoreSpec("Map control", "objectives_present_rate", "Presence at epic monster takes", "{v:.0%} presence"),
-        ScoreSpec("Clear @10", "cs10", "Jungle clear speed at 10 minutes", "{v:.0f} CS @10"),
-        ScoreSpec("Survival", "deaths", "Fewer deaths score higher", "{v:.1f} deaths/game"),
-        ScoreSpec("Impact", "kill_participation", "Share of team kills and assists", "{v:.0%} KP"),
-        ScoreSpec("Vision", "vspm", "Vision score per minute", "{v:.2f} VS/min"),
-        ScoreSpec("Early ganks", "early_ganks", "Successful early gank pressure", "{v:.1f} early ganks"),
-        ScoreSpec("Resets", "avg_unspent_gold", "Gold banked before recalls", "{v:.0f}g banked"),
+        ScoreSpec(
+            "Early game",
+            "Clear speed @10, early ganks, and pre-14 deaths",
+            (
+                ScoreMetricSpec("cs10", 1.0),
+                ScoreMetricSpec("early_ganks", 1.0),
+                ScoreMetricSpec("deaths_pre14", 0.75, "lower"),
+            ),
+        ),
+        ScoreSpec(
+            "Economy",
+            "Gold share, gold usage before recalls, and first-item timing",
+            (
+                ScoreMetricSpec("gold_share", 1.0),
+                ScoreMetricSpec("avg_unspent_gold", 0.85, "lower"),
+                ScoreMetricSpec("first_item_min", 0.85, "lower"),
+            ),
+        ),
+        ScoreSpec(
+            "Fight",
+            "Kill participation, damage share, and fight presence/win rate",
+            (
+                ScoreMetricSpec("kill_participation", 1.15),
+                ScoreMetricSpec("damage_share", 0.85),
+                ScoreMetricSpec("tf_participation", 0.55),
+                ScoreMetricSpec("tf_won_share", 0.55),
+            ),
+        ),
+        ScoreSpec(
+            "Survival",
+            "Fewer deaths score higher",
+            (ScoreMetricSpec("deaths", 1.0, "lower"),),
+        ),
+        ScoreSpec(
+            "Vision",
+            "Vision score per minute and control-ward buys",
+            (
+                ScoreMetricSpec("vspm", 1.0),
+                ScoreMetricSpec("control_wards", 0.7),
+            ),
+        ),
+        ScoreSpec(
+            "Objectives",
+            "Presence at epic monster takes",
+            (ScoreMetricSpec("objectives_present_rate", 1.0),),
+        ),
     )
 
 
@@ -416,17 +503,60 @@ def _utility_teamfights() -> tuple[MetricSpec, ...]:
 def _utility_score() -> tuple[ScoreSpec, ...]:
     return (
         ScoreSpec(
-            "Utility",
-            "utility_impact",
-            "CC, poke damage, damage taken, healing and shielding to allies",
-            "{v}",
+            "Setup",
+            "Early roams, bot-lane presence, and pre-14 deaths",
+            (
+                ScoreMetricSpec("roams_pre15", 1.0),
+                ScoreMetricSpec("lane_priority", 0.75),
+                ScoreMetricSpec("deaths_pre14", 0.75, "lower"),
+            ),
         ),
-        ScoreSpec("Vision", "vspm", "Vision score per minute", "{v:.2f} VS/min"),
-        ScoreSpec("Impact", "kill_participation", "Share of team kills and assists", "{v:.0%} KP"),
-        ScoreSpec("Setup", "roams_pre15", "Early roams and map presence", "{v:.1f} roams pre-15"),
-        ScoreSpec("Survival", "deaths", "Fewer deaths score higher", "{v:.1f} deaths/game"),
-        ScoreSpec("Objectives", "objectives_present_rate", "Presence at epic monster takes", "{v:.0%} presence"),
-        ScoreSpec("Resets", "avg_unspent_gold", "Gold banked before recalls", "{v:.0f}g banked"),
+        ScoreSpec(
+            "Utility",
+            "CC, poke damage, damage taken, healing and shielding to allies",
+            (
+                ScoreMetricSpec("ccpm", 0.3),
+                ScoreMetricSpec("damage_share", 0.15),
+                ScoreMetricSpec("damage_taken_share", 0.15),
+                ScoreMetricSpec("hpm", 0.275),
+                ScoreMetricSpec("spm", 0.275),
+            ),
+        ),
+        ScoreSpec(
+            "Economy",
+            "Gold share and gold usage before recalls",
+            (
+                ScoreMetricSpec("gold_share", 1.0),
+                ScoreMetricSpec("avg_unspent_gold", 1.0, "lower"),
+            ),
+        ),
+        ScoreSpec(
+            "Fight",
+            "Kill participation, fight presence, and fight win rate",
+            (
+                ScoreMetricSpec("kill_participation", 1.15),
+                ScoreMetricSpec("tf_participation", 0.7),
+                ScoreMetricSpec("tf_won_share", 0.7),
+            ),
+        ),
+        ScoreSpec(
+            "Survival",
+            "Fewer deaths score higher",
+            (ScoreMetricSpec("deaths", 1.0, "lower"),),
+        ),
+        ScoreSpec(
+            "Vision",
+            "Vision score per minute and control-ward buys",
+            (
+                ScoreMetricSpec("vspm", 1.0),
+                ScoreMetricSpec("control_wards", 0.85),
+            ),
+        ),
+        ScoreSpec(
+            "Objectives",
+            "Presence at epic monster takes",
+            (ScoreMetricSpec("objectives_present_rate", 1.0),),
+        ),
     )
 
 

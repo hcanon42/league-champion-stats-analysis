@@ -21,6 +21,7 @@ _FORM_RATE_SPAN = 12.0  # pp shift that reaches full bar (15pp WR ~= max)
 _FORM_RAW_SPANS: dict[str, float] = {
     "gd10": 300.0,
     "cs10": 15.0,
+    "csd10": 15.0,
     "deaths": 2.5,
     "deaths_pre14": 2.0,
     "kda": 1.5,
@@ -31,10 +32,15 @@ _FORM_RAW_SPANS: dict[str, float] = {
     "vision_score": 15.0,
     "kill_participation": 0.15,
     "damage_share": 0.10,
+    "gold_share": 0.06,
     "avg_unspent_gold": 400.0,
+    "first_item_min": 2.5,
     "control_wards": 2.0,
     "roams_pre15": 2.0,
     "early_ganks": 2.0,
+    "tf_participation": 0.20,
+    "tf_won_share": 0.20,
+    "lane_priority": 0.15,
 }
 
 _PEER_RAW_SPANS: dict[str, float] = {

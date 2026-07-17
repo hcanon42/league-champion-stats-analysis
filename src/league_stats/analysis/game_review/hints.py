@@ -74,10 +74,9 @@ def game_review_tooltips() -> dict[str, dict[str, str]]:
         "objectives": OBJECTIVE_COLUMN_TOOLTIPS,
         "key_moments": {
             "interpolation": (
-                "Discrete snapshots only — minute marks (all ten players) plus kill and "
-                "objective events with exact coordinates for participants involved. "
-                "No interpolated movement between frames. Objective icons are bright when up, "
-                "dim when taken."
+                "Minute snapshots from just before the action through just after, "
+                "including any minute marks in between. Riot records all ten players "
+                "once per minute. Objective icons are bright when up, dim when taken."
             ),
         },
     }

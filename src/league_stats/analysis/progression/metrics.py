@@ -35,6 +35,31 @@ BEHAVIORAL_DEATH_METRICS: tuple[tuple[str, str, Direction], ...] = (
     ("death_before_neutral_objective_rate", "Death before objective rate", "lower"),
 )
 
+_SCORE_METRIC_LABELS: dict[str, str] = {
+    "gd10": "Gold diff @10",
+    "csd10": "CS diff @10",
+    "deaths_pre14": "Deaths pre-14",
+    "cs10": "CS @10",
+    "gold_share": "Gold share",
+    "avg_unspent_gold": "Unspent gold/recall",
+    "first_item_min": "First item (min)",
+    "damage_share": "Damage share",
+    "kill_participation": "Kill participation",
+    "tf_participation": "Fight participation",
+    "tf_won_share": "Fight win rate",
+    "deaths": "Deaths/game",
+    "vspm": "Vision/min",
+    "control_wards": "Control wards",
+    "objectives_present_rate": "Obj. presence",
+    "early_ganks": "Early ganks",
+    "roams_pre15": "Roams pre-15",
+    "lane_priority": "Lane priority",
+    "ccpm": "CC/min",
+    "damage_taken_share": "Damage taken share",
+    "hpm": "Healing/min",
+    "spm": "Shielding/min",
+}
+
 
 def progression_metrics_for_role(role: str, *, avg_damage_share: float | None = None) -> list[ProgressionMetricSpec]:
     """Build the full diff metric list for a role."""
@@ -61,26 +86,39 @@ def progression_metrics_for_role(role: str, *, avg_damage_share: float | None = 
 
     profile = role_profile(role)
     for score_spec in profile.score_components:
-        if score_spec.column in seen:
-            continue
-        seen.add(score_spec.column)
-        direction: Direction = "lower" if score_spec.column == "deaths" else "higher"
-        section = "economy" if score_spec.column == "avg_unspent_gold" else "overview"
-        if score_spec.column in {"gd10", "cs10", "lane_priority", "roams_pre15", "early_ganks"}:
-            section = "laning"
-        if score_spec.column in {"vspm", "control_wards"}:
-            section = "vision"
-        if score_spec.column in {"objectives_present_rate"}:
-            section = "objectives"
-        specs.append(
-            ProgressionMetricSpec(
-                metric=score_spec.column,
-                label=score_spec.name,
-                section=section,
-                direction=direction,
-                source="matches_df",
+        for metric in score_spec.metrics:
+            if metric.column in seen:
+                continue
+            seen.add(metric.column)
+            direction: Direction = metric.direction
+            section = "overview"
+            if score_spec.name in {"Laning", "Early game", "Setup"}:
+                section = "laning"
+            elif score_spec.name == "Economy":
+                section = "economy"
+            elif score_spec.name in {"Fight", "Utility"}:
+                section = "teamfights"
+            elif score_spec.name == "Vision":
+                section = "vision"
+            elif score_spec.name == "Objectives":
+                section = "objectives"
+            if metric.column in {"gd10", "cs10", "csd10", "lane_priority", "roams_pre15", "early_ganks"}:
+                section = "laning"
+            if metric.column in {"vspm", "control_wards"}:
+                section = "vision"
+            if metric.column in {"objectives_present_rate"}:
+                section = "objectives"
+            if metric.column in {"avg_unspent_gold", "gold_share", "first_item_min"}:
+                section = "economy"
+            specs.append(
+                ProgressionMetricSpec(
+                    metric=metric.column,
+                    label=_SCORE_METRIC_LABELS.get(metric.column, metric.column),
+                    section=section,
+                    direction=direction,
+                    source="matches_df",
+                )
             )
-        )
 
     for key, label, direction in BEHAVIORAL_DEATH_METRICS:
         if key in seen:
@@ -106,7 +144,11 @@ def form_score_metrics(role: str) -> list[ProgressionMetricSpec]:
     """Subset of metrics used for the composite form score."""
     all_specs = progression_metrics_for_role(role)
     profile = role_profile(role)
-    score_columns = {spec.column for spec in profile.score_components}
+    score_columns = {
+        metric.column
+        for score_spec in profile.score_components
+        for metric in score_spec.metrics
+    }
     score_columns.add("win")
     return [spec for spec in all_specs if spec.metric in score_columns]
 

@@ -7,11 +7,9 @@ from typing import Any, Literal
 
 from league_stats.analysis.teamfights import _cluster_kills
 from league_stats.analysis.timeline import (
-    EXACT_SNAPSHOT_GAP_MS,
     TimelineContext,
     build_death_intervals,
-    build_position_tracks,
-    participant_states_at_ms,
+    is_participant_dead_at_ms,
     participant_team_id,
     team_gold_series,
 )
@@ -28,7 +26,7 @@ TEAM_GAIN_THRESHOLD: int = 2_000
 LEAD_SWING_THRESHOLD: int = 2_500
 MERGE_WINDOW_MS: int = 30_000
 DEDUP_WINDOW_MS: int = 60_000
-SCRUB_BEFORE_MS: int = 25_000
+SCRUB_BEFORE_MS: int = 45_000
 SCRUB_AFTER_MS: int = 15_000
 # Back-compat alias for tests that referenced the old symmetric window.
 SCRUB_HALF_WINDOW_MS: int = SCRUB_AFTER_MS
@@ -647,67 +645,79 @@ def _objective_pins_at_ms(
     return pins
 
 
-_SNAPSHOT_EVENT_TYPES: frozenset[str] = frozenset(
-    {
-        "CHAMPION_KILL",
-        "CHAMPION_SPECIAL_KILL",
-        "ELITE_MONSTER_KILL",
-        "BUILDING_KILL",
-        "TURRET_PLATE_DESTROYED",
-    }
-)
-
-_SNAPSHOT_LABELS: dict[str, str] = {
-    "CHAMPION_KILL": "Champion kill",
-    "CHAMPION_SPECIAL_KILL": "Special kill",
-    "ELITE_MONSTER_KILL": "Epic monster",
-    "BUILDING_KILL": "Structure destroyed",
-    "TURRET_PLATE_DESTROYED": "Turret plate",
-}
-
-
-def _snapshot_timestamps_in_window(
+def _before_after_minute_frames(
     ctx: TimelineContext,
-    window_start_ms: int,
-    window_end_ms: int,
-    *,
     anchor_ms: int,
-) -> list[int]:
-    """Return sorted timestamps that have real position data in the window."""
-    timestamps: set[int] = set()
+) -> list[dict[str, Any]]:
+    """Return exactly two minute frames: one before and one after the action."""
+    if not ctx.frames:
+        return []
+
+    before: dict[str, Any] | None = None
+    after: dict[str, Any] | None = None
     for frame in ctx.frames:
         ts = int(frame.get("timestamp", 0))
-        if window_start_ms <= ts <= window_end_ms:
-            timestamps.add(ts)
-    for event in ctx.events:
-        if str(event.get("type", "")) not in _SNAPSHOT_EVENT_TYPES:
-            continue
-        if not event.get("position"):
-            continue
-        ts = int(event.get("timestamp", 0))
-        if window_start_ms <= ts <= window_end_ms:
-            timestamps.add(ts)
-    if window_start_ms <= anchor_ms <= window_end_ms:
-        timestamps.add(anchor_ms)
-    if not timestamps:
-        timestamps.add(anchor_ms)
-    return sorted(timestamps)
+        if ts < anchor_ms:
+            before = frame
+        elif ts > anchor_ms:
+            after = frame
+            break
+
+    if before is None and after is None:
+        # Anchor landed exactly on a minute mark — use neighbours around it.
+        for index, frame in enumerate(ctx.frames):
+            if int(frame.get("timestamp", 0)) != anchor_ms:
+                continue
+            before = ctx.frames[index - 1] if index > 0 else frame
+            after = ctx.frames[index + 1] if index + 1 < len(ctx.frames) else frame
+            break
+        if before is None:
+            before = ctx.frames[0]
+            after = ctx.frames[1] if len(ctx.frames) > 1 else ctx.frames[0]
+    elif before is None:
+        before = ctx.frames[0]
+        if after is before and len(ctx.frames) > 1:
+            after = ctx.frames[1]
+    elif after is None:
+        after = ctx.frames[-1]
+        if before is after and len(ctx.frames) > 1:
+            before = ctx.frames[-2]
+
+    if before is after and len(ctx.frames) > 1:
+        ts = int(before.get("timestamp", 0))
+        for index, frame in enumerate(ctx.frames):
+            if int(frame.get("timestamp", 0)) != ts:
+                continue
+            before = ctx.frames[max(0, index - 1)]
+            after = ctx.frames[min(len(ctx.frames) - 1, index + 1)]
+            if before is after:
+                if index + 1 < len(ctx.frames):
+                    before, after = ctx.frames[index], ctx.frames[index + 1]
+                elif index > 0:
+                    before, after = ctx.frames[index - 1], ctx.frames[index]
+            break
+
+    return [before, after]
 
 
-def _snapshot_label(ctx: TimelineContext, timestamp_ms: int) -> str:
-    event_labels: list[str] = []
-    for event in ctx.events:
-        if int(event.get("timestamp", 0)) != timestamp_ms:
-            continue
-        event_type = str(event.get("type", ""))
-        if event_type in _SNAPSHOT_LABELS:
-            event_labels.append(_SNAPSHOT_LABELS[event_type])
-    if event_labels:
-        return event_labels[0]
-    for frame in ctx.frames:
-        if int(frame.get("timestamp", 0)) == timestamp_ms:
-            return "Minute snapshot"
-    return "Snapshot"
+def _scrub_minute_frames(
+    ctx: TimelineContext,
+    anchor_ms: int,
+) -> list[dict[str, Any]]:
+    """Minute frames from before the action through after, including any in between."""
+    endpoints = _before_after_minute_frames(ctx, anchor_ms)
+    if not endpoints:
+        return []
+    before, after = endpoints[0], endpoints[-1]
+    before_ts = int(before.get("timestamp", 0))
+    after_ts = int(after.get("timestamp", 0))
+    if after_ts < before_ts:
+        before_ts, after_ts = after_ts, before_ts
+    return [
+        frame
+        for frame in ctx.frames
+        if before_ts <= int(frame.get("timestamp", 0)) <= after_ts
+    ]
 
 
 def _build_scrub_frames(
@@ -719,37 +729,39 @@ def _build_scrub_frames(
     *,
     anchor_ms: int,
 ) -> list[KeyMomentFrame]:
-    tracks = build_position_tracks(ctx)
+    del window_start_ms, window_end_ms
     death_intervals = build_death_intervals(ctx)
+    selected = _scrub_minute_frames(ctx, anchor_ms)
     frames: list[KeyMomentFrame] = []
-    for ts in _snapshot_timestamps_in_window(
-        ctx,
-        window_start_ms,
-        window_end_ms,
-        anchor_ms=anchor_ms,
-    ):
-        states = participant_states_at_ms(
-            ctx,
-            ts,
-            tracks=tracks,
-            death_intervals=death_intervals,
-            max_interpolation_gap_ms=EXACT_SNAPSHOT_GAP_MS,
-        )
-        participants = [
-            MapParticipantPin(
-                participant_id=pid,
-                champion=ctx.id_to_champion.get(pid, "Unknown"),
-                team_id=participant_team_id(ctx, pid),
-                x=pos.x,
-                y=pos.y,
-                dead=dead,
+    last_index = len(selected) - 1
+    for index, frame in enumerate(selected):
+        ts = int(frame.get("timestamp", 0))
+        if index == 0:
+            phase = "Before"
+        elif index == last_index:
+            phase = "After"
+        else:
+            phase = "Between"
+        participants: list[MapParticipantPin] = []
+        for pid in range(1, 11):
+            pframe = ctx.participant_frame(frame, pid)
+            if not pframe or "position" not in pframe:
+                continue
+            pos = Position(**pframe["position"])
+            participants.append(
+                MapParticipantPin(
+                    participant_id=pid,
+                    champion=ctx.id_to_champion.get(pid, "Unknown"),
+                    team_id=participant_team_id(ctx, pid),
+                    x=pos.x,
+                    y=pos.y,
+                    dead=is_participant_dead_at_ms(death_intervals, pid, ts),
+                )
             )
-            for pid, (pos, dead) in sorted(states.items())
-        ]
         frames.append(
             KeyMomentFrame(
                 timestamp_ms=ts,
-                label=_snapshot_label(ctx, ts),
+                label=f"{phase} · minute {ts // 60_000}",
                 participants=participants,
                 objectives=_objective_pins_at_ms(schedule, ts, highlight_objective),
             )

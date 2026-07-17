@@ -125,8 +125,12 @@ METRIC_ICONS: dict[str, str] = {
     "Disadvantaged fights": "skull",
     "WR advantaged fights": "trophy",
     "WR disadvantaged fights": "trophy",
-    # Peer / score dimensions
+    # Peer / score categories
     "Laning": "coin",
+    "Early game": "roam",
+    "Setup": "roam",
+    "Economy": "coin",
+    "Fight": "flame",
     "Farming": "cs",
     "Survival": "skull",
     "Damage": "flame",
@@ -135,11 +139,9 @@ METRIC_ICONS: dict[str, str] = {
     "Impact": "kp",
     "Map control": "target",
     "Clear @10": "cs",
-    "Setup": "roam",
     "Early ganks": "roam",
     "Vision": "eye",
     "Objectives": "target",
-    "Resets": "recall",
     "Strengths": "trophy",
     "Weaknesses": "skull",
     "Kill participation": "kp",
@@ -216,23 +218,44 @@ METRIC_TOOLTIPS: dict[str, str] = {
     "Disadvantaged fights": "Joined fights where the enemy had more nearby champions.",
     "WR advantaged fights": "Win rate in joined fights where you had a manpower advantage nearby.",
     "WR disadvantaged fights": "Win rate in joined fights where you were outnumbered nearby.",
-    # Improvement score dimensions
-    "Laning": "0–100 score from average gold diff @10, mapped between −800g and +800g vs your lane opponent.",
+    # Improvement score categories
+    "Laning": (
+        "0–100 category score from gold/CS diff @10 and early-lane deaths "
+        "(role-calibrated ingredient bands)."
+    ),
+    "Early game": (
+        "0–100 category score from clear speed @10, early ganks, and pre-14 deaths."
+    ),
+    "Setup": (
+        "0–100 category score from early roams, bot-lane presence, and pre-14 deaths."
+    ),
+    "Economy": (
+        "0–100 category score from CS @10 (laners), gold share, gold usage before recalls, "
+        "and first-item timing — ingredients vary by role."
+    ),
+    "Fight": (
+        "0–100 category score from damage/CC share, kill participation, and fight "
+        "presence/win rate — ingredients vary by role."
+    ),
     "Farming": "0–100 score from CS @10 against a role-specific benchmark band.",
     "Survival": "0–100 score from deaths normalized to a 30-minute game; fewer deaths score higher.",
     "Damage": "0–100 score from your average share of team damage to champions.",
-    "Vision": "0–100 score from vision score per minute against role benchmarks.",
-    "Objectives": "0–100 score from your presence rate at epic monster takes.",
-    "Resets": "0–100 score from gold banked before recalls; hoarding 1500g+ before backing scores lower.",
-    "Utility": "0–100 composite of CC/min, damage share, damage taken share, and ally healing/shielding per minute vs support benchmarks. Low CC/heal/shield output is omitted to avoid noise.",
+    "Vision": (
+        "0–100 category score from vision score per minute and control-ward buys "
+        "against role benchmarks."
+    ),
+    "Objectives": "0–100 category score from your presence rate at epic monster takes.",
+    "Utility": (
+        "0–100 composite of CC/min, damage share, damage taken share, and ally "
+        "healing/shielding per minute vs support benchmarks. Low CC/heal/shield "
+        "output is omitted to avoid noise."
+    ),
     "Impact": "0–100 score from kill participation vs role benchmarks.",
     "Map control": "0–100 score from objective presence at epic monster takes.",
     "Clear @10": "0–100 score from jungle CS @10 vs role clear-speed benchmarks.",
-    "Setup": "0–100 score from early roams before 15 minutes.",
     "Early ganks": "0–100 score from successful early ganks before minute 15.",
     "CC impact": "0–100 score from crowd control time per minute.",
     "Game score": "Personal performance vs your baseline for this single game (0–100, letter tier). Independent of win/loss.",
-    "Economy": "0–100 score from recall efficiency and item timing vs your personal baseline.",
 }
 
 DIST_TO_TOOLTIP = (

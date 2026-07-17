@@ -12,24 +12,38 @@ from league_stats.presentation.metric_colors import (
     score_lane_diff,
 )
 
-_SCORE_NAME_TO_DIMENSION: dict[str, str] = {
-    "Laning": "laning",
-    "Farming": "laning",
-    "Clear @10": "laning",
-    "Early ganks": "laning",
-    "Survival": "survival",
-    "Damage": "impact",
-    "CC impact": "impact",
-    "Utility": "impact",
-    "Impact": "impact",
-    "Vision": "vision",
-    "Objectives": "objectives",
-    "Map control": "objectives",
+# Map ingredient columns onto the fixed game-review score dimensions.
+_COLUMN_TO_DIMENSION: dict[str, str] = {
+    "gd10": "laning",
+    "csd10": "laning",
+    "deaths_pre14": "laning",
+    "cs10": "laning",
+    "early_ganks": "laning",
+    "roams_pre15": "laning",
+    "kp15": "laning",
+    "lane_priority": "laning",
+    "deaths": "survival",
+    "avg_unspent_gold": "survival",
+    "first_item_min": "survival",
+    "damage_share": "impact",
+    "ccpm": "impact",
+    "kill_participation": "impact",
+    "tf_participation": "impact",
+    "tf_won_share": "impact",
+    "gold_share": "impact",
+    "damage_taken_share": "impact",
+    "hpm": "impact",
+    "spm": "impact",
+    "vspm": "vision",
+    "control_wards": "vision",
+    "objectives_present_rate": "objectives",
 }
 
 _SCORE_DIMENSIONS = ("laning", "survival", "impact", "vision", "objectives")
 
-_LOWER_IS_BETTER = frozenset({"deaths", "avg_unspent_gold", "deaths_pre14"})
+_LOWER_IS_BETTER = frozenset(
+    {"deaths", "avg_unspent_gold", "deaths_pre14", "first_item_min"}
+)
 
 
 def _score_tier(overall: int) -> str:
@@ -95,16 +109,19 @@ def compute_game_score(
     dimension_scores: dict[str, list[int]] = {key: [] for key in _SCORE_DIMENSIONS}
 
     for spec in profile.score_components:
-        dimension = _SCORE_NAME_TO_DIMENSION.get(spec.name, "impact")
-        if dimension not in dimension_scores:
-            continue
-        game_value = game_row.get(spec.column)
-        if game_value is None:
-            continue
-        baseline = baseline_means.get(spec.column)
-        dimension_scores[dimension].append(
-            _component_score(spec.column, float(game_value), baseline, game_row=game_row)
-        )
+        for metric in spec.metrics:
+            dimension = _COLUMN_TO_DIMENSION.get(metric.column)
+            if dimension not in dimension_scores:
+                continue
+            game_value = game_row.get(metric.column)
+            if game_value is None:
+                continue
+            baseline = baseline_means.get(metric.column)
+            dimension_scores[dimension].append(
+                _component_score(
+                    metric.column, float(game_value), baseline, game_row=game_row
+                )
+            )
 
     def dim_avg(key: str) -> int:
         values = dimension_scores[key]

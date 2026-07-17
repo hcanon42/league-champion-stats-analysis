@@ -13,14 +13,7 @@ from typing import Any, TYPE_CHECKING
 import pandas as pd
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from league_stats.analysis.economy import RECALL_GOLD_HEALTHY_AVG, RECALL_GOLD_HOARDING_WARN
-from league_stats.analysis.improvement import (
-    clamp_score,
-    column_mean,
-    kill_participation_score,
-    relative_band_score,
-    support_utility_impact,
-)
+from league_stats.analysis.improvement import column_mean, score_categories
 from league_stats.core.champions import (
     build_label,
     champion_display_name,
@@ -91,7 +84,7 @@ def enrich_index_report(report: dict[str, Any]) -> dict[str, Any]:
 
 @dataclass(frozen=True)
 class ScoreComponent:
-    """One dimension of the improvement score."""
+    """One category of the improvement score."""
 
     name: str
     score: float  # 0-100
@@ -99,25 +92,22 @@ class ScoreComponent:
     hint: str
 
 
-def _clamp_score(value: float, floor: float, ceiling: float) -> float:
-    """Map a value linearly onto 0-100 between a floor and a ceiling."""
-    return clamp_score(value, floor, ceiling)
-
-
 def improvement_score(
     matches_df: pd.DataFrame, *, role: str = "MIDDLE"
 ) -> tuple[float, list[ScoreComponent]]:
-    """Compute the composite improvement score (0-100) and its components.
+    """Compute the composite improvement score (0-100) and its category components.
 
-    Benchmarks are role-aware targets derived from static tier data; the score
-    tracks progress between runs for the same build, not cross-player comparison.
+    Each component is a lane-dependent category score (Economy, Fight, Laning, …)
+    built from several underlying metrics. Benchmarks are role-aware targets
+    derived from static tier data; the score tracks progress between runs for
+    the same build, not cross-player comparison.
 
     Args:
         matches_df: Master per-game table.
         role: Riot team position (``TOP``, ``MIDDLE``, ``JUNGLE``, ...).
 
     Returns:
-        Tuple of overall score and the per-dimension components.
+        Tuple of overall score and the per-category components.
     """
     if matches_df.empty:
         return 0.0, []
@@ -128,119 +118,21 @@ def improvement_score(
 
     profile = role_profile(role)
     gold = try_role_benchmark("GOLD", role) or {}
+    use_cc = prefers_cc_over_dpm(
+        role, avg_damage_share=column_mean(matches_df, "damage_share")
+    )
 
-    def mean(column: str, default: float = 0.0) -> float:
-        value = column_mean(matches_df, column)
-        return default if value is None else value
-
-    use_cc = prefers_cc_over_dpm(role, avg_damage_share=mean("damage_share"))
-    cs10_bench = float(gold.get("cspm", 6.0)) * 10
-    cs10_floor = cs10_bench * 0.75
-    cs10_ceiling = cs10_bench * 1.15
-    vision_bench = float(gold.get("vspm", 0.8))
-    vision_floor = vision_bench * 0.65
-    vision_ceiling = vision_bench * 1.35
-    deaths_floor = float(gold.get("deaths", 5.0)) + 2.5
-    deaths_ceiling = max(2.0, float(gold.get("deaths", 5.0)) - 1.5)
-    damage_bench = float(gold.get("damage_share", 0.22))
-    damage_floor = max(0.05, damage_bench - 0.06)
-    damage_ceiling = damage_bench + 0.06
-    cc_bench = float(gold.get("ccpm", 1.2))
-    cc_floor = cc_bench * 0.50
-    cc_ceiling = cc_bench * 1.35
-    gank_bench = float(gold.get("early_ganks", 1.5))
-    gank_floor = gank_bench * 0.45
-    gank_ceiling = gank_bench * 1.50
-    roam_bench = float(gold.get("roams_pre15", 1.5))
-    roam_floor = roam_bench * 0.45
-    roam_ceiling = roam_bench * 1.40
-
-    impact_score, impact_value = kill_participation_score(matches_df, gold)
-    utility_score, utility_value = support_utility_impact(matches_df, gold)
-
-    score_builders: dict[str, tuple[float, str, str]] = {
-        "Laning": (
-            _clamp_score(mean("gd10"), -800, 800),
-            profile.score_components[0].value_fmt.format(v=mean("gd10")),
-            profile.score_components[0].hint,
-        ),
-        "Farming": (
-            _clamp_score(mean("cs10"), cs10_floor, cs10_ceiling),
-            profile.score_components[1].value_fmt.format(v=mean("cs10")),
-            profile.score_components[1].hint,
-        ),
-        "Survival": (
-            _clamp_score(mean("deaths"), deaths_floor, deaths_ceiling),
-            f"{mean('deaths'):.1f} deaths/game",
-            "Fewer deaths score higher",
-        ),
-        "Damage": (
-            _clamp_score(mean("damage_share"), damage_floor, damage_ceiling),
-            f"{mean('damage_share') * 100:.0f}% team damage",
-            "Share of team damage to champions",
-        ),
-        "CC impact": (
-            _clamp_score(mean("ccpm"), cc_floor, cc_ceiling),
-            f"{mean('ccpm'):.2f} CC/min",
-            "Crowd control time per minute",
-        ),
-        "Utility": (
-            utility_score,
-            utility_value,
-            "CC, poke damage, damage taken, healing and shielding to allies",
-        ),
-        "Vision": (
-            _clamp_score(mean("vspm"), vision_floor, vision_ceiling),
-            f"{mean('vspm'):.2f} VS/min",
-            "Vision score per minute",
-        ),
-        "Objectives": (
-            _clamp_score(mean("objectives_present_rate", 0.0), 0.30, 0.75),
-            f"{mean('objectives_present_rate') * 100:.0f}% presence",
-            "Presence at epic monster takes",
-        ),
-        "Resets": (
-            _clamp_score(mean("avg_unspent_gold", 800), RECALL_GOLD_HOARDING_WARN, RECALL_GOLD_HEALTHY_AVG),
-            f"{mean('avg_unspent_gold', 800):.0f}g banked",
-            f"Component backs land around 800–1300g; {RECALL_GOLD_HOARDING_WARN}g+ before resets scores lower",
-        ),
-        "Map control": (
-            _clamp_score(mean("objectives_present_rate", 0.0), 0.30, 0.75),
-            f"{mean('objectives_present_rate') * 100:.0f}% presence",
-            "Presence at epic monster takes",
-        ),
-        "Clear @10": (
-            _clamp_score(mean("cs10"), cs10_floor, cs10_ceiling),
-            f"{mean('cs10'):.0f} CS @10",
-            "Jungle clear speed at 10 minutes",
-        ),
-        "Impact": (
-            impact_score,
-            impact_value,
-            "Share of team kills and assists",
-        ),
-        "Setup": (
-            _clamp_score(mean("roams_pre15"), roam_floor, roam_ceiling),
-            f"{mean('roams_pre15'):.1f} roams pre-15",
-            "Early roams and map presence",
-        ),
-        "Early ganks": (
-            _clamp_score(mean("early_ganks"), gank_floor, gank_ceiling),
-            f"{mean('early_ganks'):.1f} early ganks",
-            "Successful early gank pressure",
-        ),
-    }
-    if use_cc and profile.role not in {"UTILITY", "JUNGLE"}:
-        score_builders["Damage"] = score_builders["CC impact"]
-
-    components: list[ScoreComponent] = []
-    for spec in profile.score_components:
-        built = score_builders.get(spec.name)
-        if built is None:
-            continue
-        score, value, hint = built
-        components.append(ScoreComponent(name=spec.name, score=score, value=value, hint=hint))
-
+    categories = score_categories(
+        profile.score_components,
+        matches_df,
+        gold=gold,
+        role=profile.role,
+        use_cc=use_cc,
+    )
+    components = [
+        ScoreComponent(name=c.name, score=c.score, value=c.value, hint=c.hint)
+        for c in categories
+    ]
     overall = round(sum(c.score for c in components) / len(components), 1) if components else 0.0
     return overall, components
 

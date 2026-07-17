@@ -28,36 +28,56 @@ def _matches_df(role: str, *, challenges_kp: float | None = 0.55) -> pd.DataFram
     return pd.DataFrame([record.to_row()])
 
 
-def test_support_utility_score_not_zero() -> None:
+def test_support_utility_category_not_zero() -> None:
     _, components = improvement_score(_matches_df("UTILITY"), role="UTILITY")
     by_name = {component.name: component for component in components}
     assert "Utility" in by_name
     assert by_name["Utility"].score > 0
     assert "CC/min" in by_name["Utility"].value
+    assert "Resets" not in by_name
+    assert "Economy" in by_name
+    assert "Fight" in by_name
+    assert "Setup" in by_name
 
 
-def test_jungle_impact_score_not_zero() -> None:
+def test_jungle_category_scores() -> None:
     _, components = improvement_score(_matches_df("JUNGLE"), role="JUNGLE")
     by_name = {component.name: component for component in components}
-    assert by_name["Impact"].score > 0
-    assert "KP" in by_name["Impact"].value
-    assert "Early ganks" in by_name
-    assert "Objectives" not in by_name
+    assert "Early game" in by_name
+    assert "Fight" in by_name
+    assert by_name["Fight"].score > 0
+    assert "Resets" not in by_name
+    assert "Clear @10" not in by_name
+    assert "Map control" not in by_name
 
 
-def test_damage_share_ceiling_clamps_at_role_benchmark_plus_six_points() -> None:
+def test_mid_category_scores_include_economy_not_resets() -> None:
+    _, components = improvement_score(_matches_df("MIDDLE"), role="MIDDLE")
+    names = {component.name for component in components}
+    assert names == {"Laning", "Economy", "Fight", "Survival", "Vision", "Objectives"}
+    assert "Resets" not in names
+    assert "Farming" not in names
+    assert "Damage" not in names
+
+
+def test_fight_damage_share_ceiling_clamps_at_role_benchmark_plus_eight_points() -> None:
     df = _matches_df("MIDDLE")
+    # Isolate damage by maxing other Fight ingredients.
+    df["kill_participation"] = 0.95
+    df["tf_participation"] = 0.90
+    df["tf_won_share"] = 0.90
     df["damage_share"] = 0.40
     _, components = improvement_score(df, role="MIDDLE")
     by_name = {component.name: component for component in components}
-    assert by_name["Damage"].score == 100.0
+    assert by_name["Fight"].score == 100.0
 
-    df["damage_share"] = 0.31
+    # Mid GOLD damage_share bench is 0.24 → ceiling 0.32
+    df["damage_share"] = 0.32
     _, components = improvement_score(df, role="MIDDLE")
     by_name = {component.name: component for component in components}
-    assert by_name["Damage"].score == 100.0
+    assert by_name["Fight"].score == 100.0
 
-    df["damage_share"] = 0.29
+    df["damage_share"] = 0.30
     _, components = improvement_score(df, role="MIDDLE")
     by_name = {component.name: component for component in components}
-    assert by_name["Damage"].score < 100.0
+    assert by_name["Fight"].score < 100.0

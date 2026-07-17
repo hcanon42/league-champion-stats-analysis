@@ -204,11 +204,39 @@ def test_scrub_window_and_snapshot_frames():
     assert moment.window_end_ms - moment.window_start_ms <= SCRUB_BEFORE_MS + SCRUB_AFTER_MS
     assert moment.anchor_ms - moment.window_start_ms <= SCRUB_BEFORE_MS
     assert moment.window_end_ms - moment.anchor_ms <= SCRUB_AFTER_MS
-    assert moment.frames
-    assert len(moment.frames) < 50
+    assert len(moment.frames) >= 2
+    before, after = moment.frames[0], moment.frames[-1]
+    assert before.timestamp_ms < moment.anchor_ms
+    assert after.timestamp_ms > moment.anchor_ms
+    assert before.label.startswith("Before")
+    assert after.label.startswith("After")
     timestamps = [frame.timestamp_ms for frame in moment.frames]
-    assert timestamps == sorted(set(timestamps))
-    assert all(frame.label for frame in moment.frames)
+    assert timestamps == sorted(timestamps)
+    assert all(before.timestamp_ms <= ts <= after.timestamp_ms for ts in timestamps)
+    assert all(ts % 60_000 == 0 for ts in timestamps)
+    assert all(len(frame.participants) == 10 for frame in moment.frames)
+    for frame in moment.frames[1:-1]:
+        assert frame.label.startswith("Between")
+
+
+def test_scrub_includes_minute_marks_between_before_and_after():
+    match = make_match(duration_s=1800)
+    timeline = make_timeline(duration_s=1800)
+    # Force a sparse frame list gap by removing a middle minute, then ensure
+    # the scrubber still walks every remaining mark between before and after.
+    ctx = build_context(match, timeline, MY_PUUID)
+    moments = detect_key_moments(ctx, match)
+    assert moments
+    for moment in moments:
+        assert len(moment.frames) >= 2
+        before_ts = moment.frames[0].timestamp_ms
+        after_ts = moment.frames[-1].timestamp_ms
+        expected = [
+            int(frame.get("timestamp", 0))
+            for frame in ctx.frames
+            if before_ts <= int(frame.get("timestamp", 0)) <= after_ts
+        ]
+        assert [frame.timestamp_ms for frame in moment.frames] == expected
 
 
 def test_position_tracks_include_objective_events():
@@ -255,15 +283,17 @@ def test_objective_pins_reflect_availability():
     ctx = build_context(match, timeline, MY_PUUID)
     moments = detect_key_moments(ctx, match)
     dragon_moment = next(m for m in moments if m.kind == "dragon")
-    before = next(frame for frame in dragon_moment.frames if frame.timestamp_ms < dragon_moment.anchor_ms)
-    at = next(frame for frame in dragon_moment.frames if frame.timestamp_ms >= dragon_moment.anchor_ms)
+    assert len(dragon_moment.frames) >= 2
+    before, after = dragon_moment.frames[0], dragon_moment.frames[-1]
+    assert before.timestamp_ms < dragon_ts
+    assert after.timestamp_ms > dragon_ts
     before_dragon = next((obj for obj in before.objectives if obj.kind == "dragon"), None)
-    at_dragon = next((obj for obj in at.objectives if obj.kind == "dragon"), None)
+    after_dragon = next((obj for obj in after.objectives if obj.kind == "dragon"), None)
     assert before_dragon is not None
     assert before_dragon.available is True
-    assert at_dragon is not None
-    assert at_dragon.available is False
-    assert at_dragon.highlighted is True
+    assert after_dragon is not None
+    assert after_dragon.available is False
+    assert after_dragon.highlighted is True
 
 
 def test_position_tracks_prefer_kill_over_frame():
